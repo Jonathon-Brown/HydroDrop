@@ -1,0 +1,18 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.xcscmblueprint
+
+# XcodeGen-generated project (regenerate with `xcodegen generate` from project.yml)
+HydroDrop.xcodeproj/
+
+# macOS
+.DS_Store
+
+# Export artifacts
+ExportOptions.plist
+device_icon_check.png
+screenshot_*.png

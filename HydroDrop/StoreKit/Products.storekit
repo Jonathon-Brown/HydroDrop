@@ -1,0 +1,117 @@
+{
+  "identifier" : "BF164476-D019-4E2C-9483-BD54A6C5A7B2",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "23686CF9-DDAA-470A-A802-B2219154677F",
+      "localizations" : [],
+      "name" : "HydroDrop+",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "1.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "C683A8CD-BCC7-4DB9-B2FE-7746952884FB",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monthly access to HydroDrop+",
+              "displayName" : "HydroDrop+ Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.jonathonbrown.HydroDrop.plus.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "HydroDrop+ Monthly",
+          "subscriptionGroupID" : "23686CF9-DDAA-470A-A802-B2219154677F",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "14.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "63EC9667-27BD-4016-ABA0-EFF968E4B1C5",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Yearly access to HydroDrop+ — best value",
+              "displayName" : "HydroDrop+ Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.jonathonbrown.HydroDrop.plus.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "HydroDrop+ Yearly",
+          "subscriptionGroupID" : "23686CF9-DDAA-470A-A802-B2219154677F",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
