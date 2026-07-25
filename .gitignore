@@ -8,6 +8,7 @@ xcuserdata/
 
 # XcodeGen-generated project (regenerate with `xcodegen generate` from project.yml)
 HydroDrop.xcodeproj/
+.tools/
 
 # macOS
 .DS_Store

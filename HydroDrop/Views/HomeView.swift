@@ -57,6 +57,15 @@ struct HomeView: View {
                 }
             }
         }
+        .onAppear {
+            WatchSessionManager.shared.pushContext(totalML: todayTotal, goalML: settings.dailyGoalML)
+        }
+        .onChange(of: todayTotal) { _, newValue in
+            WatchSessionManager.shared.pushContext(totalML: newValue, goalML: settings.dailyGoalML)
+        }
+        .onChange(of: settings.dailyGoalML) { _, newValue in
+            WatchSessionManager.shared.pushContext(totalML: todayTotal, goalML: newValue)
+        }
     }
 
     private var streakBadge: some View {
