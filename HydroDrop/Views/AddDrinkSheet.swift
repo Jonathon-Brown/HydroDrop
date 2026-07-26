@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AddDrinkSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var settings: AppSettings
     @State private var amount: Int = 250
     let onAdd: (Int) -> Void
 
@@ -13,7 +14,7 @@ struct AddDrinkSheet: View {
             VStack(spacing: 28) {
                 Spacer()
 
-                Text("\(amount) mL")
+                Text(settings.measurementSystem.format(mL: amount))
                     .font(.system(size: 48, weight: .bold, design: .rounded))
                     .contentTransition(.numericText())
                     .animation(.snappy, value: amount)
@@ -37,7 +38,7 @@ struct AddDrinkSheet: View {
 
                 HStack(spacing: 12) {
                     ForEach([100, 250, 500, 750], id: \.self) { preset in
-                        Button("\(preset)") { amount = preset }
+                        Button(settings.measurementSystem.formattedNumber(mL: preset)) { amount = preset }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -79,4 +80,5 @@ struct AddDrinkSheet: View {
 
 #Preview {
     AddDrinkSheet { _ in }
+        .environmentObject(AppSettings.shared)
 }

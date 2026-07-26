@@ -34,10 +34,19 @@ struct SettingsView: View {
                         HStack {
                             Text("Goal")
                             Spacer()
-                            Text("\(settings.dailyGoalML) mL")
+                            Text(settings.measurementSystem.format(mL: settings.dailyGoalML))
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
+
+                Section("Units") {
+                    Picker("Measurement system", selection: $settings.measurementSystem) {
+                        ForEach(MeasurementSystem.allCases) { system in
+                            Text(system.label).tag(system)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
 
                 Section {
@@ -51,12 +60,12 @@ struct SettingsView: View {
                         }
 
                     if settings.remindersEnabled {
-                        Picker("Remind me every", selection: $settings.reminderIntervalHours) {
-                            Text("1 hour").tag(1.0)
-                            Text("1.5 hours").tag(1.5)
-                            Text("2 hours").tag(2.0)
-                            Text("3 hours").tag(3.0)
-                            Text("4 hours").tag(4.0)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Remind me every")
+                            DurationWheelPicker(
+                                totalMinutes: $settings.reminderIntervalMinutes,
+                                range: AppSettings.reminderIntervalRange
+                            )
                         }
 
                         DatePicker(
@@ -94,7 +103,7 @@ struct SettingsView: View {
 
                 Section("About") {
                     LabeledContent("App", value: "HydroDrop")
-                    LabeledContent("Version", value: "1.0 (prototype)")
+                    LabeledContent("Version", value: appVersionLabel)
                 }
             }
             .navigationTitle("Settings")
@@ -111,9 +120,24 @@ struct SettingsView: View {
         }
     }
 
+    private var appVersionLabel: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "\(version) (\(build))"
+    }
+
     private var intervalLabel: String {
-        let hours = settings.reminderIntervalHours
-        return hours == 1 ? "hour" : "\(hours.formatted()) hours"
+        let total = settings.reminderIntervalMinutes
+        let hours = total / 60
+        let minutes = total % 60
+        switch (hours, minutes) {
+        case (0, _):
+            return "\(minutes) min"
+        case (_, 0):
+            return hours == 1 ? "1 hour" : "\(hours) hours"
+        default:
+            return "\(hours) hr \(minutes) min"
+        }
     }
 
     /// Bridges an Int "hour of day" setting to a DatePicker's Date binding.

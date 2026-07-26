@@ -46,6 +46,7 @@ targets:
       - path: HydroDrop Watch App
       - path: HydroDrop/Views/MascotView.swift
       - path: HydroDrop/StoreKit/StoreManager.swift
+      - path: HydroDrop/Models/MeasurementSystem.swift
     info:
       path: HydroDrop Watch App/Info.plist
       properties:

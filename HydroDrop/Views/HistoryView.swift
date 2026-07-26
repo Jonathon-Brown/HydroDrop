@@ -98,7 +98,7 @@ struct HistoryView: View {
     private var statsRow: some View {
         HStack(spacing: 12) {
             statCard(title: "Streak", value: "\(streak)", subtitle: streak == 1 ? "day" : "days", icon: "flame.fill", tint: .orange)
-            statCard(title: "\(dayCount)-day avg", value: "\(average)", subtitle: "mL", icon: "chart.line.uptrend.xyaxis", tint: .blue)
+            statCard(title: "\(dayCount)-day avg", value: settings.measurementSystem.formattedNumber(mL: average), subtitle: settings.measurementSystem.unitLabel, icon: "chart.line.uptrend.xyaxis", tint: .blue)
             statCard(title: "Goal hit", value: "\(daysGoalMet)/\(dayCount)", subtitle: "days", icon: "checkmark.seal.fill", tint: .green)
         }
     }

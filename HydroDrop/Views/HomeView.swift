@@ -35,9 +35,9 @@ struct HomeView: View {
                         .padding(.top, 4)
 
                     VStack(spacing: 6) {
-                        Text("\(todayTotal) mL")
+                        Text(settings.measurementSystem.format(mL: todayTotal))
                             .font(.system(size: 34, weight: .bold, design: .rounded))
-                        Text("of \(settings.dailyGoalML) mL goal")
+                        Text("of \(settings.measurementSystem.format(mL: settings.dailyGoalML)) goal")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -58,13 +58,16 @@ struct HomeView: View {
             }
         }
         .onAppear {
-            WatchSessionManager.shared.pushContext(totalML: todayTotal, goalML: settings.dailyGoalML)
+            pushWatchContext()
         }
-        .onChange(of: todayTotal) { _, newValue in
-            WatchSessionManager.shared.pushContext(totalML: newValue, goalML: settings.dailyGoalML)
+        .onChange(of: todayTotal) { _, _ in
+            pushWatchContext()
         }
-        .onChange(of: settings.dailyGoalML) { _, newValue in
-            WatchSessionManager.shared.pushContext(totalML: todayTotal, goalML: newValue)
+        .onChange(of: settings.dailyGoalML) { _, _ in
+            pushWatchContext()
+        }
+        .onChange(of: settings.measurementSystem) { _, _ in
+            pushWatchContext()
         }
     }
 
@@ -110,7 +113,7 @@ struct HomeView: View {
                     } label: {
                         VStack(spacing: 4) {
                             Image(systemName: "drop.fill")
-                            Text("\(amount) mL")
+                            Text(settings.measurementSystem.format(mL: amount))
                                 .font(.caption.weight(.semibold))
                         }
                         .frame(maxWidth: .infinity)
@@ -156,7 +159,7 @@ struct HomeView: View {
                         HStack {
                             Image(systemName: "drop.fill")
                                 .foregroundStyle(.blue)
-                            Text("\(entry.amountML) mL")
+                            Text(settings.measurementSystem.format(mL: entry.amountML))
                             Spacer()
                             Text(entry.timestamp, style: .time)
                                 .font(.footnote)
@@ -187,6 +190,14 @@ struct HomeView: View {
 
     private func delete(_ entry: WaterEntry) {
         modelContext.delete(entry)
+    }
+
+    private func pushWatchContext() {
+        WatchSessionManager.shared.pushContext(
+            totalML: todayTotal,
+            goalML: settings.dailyGoalML,
+            measurementSystem: settings.measurementSystem
+        )
     }
 }
 

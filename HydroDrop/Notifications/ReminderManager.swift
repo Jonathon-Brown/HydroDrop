@@ -49,21 +49,18 @@ final class ReminderManager {
         center.getNotificationSettings { status in
             guard status.authorizationStatus == .authorized || status.authorizationStatus == .provisional else { return }
 
-            let start = settings.quietStartHour
-            let end = settings.quietEndHour
-            let interval = max(settings.reminderIntervalHours, 0.5)
+            let startMinutes = settings.quietStartHour * 60
+            let endMinutes = settings.quietEndHour * 60
+            let intervalMinutes = max(settings.reminderIntervalMinutes, 5)
 
-            guard start < end else { return }
+            guard startMinutes < endMinutes else { return }
 
-            var hour = Double(start)
+            var totalMinutes = startMinutes
             var index = 0
-            while hour < Double(end) {
-                let wholeHour = Int(hour)
-                let minute = Int((hour - Double(wholeHour)) * 60)
-
+            while totalMinutes < endMinutes {
                 var dateComponents = DateComponents()
-                dateComponents.hour = wholeHour
-                dateComponents.minute = minute
+                dateComponents.hour = totalMinutes / 60
+                dateComponents.minute = totalMinutes % 60
 
                 let content = UNMutableNotificationContent()
                 content.title = "HydroDrop"
@@ -79,7 +76,7 @@ final class ReminderManager {
                 )
                 self.center.add(request)
 
-                hour += interval
+                totalMinutes += intervalMinutes
                 index += 1
             }
         }

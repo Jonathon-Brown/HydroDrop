@@ -19,12 +19,13 @@ final class WatchSessionManager: NSObject {
         WCSession.default.activate()
     }
 
-    /// Pushes the current today total / goal so the watch reflects it next time it wakes.
-    func pushContext(totalML: Int, goalML: Int) {
+    /// Pushes the current today total / goal / units so the watch reflects them next time it wakes.
+    func pushContext(totalML: Int, goalML: Int, measurementSystem: MeasurementSystem) {
         guard WCSession.isSupported(), WCSession.default.activationState == .activated else { return }
         try? WCSession.default.updateApplicationContext([
             "todayTotalML": totalML,
             "dailyGoalML": goalML,
+            "measurementSystem": measurementSystem.rawValue,
         ])
     }
 

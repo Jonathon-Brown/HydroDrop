@@ -27,14 +27,14 @@ struct WatchHomeView: View {
             VStack(spacing: 10) {
                 MascotView(progress: progress, size: 70)
 
-                Text("\(session.todayTotalML) / \(session.dailyGoalML) mL")
+                Text("\(session.measurementSystem.formattedNumber(mL: session.todayTotalML)) / \(session.measurementSystem.format(mL: session.dailyGoalML))")
                     .font(.headline)
 
                 ForEach(quickAddPresets, id: \.self) { amount in
                     Button {
                         session.logDrink(amountML: amount)
                     } label: {
-                        Label("\(amount) mL", systemImage: "drop.fill")
+                        Label(session.measurementSystem.format(mL: amount), systemImage: "drop.fill")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)

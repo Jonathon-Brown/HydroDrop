@@ -11,16 +11,23 @@ final class WatchSessionManager: NSObject, ObservableObject {
 
     @Published var todayTotalML: Int
     @Published var dailyGoalML: Int
+    @Published var measurementSystem: MeasurementSystem
 
     private let defaults = UserDefaults.standard
     private enum Keys {
         static let todayTotalML = "watch.todayTotalML"
         static let dailyGoalML = "watch.dailyGoalML"
+        static let measurementSystem = "watch.measurementSystem"
     }
 
     private override init() {
         todayTotalML = defaults.object(forKey: Keys.todayTotalML) as? Int ?? 0
         dailyGoalML = defaults.object(forKey: Keys.dailyGoalML) as? Int ?? 2000
+        if let raw = defaults.string(forKey: Keys.measurementSystem), let saved = MeasurementSystem(rawValue: raw) {
+            measurementSystem = saved
+        } else {
+            measurementSystem = .deviceDefault
+        }
         super.init()
     }
 
@@ -46,6 +53,7 @@ final class WatchSessionManager: NSObject, ObservableObject {
     private func persist() {
         defaults.set(todayTotalML, forKey: Keys.todayTotalML)
         defaults.set(dailyGoalML, forKey: Keys.dailyGoalML)
+        defaults.set(measurementSystem.rawValue, forKey: Keys.measurementSystem)
     }
 
     fileprivate func applyContext(_ context: [String: Any]) {
@@ -54,6 +62,9 @@ final class WatchSessionManager: NSObject, ObservableObject {
         }
         if let goal = context["dailyGoalML"] as? Int {
             dailyGoalML = goal
+        }
+        if let raw = context["measurementSystem"] as? String, let system = MeasurementSystem(rawValue: raw) {
+            measurementSystem = system
         }
         persist()
     }
