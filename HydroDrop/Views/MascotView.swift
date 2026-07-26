@@ -8,20 +8,26 @@ struct DropletShape: Shape {
         let height = rect.height
 
         let top = CGPoint(x: rect.midX, y: rect.minY)
-        let bottomLeft = CGPoint(x: rect.minX, y: rect.maxY - height * 0.05)
-        let bottomRight = CGPoint(x: rect.maxX, y: rect.maxY - height * 0.05)
+        let center = CGPoint(x: rect.midX, y: rect.maxY - height * 0.28)
+        let radius = width * 0.5
+        let startAngle = Angle.degrees(10)
+        let endAngle = Angle.degrees(170)
+        let arcStart = CGPoint(
+            x: center.x + radius * cos(startAngle.radians),
+            y: center.y + radius * sin(startAngle.radians)
+        )
 
         path.move(to: top)
         path.addCurve(
-            to: bottomRight,
+            to: arcStart,
             control1: CGPoint(x: rect.midX + width * 0.05, y: rect.minY + height * 0.35),
             control2: CGPoint(x: rect.maxX, y: rect.maxY - height * 0.45)
         )
         path.addArc(
-            center: CGPoint(x: rect.midX, y: rect.maxY - height * 0.28),
-            radius: width * 0.5,
-            startAngle: .degrees(10),
-            endAngle: .degrees(170),
+            center: center,
+            radius: radius,
+            startAngle: startAngle,
+            endAngle: endAngle,
             clockwise: false
         )
         path.addCurve(
@@ -84,6 +90,12 @@ struct MascotView: View {
     let progress: Double // 0...1+
     var size: CGFloat = 180
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @State private var isBreathing = false
+    @State private var isBlinking = false
+    @State private var bounceScale: CGFloat = 1.0
+
     private var mood: MascotMood { MascotMood.forProgress(progress) }
 
     var body: some View {
@@ -119,8 +131,38 @@ struct MascotView: View {
             }
             .offset(y: size * 0.12)
         }
+        .scaleEffect(bounceScale)
+        .scaleEffect(isBreathing ? 1.03 : 1.0)
+        .offset(y: isBreathing ? -6 : 4)
+        .rotationEffect(.degrees(isBreathing ? -1.5 : 1.5))
         .animation(.spring(response: 0.5, dampingFraction: 0.7), value: mood.color)
+        .animation(.interpolatingSpring(stiffness: 260, damping: 9), value: bounceScale)
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: 2.4).repeatForever(autoreverses: true),
+            value: isBreathing
+        )
         .accessibilityLabel(mood.label)
+        .task {
+            guard !reduceMotion else { return }
+            isBreathing = true
+            await runBlinkLoop()
+        }
+        .onChange(of: progress) { _, _ in
+            bounceScale = 1.16
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                bounceScale = 1.0
+            }
+        }
+    }
+
+    private func runBlinkLoop() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(.random(in: 2.5...5)))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.09)) { isBlinking = true }
+            try? await Task.sleep(for: .seconds(0.12))
+            withAnimation(.easeInOut(duration: 0.12)) { isBlinking = false }
+        }
     }
 
     private var eye: some View {
@@ -132,6 +174,7 @@ struct MascotView: View {
                     .fill(Color.black.opacity(0.85))
                     .frame(width: size * 0.045, height: size * 0.045)
             )
+            .scaleEffect(y: isBlinking ? 0.1 : 1, anchor: .center)
     }
 
     private var mouth: some View {
