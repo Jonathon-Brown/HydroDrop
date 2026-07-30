@@ -23,6 +23,8 @@ targets:
     info:
       path: HydroDrop/Info.plist
       properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -58,6 +60,8 @@ targets:
       path: HydroDrop Watch App/Info.plist
       properties:
         CFBundleDisplayName: HydroDrop
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.jonathonbrown.HydroDrop
         WKRunsIndependentlyOfCompanionApp: false
