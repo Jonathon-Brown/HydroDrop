@@ -67,7 +67,16 @@ final class StoreManager: ObservableObject {
         }
     }
 
+    /// Debug-only hook so screenshot automation can show the unlocked UI without a real purchase.
+    private static var isScreenshotModeForcingSubscription: Bool {
+        ProcessInfo.processInfo.arguments.contains("-UITestForceSubscribed")
+    }
+
     private func refreshEntitlement() async {
+        if Self.isScreenshotModeForcingSubscription {
+            isSubscribed = true
+            return
+        }
         var subscribed = false
         for await result in Transaction.currentEntitlements {
             if let transaction = try? checkVerified(result),

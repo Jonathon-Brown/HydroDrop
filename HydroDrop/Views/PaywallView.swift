@@ -6,11 +6,9 @@ private struct PlusFeature {
     let icon: String
 
     static let all: [PlusFeature] = [
-        .init(title: "Full history & trends", icon: "chart.xyaxis.line"),
-        .init(title: "Streak freeze — protect a missed day", icon: "shield.fill"),
-        .init(title: "Smart, pace-aware reminders", icon: "bell.badge.fill"),
-        .init(title: "Custom mascot skins & app icons", icon: "paintpalette.fill"),
-        .init(title: "iCloud sync across devices", icon: "icloud.fill"),
+        .init(title: "30-day history & trends", icon: "chart.xyaxis.line"),
+        .init(title: "Daily streak tracking", icon: "flame.fill"),
+        .init(title: "Support indie development", icon: "heart.fill"),
     ]
 }
 
