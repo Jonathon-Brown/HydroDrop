@@ -38,8 +38,14 @@ targets:
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "2"
         CODE_SIGN_ENTITLEMENTS: HydroDrop/HydroDrop.entitlements
+        SKIP_INSTALL: "NO"
+        INSTALL_PATH: /Applications
     dependencies:
       - target: HydroDrop Watch App
+        embed: true
+        copy:
+          destination: wrapper
+          subpath: Watch
   HydroDrop Watch App:
     type: application
     platform: watchOS
@@ -64,7 +70,7 @@ targets:
         ENABLE_PREVIEWS: YES
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "2"
-        SKIP_INSTALL: NO
+        SKIP_INSTALL: "YES"
   HydroDropScreenshotUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -75,6 +81,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.jonathonbrown.HydroDropScreenshotUITests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: HydroDrop
+        SKIP_INSTALL: "YES"
     dependencies:
       - target: HydroDrop
 schemes:
@@ -82,7 +89,6 @@ schemes:
     build:
       targets:
         HydroDrop: all
-        HydroDrop Watch App: all
         HydroDropScreenshotUITests: [test]
     run:
       config: Debug
