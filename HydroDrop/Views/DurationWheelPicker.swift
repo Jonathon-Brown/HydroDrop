@@ -31,7 +31,9 @@ struct DurationWheelPicker: View {
             }
             .pickerStyle(.wheel)
         }
-        .frame(height: 130)
+        // Five 32pt rows, so the selection sits centred between whole rows
+        // instead of slicing the outermost ones through the text.
+        .frame(height: 160)
     }
 
     private var hourBinding: Binding<Int> {
