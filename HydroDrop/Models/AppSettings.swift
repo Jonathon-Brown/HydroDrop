@@ -10,9 +10,14 @@ final class AppSettings: ObservableObject {
         static let dailyGoalML = "dailyGoalML"
         static let remindersEnabled = "remindersEnabled"
         static let reminderIntervalMinutes = "reminderIntervalMinutes"
-        static let quietStartHour = "quietStartHour"
-        static let quietEndHour = "quietEndHour"
+        static let quietStartMinutes = "quietStartMinutes"
+        static let quietEndMinutes = "quietEndMinutes"
+        static let legacyQuietStartHour = "quietStartHour"
+        static let legacyQuietEndHour = "quietEndHour"
         static let measurementSystem = "measurementSystem"
+        static let weightKG = "weightKG"
+        static let biologicalSex = "biologicalSex"
+        static let activityLevel = "activityLevel"
     }
 
     static let reminderIntervalRange = 20...120
@@ -36,17 +41,18 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    /// Waking window during which reminders may fire, in 24h clock hours.
-    @Published var quietStartHour: Int {
+    /// Waking window during which reminders may fire, as minutes since midnight (0...1439).
+    /// May wrap past midnight, e.g. start=1320 (10pm), end=360 (6am) for an overnight window.
+    @Published var quietStartMinutes: Int {
         didSet {
-            defaults.set(quietStartHour, forKey: Keys.quietStartHour)
+            defaults.set(quietStartMinutes, forKey: Keys.quietStartMinutes)
             ReminderManager.shared.refreshSchedule()
         }
     }
 
-    @Published var quietEndHour: Int {
+    @Published var quietEndMinutes: Int {
         didSet {
-            defaults.set(quietEndHour, forKey: Keys.quietEndHour)
+            defaults.set(quietEndMinutes, forKey: Keys.quietEndMinutes)
             ReminderManager.shared.refreshSchedule()
         }
     }
@@ -56,6 +62,25 @@ final class AppSettings: ObservableObject {
 
     @Published var measurementSystem: MeasurementSystem {
         didSet { defaults.set(measurementSystem.rawValue, forKey: Keys.measurementSystem) }
+    }
+
+    /// Last-used inputs to the hydration goal calculator, so reopening it is pre-filled.
+    @Published var weightKG: Double? {
+        didSet {
+            if let weightKG {
+                defaults.set(weightKG, forKey: Keys.weightKG)
+            } else {
+                defaults.removeObject(forKey: Keys.weightKG)
+            }
+        }
+    }
+
+    @Published var biologicalSex: BiologicalSex? {
+        didSet { defaults.set(biologicalSex?.rawValue, forKey: Keys.biologicalSex) }
+    }
+
+    @Published var activityLevel: ActivityLevel? {
+        didSet { defaults.set(activityLevel?.rawValue, forKey: Keys.activityLevel) }
     }
 
     private init() {
@@ -69,12 +94,27 @@ final class AppSettings: ObservableObject {
         } else {
             self.reminderIntervalMinutes = 120
         }
-        self.quietStartHour = d.object(forKey: Keys.quietStartHour) as? Int ?? 8
-        self.quietEndHour = d.object(forKey: Keys.quietEndHour) as? Int ?? 22
+        if let savedStart = d.object(forKey: Keys.quietStartMinutes) as? Int {
+            self.quietStartMinutes = savedStart
+        } else if let legacyHour = d.object(forKey: Keys.legacyQuietStartHour) as? Int {
+            self.quietStartMinutes = legacyHour * 60
+        } else {
+            self.quietStartMinutes = 8 * 60
+        }
+        if let savedEnd = d.object(forKey: Keys.quietEndMinutes) as? Int {
+            self.quietEndMinutes = savedEnd
+        } else if let legacyHour = d.object(forKey: Keys.legacyQuietEndHour) as? Int {
+            self.quietEndMinutes = legacyHour * 60
+        } else {
+            self.quietEndMinutes = 22 * 60
+        }
         if let raw = d.string(forKey: Keys.measurementSystem), let saved = MeasurementSystem(rawValue: raw) {
             self.measurementSystem = saved
         } else {
             self.measurementSystem = .deviceDefault
         }
+        self.weightKG = d.object(forKey: Keys.weightKG) as? Double
+        self.biologicalSex = (d.string(forKey: Keys.biologicalSex)).flatMap(BiologicalSex.init(rawValue:))
+        self.activityLevel = (d.string(forKey: Keys.activityLevel)).flatMap(ActivityLevel.init(rawValue:))
     }
 }

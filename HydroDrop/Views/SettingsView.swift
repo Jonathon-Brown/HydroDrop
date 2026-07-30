@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var showingPaywall = false
     @State private var showingBugReport = false
+    @State private var showingGoalCalculator = false
 
     var body: some View {
         NavigationStack {
@@ -37,6 +38,11 @@ struct SettingsView: View {
                             Text(settings.measurementSystem.format(mL: settings.dailyGoalML))
                                 .foregroundStyle(.secondary)
                         }
+                    }
+                    Button {
+                        showingGoalCalculator = true
+                    } label: {
+                        Label("Calculate for me", systemImage: "wand.and.stars")
                     }
                 }
 
@@ -70,12 +76,12 @@ struct SettingsView: View {
 
                         DatePicker(
                             "From",
-                            selection: hourBinding(for: \.quietStartHour),
+                            selection: minuteOfDayBinding(for: \.quietStartMinutes),
                             displayedComponents: .hourAndMinute
                         )
                         DatePicker(
                             "Until",
-                            selection: hourBinding(for: \.quietEndHour),
+                            selection: minuteOfDayBinding(for: \.quietEndMinutes),
                             displayedComponents: .hourAndMinute
                         )
 
@@ -117,6 +123,9 @@ struct SettingsView: View {
             .sheet(isPresented: $showingBugReport) {
                 BugReportView()
             }
+            .sheet(isPresented: $showingGoalCalculator) {
+                GoalCalculatorView()
+            }
         }
     }
 
@@ -140,18 +149,19 @@ struct SettingsView: View {
         }
     }
 
-    /// Bridges an Int "hour of day" setting to a DatePicker's Date binding.
-    private func hourBinding(for keyPath: ReferenceWritableKeyPath<AppSettings, Int>) -> Binding<Date> {
+    /// Bridges an Int "minutes since midnight" setting to a DatePicker's Date binding.
+    private func minuteOfDayBinding(for keyPath: ReferenceWritableKeyPath<AppSettings, Int>) -> Binding<Date> {
         Binding(
             get: {
+                let totalMinutes = settings[keyPath: keyPath]
                 var components = DateComponents()
-                components.hour = settings[keyPath: keyPath]
-                components.minute = 0
+                components.hour = totalMinutes / 60
+                components.minute = totalMinutes % 60
                 return Calendar.current.date(from: components) ?? Date()
             },
             set: { newDate in
-                let hour = Calendar.current.component(.hour, from: newDate)
-                settings[keyPath: keyPath] = hour
+                let comps = Calendar.current.dateComponents([.hour, .minute], from: newDate)
+                settings[keyPath: keyPath] = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
             }
         )
     }
