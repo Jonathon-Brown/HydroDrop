@@ -25,6 +25,9 @@ targets:
       properties:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # CloudKit delivers SwiftData sync via silent pushes.
+        UIBackgroundModes:
+          - remote-notification
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

@@ -76,7 +76,11 @@ struct SettingsView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
+                            .contentShape(Rectangle())
                         }
+                        // Without this the Form tints the whole row like a link,
+                        // which reads as an action rather than a selection list.
+                        .buttonStyle(.plain)
                     }
                 } header: {
                     Text("Mascot")

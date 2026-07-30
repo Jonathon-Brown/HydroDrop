@@ -6,18 +6,42 @@ struct HydroDropApp: App {
     let container: ModelContainer
 
     init() {
-        do {
-            if ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory") {
-                let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-                container = try ModelContainer(for: WaterEntry.self, configurations: configuration)
-                Self.seedHistory(into: container)
-            } else {
-                container = try ModelContainer(for: WaterEntry.self)
+        container = Self.makeContainer()
+        WatchSessionManager.shared.activate(modelContainer: container)
+    }
+
+    /// Prefers an iCloud-backed store, but degrades to a local one rather than
+    /// refusing to launch.
+    ///
+    /// CloudKit can be unavailable for reasons that are not the user's fault and
+    /// that we cannot fix at runtime — a build signed without the iCloud
+    /// entitlement, a container that hasn't been provisioned yet. None of those
+    /// are worth trading a working offline app for, so local storage is the
+    /// fallback and sync is the enhancement.
+    private static func makeContainer() -> ModelContainer {
+        if ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory") {
+            let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+            guard let container = try? ModelContainer(for: WaterEntry.self, configurations: configuration) else {
+                fatalError("Failed to create in-memory ModelContainer for UI tests")
             }
+            seedHistory(into: container)
+            return container
+        }
+
+        do {
+            return try ModelContainer(
+                for: WaterEntry.self,
+                configurations: ModelConfiguration(cloudKitDatabase: .automatic)
+            )
+        } catch {
+            Diagnostics.log("iCloud store unavailable, falling back to local: \(error)")
+        }
+
+        do {
+            return try ModelContainer(for: WaterEntry.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
-        WatchSessionManager.shared.activate(modelContainer: container)
     }
 
     var body: some Scene {
