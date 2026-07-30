@@ -12,7 +12,7 @@ private struct PlusFeature {
         .init(title: "Apple Watch app", icon: "applewatch"),
         .init(title: "Streak freeze — protect a missed day", icon: "snowflake"),
         .init(title: "Smart, pace-aware reminders", icon: "bell.badge.fill"),
-        .init(title: "Custom mascot colours", icon: "paintpalette.fill"),
+        .init(title: "Four more mascots, each with its own charm", icon: "paintpalette.fill"),
         .init(title: "Support indie development", icon: "heart.fill"),
     ]
 }
@@ -34,7 +34,7 @@ struct PaywallView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
-                    MascotView(progress: 1.15, size: 120)
+                    MascotView(progress: 1.15, size: 110)
 
                     VStack(spacing: 6) {
                         Text("HydroDrop+")
@@ -44,6 +44,8 @@ struct PaywallView: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
+
+                    skinLineup
 
                     featureList
 
@@ -85,6 +87,30 @@ struct PaywallView: View {
                 Text(store.lastErrorMessage ?? "")
             }
         }
+    }
+
+    /// The four locked mascots, shown rather than described. Held still so a row of
+    /// four doesn't turn the top of the paywall into a fidget.
+    private var skinLineup: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 4) {
+                ForEach(MascotSkin.allCases.filter(\.requiresPlus)) { skin in
+                    VStack(spacing: 2) {
+                        MascotView(progress: 1.1, size: 52, skin: skin, isAnimated: false)
+                            .accessibilityHidden(true)
+                        Text(skin.label)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        // Generous, because the charms reach past the mascot's own frame — Forest's
+        // sprout in particular would otherwise graze the top of the card.
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
     }
 
     private var featureList: some View {

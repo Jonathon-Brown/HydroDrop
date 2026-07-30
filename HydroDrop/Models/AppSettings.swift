@@ -25,6 +25,19 @@ final class AppSettings: ObservableObject {
 
     static let reminderIntervalRange = 20...120
 
+    /// Debug-only hook so screenshot automation starts from known preferences rather
+    /// than whatever the last run left in the simulator. Without it the units and the
+    /// mascot skin both persist between runs, and the capture test — which taps
+    /// buttons by their "200 mL" labels — silently taps nothing once a run has
+    /// switched the app to imperial. Compiled out of Release, matching `StoreManager`.
+    private static var isScreenshotMode: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory")
+        #else
+        false
+        #endif
+    }
+
     @Published var dailyGoalML: Int {
         didSet { defaults.set(dailyGoalML, forKey: Keys.dailyGoalML) }
     }
@@ -141,5 +154,15 @@ final class AppSettings: ObservableObject {
         self.frozenStreakDays = d.array(forKey: Keys.frozenStreakDays) as? [Date] ?? []
         self.mascotSkin = (d.string(forKey: Keys.mascotSkin)).flatMap(MascotSkin.init(rawValue:)) ?? .classic
         self.smartRemindersEnabled = d.object(forKey: Keys.smartRemindersEnabled) as? Bool ?? false
+
+        if Self.isScreenshotMode {
+            // Everything a captured screenshot actually shows. Property observers
+            // don't fire inside an initialiser, so this overrides the values in
+            // memory without writing over the defaults on disk.
+            self.dailyGoalML = 2000
+            self.measurementSystem = .metric
+            self.mascotSkin = .classic
+            self.frozenStreakDays = []
+        }
     }
 }

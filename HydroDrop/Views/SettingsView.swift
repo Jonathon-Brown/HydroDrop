@@ -61,11 +61,20 @@ struct SettingsView: View {
                             selectSkin(skin)
                         } label: {
                             HStack(spacing: 12) {
-                                Circle()
-                                    .fill(skin.ramp[3])
-                                    .frame(width: 24, height: 24)
-                                Text(skin.label)
-                                    .foregroundStyle(.primary)
+                                // A still mascot rather than a swatch — the charms are
+                                // half of what separates the skins, and a dot hides them.
+                                MascotView(progress: 1.0, size: 30, skin: skin, isAnimated: false)
+                                    // Decorative here. Left visible it prefixes every
+                                    // row with "Fully hydrated!", which says nothing
+                                    // about the skin being chosen.
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(skin.label)
+                                        .foregroundStyle(.primary)
+                                    Text(skin.tagline)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                                 Spacer()
                                 if settings.mascotSkin == skin {
                                     Image(systemName: "checkmark")
@@ -86,7 +95,7 @@ struct SettingsView: View {
                     Text("Mascot")
                 } footer: {
                     if !store.isSubscribed {
-                        Text("HydroDrop+ unlocks every mascot colour.")
+                        Text("HydroDrop+ unlocks every mascot skin.")
                     }
                 }
 

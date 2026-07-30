@@ -47,8 +47,15 @@ struct HomeView: View {
                 VStack(spacing: 24) {
                     streakBadge
 
-                    MascotView(progress: progress, size: 170, skin: settings.mascotSkin)
-                        .padding(.top, 4)
+                    VStack(spacing: 2) {
+                        MascotView(progress: progress, size: 150, skin: settings.mascotSkin)
+                        // The face carries the mood; naming it makes sure the signal
+                        // still lands for anyone who reads the screen quickly.
+                        Text(MascotMood.forProgress(progress).label)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .animation(.easeInOut, value: progress)
+                    }
 
                     VStack(spacing: 6) {
                         Text(settings.measurementSystem.format(mL: todayTotal))
