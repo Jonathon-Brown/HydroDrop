@@ -6,8 +6,11 @@ private struct PlusFeature {
     let icon: String
 
     static let all: [PlusFeature] = [
+        // Every entry here must name something Plus actually unlocks: the 30-day window
+        // in HistoryView and the Watch app in WatchHomeView. Streaks are free on both
+        // Home and History, so they do not belong on this list.
         .init(title: "30-day history & trends", icon: "chart.xyaxis.line"),
-        .init(title: "Daily streak tracking", icon: "flame.fill"),
+        .init(title: "Apple Watch app", icon: "applewatch"),
         .init(title: "Support indie development", icon: "heart.fill"),
     ]
 }
