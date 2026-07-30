@@ -67,9 +67,15 @@ final class StoreManager: ObservableObject {
         }
     }
 
-    /// Debug-only hook so screenshot automation can show the unlocked UI without a real purchase.
+    /// Debug-only hook so screenshot automation can show the unlocked UI without a real
+    /// purchase. Compiled out of Release so shipping builds cannot be launched into an
+    /// entitled state.
     private static var isScreenshotModeForcingSubscription: Bool {
+        #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-UITestForceSubscribed")
+        #else
+        false
+        #endif
     }
 
     private func refreshEntitlement() async {
