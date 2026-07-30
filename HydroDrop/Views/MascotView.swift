@@ -53,14 +53,19 @@ enum MascotMood {
         }
     }
 
-    var color: Color {
+    /// Index into a `MascotSkin` ramp, ordered parched → overjoyed.
+    private var rampIndex: Int {
         switch self {
-        case .parched: return Color(red: 0.75, green: 0.78, blue: 0.8)
-        case .thirsty: return Color(red: 0.6, green: 0.78, blue: 0.92)
-        case .content: return Color(red: 0.35, green: 0.68, blue: 0.92)
-        case .happy: return Color(red: 0.18, green: 0.56, blue: 0.93)
-        case .overjoyed: return Color(red: 0.1, green: 0.45, blue: 0.95)
+        case .parched: return 0
+        case .thirsty: return 1
+        case .content: return 2
+        case .happy: return 3
+        case .overjoyed: return 4
         }
+    }
+
+    func color(skin: MascotSkin) -> Color {
+        skin.ramp[rampIndex]
     }
 
     var eyeCurve: Bool { self == .overjoyed || self == .happy }
@@ -89,6 +94,7 @@ enum MascotMood {
 struct MascotView: View {
     let progress: Double // 0...1+
     var size: CGFloat = 180
+    var skin: MascotSkin = .classic
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -97,23 +103,24 @@ struct MascotView: View {
     @State private var bounceScale: CGFloat = 1.0
 
     private var mood: MascotMood { MascotMood.forProgress(progress) }
+    private var moodColor: Color { mood.color(skin: skin) }
 
     var body: some View {
         ZStack {
             DropletShape()
                 .fill(
                     LinearGradient(
-                        colors: [mood.color, mood.color.opacity(0.75)],
+                        colors: [moodColor, moodColor.opacity(0.75)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
                 .overlay(
                     DropletShape()
-                        .stroke(mood.color.opacity(0.9), lineWidth: 2)
+                        .stroke(moodColor.opacity(0.9), lineWidth: 2)
                 )
                 .frame(width: size, height: size * 1.15)
-                .shadow(color: mood.color.opacity(0.35), radius: 12, y: 8)
+                .shadow(color: moodColor.opacity(0.35), radius: 12, y: 8)
 
             // Highlight
             Ellipse()
@@ -135,7 +142,7 @@ struct MascotView: View {
         .scaleEffect(isBreathing ? 1.03 : 1.0)
         .offset(y: isBreathing ? -6 : 4)
         .rotationEffect(.degrees(isBreathing ? -1.5 : 1.5))
-        .animation(.spring(response: 0.5, dampingFraction: 0.7), value: mood.color)
+        .animation(.spring(response: 0.5, dampingFraction: 0.7), value: moodColor)
         .animation(.interpolatingSpring(stiffness: 260, damping: 9), value: bounceScale)
         .animation(
             reduceMotion ? nil : .easeInOut(duration: 2.4).repeatForever(autoreverses: true),

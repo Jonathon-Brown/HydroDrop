@@ -56,6 +56,37 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    ForEach(MascotSkin.allCases) { skin in
+                        Button {
+                            selectSkin(skin)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Circle()
+                                    .fill(skin.ramp[3])
+                                    .frame(width: 24, height: 24)
+                                Text(skin.label)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if settings.mascotSkin == skin {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.tint)
+                                } else if skin.requiresPlus && !store.isSubscribed {
+                                    Image(systemName: "lock.fill")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Mascot")
+                } footer: {
+                    if !store.isSubscribed {
+                        Text("HydroDrop+ unlocks every mascot colour.")
+                    }
+                }
+
+                Section {
                     Toggle("Reminders", isOn: $settings.remindersEnabled)
                         .onChange(of: settings.remindersEnabled) { _, enabled in
                             if enabled {
@@ -85,6 +116,23 @@ struct SettingsView: View {
                             displayedComponents: .hourAndMinute
                         )
 
+                        if store.isSubscribed {
+                            Toggle("Smart reminders", isOn: $settings.smartRemindersEnabled)
+                        } else {
+                            Button {
+                                showingPaywall = true
+                            } label: {
+                                HStack {
+                                    Text("Smart reminders")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "lock.fill")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
                         if notificationStatus == .denied {
                             Label("Notifications are disabled in iOS Settings.", systemImage: "exclamationmark.triangle.fill")
                                 .font(.footnote)
@@ -95,7 +143,21 @@ struct SettingsView: View {
                     Text("Reminders")
                 } footer: {
                     if settings.remindersEnabled {
-                        Text("You'll get a nudge every \(intervalLabel) between the times above.")
+                        if settings.smartRemindersEnabled && store.isSubscribed {
+                            Text("Nudges every \(intervalLabel) between the times above, skipped whenever you're already ahead of pace for the day.")
+                        } else {
+                            Text("You'll get a nudge every \(intervalLabel) between the times above.")
+                        }
+                    }
+                }
+
+                if store.isSubscribed {
+                    Section {
+                        LabeledContent("Freezes left this month", value: "\(freezesRemaining) of \(StreakFreeze.monthlyAllowance)")
+                    } header: {
+                        Text("Streak freeze")
+                    } footer: {
+                        Text("If you miss a day, a freeze is spent automatically to keep your streak alive.")
                     }
                 }
 
@@ -126,6 +188,19 @@ struct SettingsView: View {
             .sheet(isPresented: $showingGoalCalculator) {
                 GoalCalculatorView()
             }
+        }
+    }
+
+    private var freezesRemaining: Int {
+        StreakFreeze.freezesRemaining(frozenDays: settings.frozenStreakDays)
+    }
+
+    /// Locked skins send the user to the paywall rather than silently doing nothing.
+    private func selectSkin(_ skin: MascotSkin) {
+        if skin.requiresPlus && !store.isSubscribed {
+            showingPaywall = true
+        } else {
+            settings.mascotSkin = skin
         }
     }
 

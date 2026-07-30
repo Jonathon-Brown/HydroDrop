@@ -32,7 +32,11 @@ struct HistoryView: View {
     }
 
     private var streak: Int {
-        StreakCalculator.currentStreak(entries: allEntries, goalML: settings.dailyGoalML)
+        StreakCalculator.currentStreak(
+            entries: allEntries,
+            goalML: settings.dailyGoalML,
+            frozenDays: settings.frozenStreakDays
+        )
     }
 
     private var average: Int {

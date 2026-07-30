@@ -18,6 +18,9 @@ final class AppSettings: ObservableObject {
         static let weightKG = "weightKG"
         static let biologicalSex = "biologicalSex"
         static let activityLevel = "activityLevel"
+        static let frozenStreakDays = "frozenStreakDays"
+        static let mascotSkin = "mascotSkin"
+        static let smartRemindersEnabled = "smartRemindersEnabled"
     }
 
     static let reminderIntervalRange = 20...120
@@ -83,6 +86,25 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(activityLevel?.rawValue, forKey: Keys.activityLevel) }
     }
 
+    /// Start-of-day dates a HydroDrop+ streak freeze has been spent on.
+    @Published var frozenStreakDays: [Date] {
+        didSet { defaults.set(frozenStreakDays, forKey: Keys.frozenStreakDays) }
+    }
+
+    @Published var mascotSkin: MascotSkin {
+        didSet { defaults.set(mascotSkin.rawValue, forKey: Keys.mascotSkin) }
+    }
+
+    /// Pace-aware reminders (HydroDrop+). Kept as plain state rather than reading
+    /// `StoreManager` so `ReminderManager` can consult it off the main actor; the
+    /// UI is responsible for only offering it to subscribers.
+    @Published var smartRemindersEnabled: Bool {
+        didSet {
+            defaults.set(smartRemindersEnabled, forKey: Keys.smartRemindersEnabled)
+            ReminderManager.shared.refreshSchedule()
+        }
+    }
+
     private init() {
         let d = UserDefaults.standard
         self.dailyGoalML = d.object(forKey: Keys.dailyGoalML) as? Int ?? 2000
@@ -116,5 +138,8 @@ final class AppSettings: ObservableObject {
         self.weightKG = d.object(forKey: Keys.weightKG) as? Double
         self.biologicalSex = (d.string(forKey: Keys.biologicalSex)).flatMap(BiologicalSex.init(rawValue:))
         self.activityLevel = (d.string(forKey: Keys.activityLevel)).flatMap(ActivityLevel.init(rawValue:))
+        self.frozenStreakDays = d.array(forKey: Keys.frozenStreakDays) as? [Date] ?? []
+        self.mascotSkin = (d.string(forKey: Keys.mascotSkin)).flatMap(MascotSkin.init(rawValue:)) ?? .classic
+        self.smartRemindersEnabled = d.object(forKey: Keys.smartRemindersEnabled) as? Bool ?? false
     }
 }

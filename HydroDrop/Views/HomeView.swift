@@ -4,6 +4,7 @@ import SwiftData
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var settings: AppSettings
+    @ObservedObject private var store = StoreManager.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
 
     @State private var showingAddSheet = false
@@ -22,7 +23,22 @@ struct HomeView: View {
     }
 
     private var streak: Int {
-        StreakCalculator.currentStreak(entries: allEntries, goalML: settings.dailyGoalML)
+        StreakCalculator.currentStreak(
+            entries: allEntries,
+            goalML: settings.dailyGoalML,
+            frozenDays: settings.frozenStreakDays
+        )
+    }
+
+    /// True when a freeze is currently holding the streak together, i.e. yesterday
+    /// was missed but protected.
+    private var streakIsFrozen: Bool {
+        guard let yesterday = Calendar.current.date(
+            byAdding: .day,
+            value: -1,
+            to: Calendar.current.startOfDay(for: Date())
+        ) else { return false }
+        return settings.frozenStreakDays.contains(yesterday)
     }
 
     var body: some View {
@@ -31,7 +47,7 @@ struct HomeView: View {
                 VStack(spacing: 24) {
                     streakBadge
 
-                    MascotView(progress: progress, size: 170)
+                    MascotView(progress: progress, size: 170, skin: settings.mascotSkin)
                         .padding(.top, 4)
 
                     VStack(spacing: 6) {
@@ -59,6 +75,7 @@ struct HomeView: View {
         }
         .onAppear {
             pushWatchContext()
+            applyStreakFreezeIfNeeded()
         }
         .onChange(of: todayTotal) { _, _ in
             pushWatchContext()
@@ -78,6 +95,11 @@ struct HomeView: View {
             Text(streak > 0 ? "\(streak) day streak" : "Start your streak today")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(streak > 0 ? .primary : .secondary)
+            if streakIsFrozen {
+                Image(systemName: "snowflake")
+                    .foregroundStyle(.cyan)
+                    .accessibilityLabel("Streak protected by a freeze")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -186,6 +208,19 @@ struct HomeView: View {
         modelContext.insert(entry)
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
+        // Logging changes today's pace, so the rest of the day's nudges are now stale.
+        ReminderManager.shared.refreshSchedule(entries: allEntries + [entry], goalML: settings.dailyGoalML)
+    }
+
+    /// Spends a HydroDrop+ freeze on yesterday if it was missed and a streak is at stake.
+    private func applyStreakFreezeIfNeeded() {
+        guard let day = StreakFreeze.dayToProtect(
+            entries: allEntries,
+            goalML: settings.dailyGoalML,
+            frozenDays: settings.frozenStreakDays,
+            isSubscribed: store.isSubscribed
+        ) else { return }
+        settings.frozenStreakDays.append(day)
     }
 
     private func delete(_ entry: WaterEntry) {
