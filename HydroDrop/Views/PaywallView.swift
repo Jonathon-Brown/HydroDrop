@@ -49,12 +49,15 @@ struct PaywallView: View {
 
                     featureList
 
-                    if store.products.isEmpty {
+                    switch store.productLoadState {
+                    case .idle, .loading:
                         ProgressView()
                             .padding(.vertical, 20)
-                    } else {
+                    case .loaded:
                         planPicker
                         purchaseButton
+                    case .unavailable, .failed:
+                        unavailablePlans
                     }
 
                     Button("Restore Purchases") {
@@ -75,14 +78,19 @@ struct PaywallView: View {
                 }
             }
             .task {
-                if store.products.isEmpty { await store.loadProducts() }
-                if selectedProductID == nil { selectedProductID = yearlyProduct?.id }
+                if store.productLoadState != .loaded { await loadPlans() }
             }
             .onChange(of: store.isSubscribed) { _, subscribed in
                 if subscribed { dismiss() }
             }
-            .alert("Something went wrong", isPresented: .constant(store.lastErrorMessage != nil)) {
-                Button("OK") { store.lastErrorMessage = nil }
+            .alert(
+                "Something went wrong",
+                isPresented: Binding(
+                    get: { store.lastErrorMessage != nil },
+                    set: { if !$0 { store.lastErrorMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { store.lastErrorMessage = nil }
             } message: {
                 Text(store.lastErrorMessage ?? "")
             }
@@ -169,6 +177,35 @@ struct PaywallView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    /// Shown when the fetch resolved but there's nothing purchasable to show. The sheet stays
+    /// usable — Restore Purchases and Close are still right below — instead of trapping the
+    /// user behind a spinner.
+    private var unavailablePlans: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text("Subscription options unavailable")
+                .font(.subheadline.weight(.semibold))
+            Text("We couldn't load HydroDrop+ plans right now. Check your connection and try again.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("Try Again") {
+                Task { await loadPlans() }
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
+    }
+
+    private func loadPlans() async {
+        await store.loadProducts()
+        if selectedProductID == nil { selectedProductID = yearlyProduct?.id }
     }
 
     private var purchaseButton: some View {

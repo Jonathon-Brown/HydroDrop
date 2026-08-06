@@ -10,12 +10,28 @@ final class StoreManager: ObservableObject {
         case yearly = "com.jonathonbrown.HydroDrop.plus.yearly"
     }
 
+    /// Outcome of the most recent product fetch. `unavailable` is distinct from `failed`:
+    /// StoreKit returns an empty array *without* throwing when products aren't purchasable
+    /// (still in review, agreements not in effect, storefront mismatch), and the paywall must
+    /// surface that as a resolved state rather than spinning forever.
+    enum ProductLoadState: Equatable {
+        case idle
+        case loading
+        case loaded
+        case unavailable
+        case failed(String)
+    }
+
     @Published private(set) var products: [Product] = []
+    @Published private(set) var productLoadState: ProductLoadState = .idle
     @Published private(set) var isSubscribed = false
     @Published private(set) var purchaseInProgress = false
     @Published var lastErrorMessage: String?
 
+    private static let productFetchTimeout: Duration = .seconds(15)
+
     private var transactionListener: Task<Void, Never>?
+    private var loadTask: Task<Void, Never>?
 
     private init() {
         transactionListener = listenForTransactionUpdates()
@@ -29,12 +45,44 @@ final class StoreManager: ObservableObject {
         transactionListener?.cancel()
     }
 
+    /// Coalesces concurrent callers onto a single in-flight fetch, so the paywall appearing
+    /// while the launch-time load is still running waits for that result instead of racing it.
     func loadProducts() async {
+        if let loadTask {
+            await loadTask.value
+            return
+        }
+        let task = Task { await performLoad() }
+        loadTask = task
+        await task.value
+        loadTask = nil
+    }
+
+    private func performLoad() async {
+        productLoadState = .loading
         do {
             let ids = PlusProductID.allCases.map(\.rawValue)
-            products = try await Product.products(for: ids).sorted { $0.price < $1.price }
+            let fetched = try await fetchProducts(ids: ids).sorted { $0.price < $1.price }
+            products = fetched
+            productLoadState = fetched.isEmpty ? .unavailable : .loaded
         } catch {
-            lastErrorMessage = error.localizedDescription
+            products = []
+            productLoadState = .failed(error.localizedDescription)
+        }
+    }
+
+    /// StoreKit has no built-in deadline, so race the fetch against one to guarantee the
+    /// paywall always leaves its loading state even on a stalled network.
+    private func fetchProducts(ids: [String]) async throws -> [Product] {
+        try await withThrowingTaskGroup(of: [Product].self) { group in
+            group.addTask { try await Product.products(for: ids) }
+            group.addTask {
+                try await Task.sleep(for: Self.productFetchTimeout)
+                throw StoreError.timedOut
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { return [] }
+            return first
         }
     }
 
@@ -115,6 +163,13 @@ final class StoreManager: ObservableObject {
 
     enum StoreError: LocalizedError {
         case failedVerification
-        var errorDescription: String? { "Could not verify this purchase." }
+        case timedOut
+
+        var errorDescription: String? {
+            switch self {
+            case .failedVerification: return "Could not verify this purchase."
+            case .timedOut: return "The App Store took too long to respond."
+            }
+        }
     }
 }
