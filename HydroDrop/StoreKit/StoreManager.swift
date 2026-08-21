@@ -1,5 +1,8 @@
 import Foundation
 import StoreKit
+#if DEBUG
+import os
+#endif
 
 @MainActor
 final class StoreManager: ObservableObject {
@@ -27,6 +30,11 @@ final class StoreManager: ObservableObject {
     @Published private(set) var isSubscribed = false
     @Published private(set) var purchaseInProgress = false
     @Published var lastErrorMessage: String?
+
+    #if DEBUG
+    /// Why the most recent load produced no plans. Surfaced on the paywall in DEBUG builds.
+    @Published private(set) var diagnostic: String?
+    #endif
 
     private static let productFetchTimeout: Duration = .seconds(15)
 
@@ -60,15 +68,40 @@ final class StoreManager: ObservableObject {
 
     private func performLoad() async {
         productLoadState = .loading
+        let ids = PlusProductID.allCases.map(\.rawValue)
         do {
-            let ids = PlusProductID.allCases.map(\.rawValue)
             let fetched = try await fetchProducts(ids: ids).sorted { $0.price < $1.price }
             products = fetched
             productLoadState = fetched.isEmpty ? .unavailable : .loaded
+            await recordDiagnostic(requested: ids, fetched: fetched, error: nil)
         } catch {
             products = []
             productLoadState = .failed(error.localizedDescription)
+            await recordDiagnostic(requested: ids, fetched: [], error: error)
         }
+    }
+
+    /// The paywall shows one message for both `.unavailable` and `.failed`, which is right
+    /// for users and useless for debugging — an empty result and a thrown error look
+    /// identical on screen. This records what actually happened. DEBUG only.
+    private func recordDiagnostic(requested: [String], fetched: [Product], error: Error?) async {
+        #if DEBUG
+        var parts = ["got \(fetched.count)/\(requested.count)"]
+        // Storefront tells you which country's catalog answered; a product priced only in
+        // other regions comes back missing rather than as an error.
+        parts.append("storefront=\(await Storefront.current?.countryCode ?? "nil")")
+        parts.append("bundle=\(Bundle.main.bundleIdentifier ?? "nil")")
+        if let error {
+            let ns = error as NSError
+            parts.append("threw \(type(of: error)) \(ns.domain)#\(ns.code): \(error.localizedDescription)")
+        } else if fetched.isEmpty {
+            parts.append("empty, nothing thrown — StoreKit resolved the request and considers these IDs not purchasable here")
+        }
+        let text = parts.joined(separator: " · ")
+        diagnostic = text
+        Logger(subsystem: "com.jonathonbrown.HydroDrop", category: "skdiag")
+            .notice("[SKDIAG] \(text, privacy: .public)")
+        #endif
     }
 
     /// StoreKit has no built-in deadline, so race the fetch against one to guarantee the

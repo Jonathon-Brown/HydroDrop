@@ -73,4 +73,8 @@ if [ ! -d "$REPO_ROOT/HydroDrop.xcodeproj" ]; then
     exit 1
 fi
 
+# XcodeGen emits StoreKit configuration paths the schemes cannot resolve, and omits
+# them from the test action entirely. Repair both before anything opens the project.
+python3 "$REPO_ROOT/Scripts/patch_scheme_storekit.py" "$REPO_ROOT"
+
 echo "Generated $REPO_ROOT/HydroDrop.xcodeproj"

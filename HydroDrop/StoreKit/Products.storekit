@@ -60,7 +60,13 @@
   "subscriptionGroups" : [
     {
       "id" : "23686CF9-DDAA-470A-A802-B2219154677F",
-      "localizations" : [],
+      "localizations" : [
+        {
+          "description" : "Deeper insights and more ways to stay on track.",
+          "displayName" : "HydroDrop+",
+          "locale" : "en_US"
+        }
+      ],
       "name" : "HydroDrop+",
       "subscriptions" : [
         {

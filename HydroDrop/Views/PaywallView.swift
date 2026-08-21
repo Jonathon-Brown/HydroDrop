@@ -77,6 +77,11 @@ struct PaywallView: View {
                     Button("Close") { dismiss() }
                 }
             }
+            // The paywall draws its own large "HydroDrop+" title inside the scroll view, so
+            // the navigation bar has no title and stays transparent — which lets that title
+            // scroll up underneath the Close button and collide with it. Pinning the bar
+            // background keeps Close legible against whatever is passing behind it.
+            .toolbarBackground(.visible, for: .navigationBar)
             .task {
                 if store.productLoadState != .loaded { await loadPlans() }
             }
@@ -193,6 +198,15 @@ struct PaywallView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            #if DEBUG
+            if let diagnostic = store.diagnostic {
+                Text(diagnostic)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("paywall-diagnostic")
+            }
+            #endif
             Button("Try Again") {
                 Task { await loadPlans() }
             }
