@@ -1,10 +1,20 @@
 import Foundation
 import Combine
 
+/// User preferences. Owned by the main actor: every property is read and written from
+/// SwiftUI, and `ReminderManager` snapshots what it needs synchronously on the caller's
+/// thread rather than reading these from a background callback.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
     private let defaults = UserDefaults.standard
+    /// Person-level settings go here: written locally *and* to iCloud key-value storage.
+    /// Device-level settings (everything about reminders) stay in `defaults`.
+    private let synced = CloudSettingsStore.shared
+
+    /// Set while a remote change is being applied, so the property observers don't write
+    /// the value straight back out and start a ping-pong between devices.
+    private var isApplyingRemoteChange = false
 
     private enum Keys {
         static let dailyGoalML = "dailyGoalML"
@@ -18,7 +28,8 @@ final class AppSettings: ObservableObject {
         static let weightKG = "weightKG"
         static let biologicalSex = "biologicalSex"
         static let activityLevel = "activityLevel"
-        static let frozenStreakDays = "frozenStreakDays"
+        static let frozenStreakDayKeys = "frozenStreakDayKeys"
+        static let legacyFrozenStreakDays = "frozenStreakDays"
         static let mascotSkin = "mascotSkin"
         static let smartRemindersEnabled = "smartRemindersEnabled"
     }
@@ -39,7 +50,13 @@ final class AppSettings: ObservableObject {
     }
 
     @Published var dailyGoalML: Int {
-        didSet { defaults.set(dailyGoalML, forKey: Keys.dailyGoalML) }
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(dailyGoalML, forKey: Keys.dailyGoalML)
+            // Pace-aware scheduling divides the goal across the day's slots, so a new
+            // goal invalidates today's remaining nudges.
+            ReminderManager.shared.refreshSchedule()
+        }
     }
 
     @Published var remindersEnabled: Bool {
@@ -73,44 +90,73 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// True when the waking window has no length at all, which is what a start equal to
+    /// its own end means. Reminders are paused until the user separates the two — the
+    /// alternative readings (nothing, or a 24-hour window that nudges at 3am) are both
+    /// worse than saying so on screen.
+    var wakingWindowIsEmpty: Bool {
+        quietStartMinutes == quietEndMinutes
+    }
+
     /// Preset quick-add cup sizes shown on the home screen, in mL.
     let quickAddPresets: [Int] = [200, 330, 500]
 
     @Published var measurementSystem: MeasurementSystem {
-        didSet { defaults.set(measurementSystem.rawValue, forKey: Keys.measurementSystem) }
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(measurementSystem.rawValue, forKey: Keys.measurementSystem)
+        }
     }
 
     /// Last-used inputs to the hydration goal calculator, so reopening it is pre-filled.
     @Published var weightKG: Double? {
         didSet {
-            if let weightKG {
-                defaults.set(weightKG, forKey: Keys.weightKG)
-            } else {
-                defaults.removeObject(forKey: Keys.weightKG)
-            }
+            guard !isApplyingRemoteChange else { return }
+            synced.set(weightKG, forKey: Keys.weightKG)
         }
     }
 
     @Published var biologicalSex: BiologicalSex? {
-        didSet { defaults.set(biologicalSex?.rawValue, forKey: Keys.biologicalSex) }
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(biologicalSex?.rawValue, forKey: Keys.biologicalSex)
+        }
     }
 
     @Published var activityLevel: ActivityLevel? {
-        didSet { defaults.set(activityLevel?.rawValue, forKey: Keys.activityLevel) }
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(activityLevel?.rawValue, forKey: Keys.activityLevel)
+        }
     }
 
-    /// Start-of-day dates a HydroDrop+ streak freeze has been spent on.
-    @Published var frozenStreakDays: [Date] {
-        didSet { defaults.set(frozenStreakDays, forKey: Keys.frozenStreakDays) }
+    /// Days a HydroDrop+ streak freeze has been spent on, as `DayKey` strings.
+    @Published var frozenStreakDayKeys: [String] {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(frozenStreakDayKeys, forKey: Keys.frozenStreakDayKeys)
+        }
     }
 
+    /// The skin the user picked. Not necessarily the one on screen — see `activeMascotSkin`.
     @Published var mascotSkin: MascotSkin {
-        didSet { defaults.set(mascotSkin.rawValue, forKey: Keys.mascotSkin) }
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(mascotSkin.rawValue, forKey: Keys.mascotSkin)
+        }
     }
 
-    /// Pace-aware reminders (HydroDrop+). Kept as plain state rather than reading
-    /// `StoreManager` so `ReminderManager` can consult it off the main actor; the
-    /// UI is responsible for only offering it to subscribers.
+    /// The skin actually rendered, which falls back to `.classic` without an entitlement.
+    ///
+    /// The preference is deliberately left intact when Plus lapses: gating at the point
+    /// of use means a resubscriber gets their skin back, and — more importantly — a
+    /// lapse that happens between launches can't slip past a one-shot reset.
+    var activeMascotSkin: MascotSkin {
+        (mascotSkin.requiresPlus && !EntitlementCache.isPlusActive) ? .classic : mascotSkin
+    }
+
+    /// Pace-aware reminders (HydroDrop+), as the user set it. Gate reads on
+    /// `smartRemindersActive`, never on this.
     @Published var smartRemindersEnabled: Bool {
         didSet {
             defaults.set(smartRemindersEnabled, forKey: Keys.smartRemindersEnabled)
@@ -118,51 +164,95 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Whether pace-aware scheduling should actually be used: the preference *and* a
+    /// live entitlement. `EntitlementCache` is a plain `UserDefaults` read, so this is
+    /// safe to evaluate wherever the schedule is being built.
+    var smartRemindersActive: Bool {
+        smartRemindersEnabled && EntitlementCache.isPlusActive
+    }
+
+    /// Every stored property is assigned exactly once here, from a local computed above.
+    ///
+    /// A `didSet` is suppressed only for a property's *first* assignment inside an
+    /// initialiser — assigning again later in the same init does fire it. The screenshot
+    /// overrides used to be a second round of assignments, which meant they ran the
+    /// observers; once one of those observers called back into `ReminderManager`, which
+    /// reads `AppSettings.shared`, the singleton's one-time initialiser was re-entered
+    /// from inside itself and the app deadlocked on launch. Computing first and assigning
+    /// once removes the whole category.
     private init() {
         let d = UserDefaults.standard
-        self.dailyGoalML = d.object(forKey: Keys.dailyGoalML) as? Int ?? 2000
-        self.remindersEnabled = d.object(forKey: Keys.remindersEnabled) as? Bool ?? true
+        let screenshotMode = Self.isScreenshotMode
+
+        let storedGoal = d.object(forKey: Keys.dailyGoalML) as? Int ?? 2000
+
+        let storedInterval: Int
         if let savedMinutes = d.object(forKey: Keys.reminderIntervalMinutes) as? Int {
-            self.reminderIntervalMinutes = savedMinutes
+            storedInterval = savedMinutes
         } else if let legacyHours = d.object(forKey: "reminderIntervalHours") as? Double {
-            self.reminderIntervalMinutes = Int(legacyHours * 60)
+            storedInterval = Int(legacyHours * 60)
         } else {
-            self.reminderIntervalMinutes = 120
+            storedInterval = 120
         }
+
+        let storedStart: Int
         if let savedStart = d.object(forKey: Keys.quietStartMinutes) as? Int {
-            self.quietStartMinutes = savedStart
+            storedStart = savedStart
         } else if let legacyHour = d.object(forKey: Keys.legacyQuietStartHour) as? Int {
-            self.quietStartMinutes = legacyHour * 60
+            storedStart = legacyHour * 60
         } else {
-            self.quietStartMinutes = 8 * 60
+            storedStart = 8 * 60
         }
+
+        let storedEnd: Int
         if let savedEnd = d.object(forKey: Keys.quietEndMinutes) as? Int {
-            self.quietEndMinutes = savedEnd
+            storedEnd = savedEnd
         } else if let legacyHour = d.object(forKey: Keys.legacyQuietEndHour) as? Int {
-            self.quietEndMinutes = legacyHour * 60
+            storedEnd = legacyHour * 60
         } else {
-            self.quietEndMinutes = 22 * 60
+            storedEnd = 22 * 60
         }
+
+        let storedSystem: MeasurementSystem
         if let raw = d.string(forKey: Keys.measurementSystem), let saved = MeasurementSystem(rawValue: raw) {
-            self.measurementSystem = saved
+            storedSystem = saved
         } else {
-            self.measurementSystem = .deviceDefault
+            storedSystem = .deviceDefault
         }
+
+        let storedSkin = (d.string(forKey: Keys.mascotSkin)).flatMap(MascotSkin.init(rawValue:)) ?? .classic
+
+        // Everything a captured screenshot actually shows, overridden in memory only —
+        // nothing here writes over the defaults on disk.
+        self.dailyGoalML = screenshotMode ? 2000 : storedGoal
+        self.measurementSystem = screenshotMode ? .metric : storedSystem
+        self.mascotSkin = screenshotMode ? .classic : storedSkin
+        self.frozenStreakDayKeys = screenshotMode ? [] : Self.loadFrozenDayKeys(from: d)
+
+        self.remindersEnabled = d.object(forKey: Keys.remindersEnabled) as? Bool ?? true
+        self.reminderIntervalMinutes = storedInterval
+        self.quietStartMinutes = storedStart
+        self.quietEndMinutes = storedEnd
         self.weightKG = d.object(forKey: Keys.weightKG) as? Double
         self.biologicalSex = (d.string(forKey: Keys.biologicalSex)).flatMap(BiologicalSex.init(rawValue:))
         self.activityLevel = (d.string(forKey: Keys.activityLevel)).flatMap(ActivityLevel.init(rawValue:))
-        self.frozenStreakDays = d.array(forKey: Keys.frozenStreakDays) as? [Date] ?? []
-        self.mascotSkin = (d.string(forKey: Keys.mascotSkin)).flatMap(MascotSkin.init(rawValue:)) ?? .classic
         self.smartRemindersEnabled = d.object(forKey: Keys.smartRemindersEnabled) as? Bool ?? false
+    }
 
-        if Self.isScreenshotMode {
-            // Everything a captured screenshot actually shows. Property observers
-            // don't fire inside an initialiser, so this overrides the values in
-            // memory without writing over the defaults on disk.
-            self.dailyGoalML = 2000
-            self.measurementSystem = .metric
-            self.mascotSkin = .classic
-            self.frozenStreakDays = []
+    /// Reads the day-key list, converting anything left by a version that stored
+    /// `[Date]`. The conversion uses the current calendar because that is the timezone
+    /// those instants were written in for all but the users this migration exists to
+    /// rescue — and for them, any day key at all beats an instant that will never match.
+    private static func loadFrozenDayKeys(from defaults: UserDefaults) -> [String] {
+        if let keys = defaults.array(forKey: Keys.frozenStreakDayKeys) as? [String] {
+            return keys
         }
+        guard let legacyDates = defaults.array(forKey: Keys.legacyFrozenStreakDays) as? [Date] else {
+            return []
+        }
+        let migrated = legacyDates.map { DayKey.key(for: $0) }
+        defaults.set(migrated, forKey: Keys.frozenStreakDayKeys)
+        defaults.removeObject(forKey: Keys.legacyFrozenStreakDays)
+        return migrated
     }
 }

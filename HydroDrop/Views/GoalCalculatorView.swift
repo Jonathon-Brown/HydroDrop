@@ -19,8 +19,12 @@ struct GoalCalculatorView: View {
         _activity = State(initialValue: settings.activityLevel ?? .sedentary)
     }
 
+    /// Longest sensible weight entry, e.g. "1234.5". Also the backstop that keeps the
+    /// keypad from being used to build a number the calculator can't represent.
+    private static let maxWeightCharacters = 6
+
     private var weightKG: Double? {
-        guard let value = Double(weightText), value > 0 else { return nil }
+        guard let value = Double(weightText), value > 0, value.isFinite else { return nil }
         return settings.measurementSystem.weightInKG(fromDisplayValue: value)
     }
 
@@ -40,6 +44,11 @@ struct GoalCalculatorView: View {
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 80)
+                            .onChange(of: weightText) { _, newValue in
+                                if newValue.count > Self.maxWeightCharacters {
+                                    weightText = String(newValue.prefix(Self.maxWeightCharacters))
+                                }
+                            }
                         Text(settings.measurementSystem.weightUnitLabel)
                             .foregroundStyle(.secondary)
                     }

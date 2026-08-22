@@ -27,7 +27,10 @@ final class StoreManager: ObservableObject {
 
     @Published private(set) var products: [Product] = []
     @Published private(set) var productLoadState: ProductLoadState = .idle
-    @Published private(set) var isSubscribed = false
+    /// Seeded from the last known entitlement so a paying user isn't shown the locked
+    /// app during the launch-time round trip. Corrected by `refreshEntitlement()` moments
+    /// later either way.
+    @Published private(set) var isSubscribed = EntitlementCache.isPlusActive
     @Published private(set) var purchaseInProgress = false
     @Published var lastErrorMessage: String?
 
@@ -44,8 +47,11 @@ final class StoreManager: ObservableObject {
     private init() {
         transactionListener = listenForTransactionUpdates()
         Task {
-            await loadProducts()
+            // Entitlement first. Behind the product fetch it inherited that fetch's
+            // 15-second timeout, which is how long the Watch app used to show its
+            // "subscribe on your iPhone" screen to people who already had.
             await refreshEntitlement()
+            await loadProducts()
         }
     }
 
@@ -129,7 +135,12 @@ final class StoreManager: ObservableObject {
                 let transaction = try checkVerified(verification)
                 await transaction.finish()
                 await refreshEntitlement()
-            case .userCancelled, .pending:
+            case .pending:
+                // Ask to Buy and other deferred approvals resolve later through
+                // `Transaction.updates`. Without a word here the button simply stops.
+                lastErrorMessage = "This purchase needs approval before it can finish. "
+                    + "HydroDrop+ unlocks as soon as it's approved."
+            case .userCancelled:
                 break
             @unknown default:
                 break
@@ -173,6 +184,7 @@ final class StoreManager: ObservableObject {
             }
         }
         isSubscribed = subscribed
+        EntitlementCache.isPlusActive = subscribed
     }
 
     private func listenForTransactionUpdates() -> Task<Void, Never> {

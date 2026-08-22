@@ -19,7 +19,14 @@ struct SettingsView: View {
                         Label("HydroDrop+ is active", systemImage: "checkmark.seal.fill")
                             .foregroundStyle(.green)
                         Button("Manage Subscription") {
-                            Task { try? await AppStore.showManageSubscriptions(in: UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first!) }
+                            Task {
+                                guard let scene = UIApplication.shared.connectedScenes
+                                    .compactMap({ $0 as? UIWindowScene })
+                                    .first(where: { $0.activationState == .foregroundActive })
+                                    ?? UIApplication.shared.connectedScenes
+                                        .compactMap({ $0 as? UIWindowScene }).first else { return }
+                                try? await AppStore.showManageSubscriptions(in: scene)
+                            }
                         }
                     } else {
                         Button {
@@ -76,7 +83,7 @@ struct SettingsView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                if settings.mascotSkin == skin {
+                                if settings.activeMascotSkin == skin {
                                     Image(systemName: "checkmark")
                                         .foregroundStyle(.tint)
                                 } else if skin.requiresPlus && !store.isSubscribed {
@@ -146,6 +153,15 @@ struct SettingsView: View {
                             }
                         }
 
+                        if settings.wakingWindowIsEmpty {
+                            Label(
+                                "Set an end time that differs from the start time, or reminders can't be scheduled.",
+                                systemImage: "exclamationmark.triangle.fill"
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                        }
+
                         if notificationStatus == .denied {
                             Label("Notifications are disabled in iOS Settings.", systemImage: "exclamationmark.triangle.fill")
                                 .font(.footnote)
@@ -191,6 +207,10 @@ struct SettingsView: View {
             .task {
                 let current = await UNUserNotificationCenter.current().notificationSettings()
                 notificationStatus = current.authorizationStatus
+                // Permission can be taken away in iOS Settings while the app is
+                // backgrounded, and granted back the same way. Rebuilding here means the
+                // schedule matches the permission the user actually left us with.
+                ReminderManager.shared.refreshSchedule()
             }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView()
@@ -205,7 +225,7 @@ struct SettingsView: View {
     }
 
     private var freezesRemaining: Int {
-        StreakFreeze.freezesRemaining(frozenDays: settings.frozenStreakDays)
+        StreakFreeze.freezesRemaining(frozenDayKeys: settings.frozenStreakDayKeys)
     }
 
     /// Locked skins send the user to the paywall rather than silently doing nothing.

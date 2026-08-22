@@ -67,9 +67,21 @@ enum ActivityLevel: String, CaseIterable, Identifiable, Codable {
 enum HydrationGoalCalculator {
     static let validGoalRange = 500...5000
 
+    /// Beyond this the goal saturates anyway, so it's the point past which a larger
+    /// number is only a way to overflow the arithmetic.
+    private static let maxWeightKG = 1000.0
+
     static func recommendedGoalML(weightKG: Double, sex: BiologicalSex, activity: ActivityLevel) -> Int {
-        let raw = weightKG * sex.mLPerKG + activity.bonusML
-        let roundedToNearest50 = (raw / 50).rounded() * 50
+        // Every bound here is applied in `Double`, before the conversion to `Int`.
+        // Converting first and clamping afterwards traps on anything outside `Int`'s
+        // range, and this is fed from a free-text keypad: an 18-digit weight crashed the
+        // app mid-keystroke, and a pasted "1e400" parses as +infinity.
+        guard weightKG.isFinite else { return validGoalRange.lowerBound }
+        let boundedWeight = min(max(weightKG, 0), Self.maxWeightKG)
+
+        let raw = boundedWeight * sex.mLPerKG + activity.bonusML
+        let bounded = min(max(raw, Double(validGoalRange.lowerBound)), Double(validGoalRange.upperBound))
+        let roundedToNearest50 = (bounded / 50).rounded() * 50
         return Int(roundedToNearest50).clamped(to: validGoalRange)
     }
 }

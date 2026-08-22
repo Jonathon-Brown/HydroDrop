@@ -27,7 +27,7 @@ struct HistoryView: View {
         let totals = StreakCalculator.totalsByDay(allEntries, calendar: calendar)
         return (0..<dayCount).reversed().compactMap { offset -> DayTotal? in
             guard let day = calendar.date(byAdding: .day, value: -offset, to: calendar.startOfDay(for: Date())) else { return nil }
-            return DayTotal(date: day, totalML: totals[day] ?? 0)
+            return DayTotal(date: day, totalML: totals[DayKey.key(for: day, calendar: calendar)] ?? 0)
         }
     }
 
@@ -35,7 +35,7 @@ struct HistoryView: View {
         StreakCalculator.currentStreak(
             entries: allEntries,
             goalML: settings.dailyGoalML,
-            frozenDays: settings.frozenStreakDays
+            frozenDayKeys: settings.frozenStreakDayKeys
         )
     }
 

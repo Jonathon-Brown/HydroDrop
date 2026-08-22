@@ -62,8 +62,25 @@ if [ -z "$XCODEGEN" ] || [ ! -x "$XCODEGEN" ]; then
 fi
 
 echo "Using $("$XCODEGEN" --version)"
-echo "Generating HydroDrop.xcodeproj from project.yml..."
 cd "$REPO_ROOT"
+
+# CURRENT_PROJECT_VERSION is committed as a fixed value, and the project is regenerated
+# from project.yml on every CI run — so every Xcode Cloud build uploaded the same build
+# number, and App Store Connect rejects a duplicate during processing. The build goes
+# green here and then never appears in TestFlight. Xcode Cloud's own monotonic counter
+# is in CI_BUILD_NUMBER; stamp it in before generating. This edits the runner's checkout
+# only, and is a no-op outside Xcode Cloud.
+if [ -n "${CI_BUILD_NUMBER:-}" ]; then
+    echo "Stamping build number ${CI_BUILD_NUMBER} into project.yml..."
+    /usr/bin/sed -i '' -E \
+        "s/^([[:space:]]*CURRENT_PROJECT_VERSION:).*/\1 \"${CI_BUILD_NUMBER}\"/" \
+        project.yml
+    grep -n "CURRENT_PROJECT_VERSION" project.yml
+else
+    echo "CI_BUILD_NUMBER not set; leaving the committed build number alone."
+fi
+
+echo "Generating HydroDrop.xcodeproj from project.yml..."
 "$XCODEGEN" generate --spec project.yml --project .
 
 # Fail loudly here rather than letting the build fail later with the same opaque

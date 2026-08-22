@@ -19,7 +19,14 @@ struct HydroDropApp: App {
     /// are worth trading a working offline app for, so local storage is the
     /// fallback and sync is the enhancement.
     private static func makeContainer() -> ModelContainer {
+        // Release builds must never be able to swap the user's real store for a seeded
+        // in-memory one, however they are launched. The matching hooks in `AppSettings`
+        // and `StoreManager` are already compiled out; this one was not.
+        #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory") {
+            // A previous run may have left a cached entitlement behind, and the paywall
+            // tests need to start from a known one.
+            EntitlementCache.isPlusActive = false
             let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
             guard let container = try? ModelContainer(for: WaterEntry.self, configurations: configuration) else {
                 fatalError("Failed to create in-memory ModelContainer for UI tests")
@@ -27,6 +34,7 @@ struct HydroDropApp: App {
             seedHistory(into: container)
             return container
         }
+        #endif
 
         do {
             return try ModelContainer(
@@ -52,6 +60,7 @@ struct HydroDropApp: App {
     }
 
     /// Populates a week of realistic sample entries for App Store screenshot automation only.
+    #if DEBUG
     private static func seedHistory(into container: ModelContainer) {
         let context = ModelContext(container)
         let calendar = Calendar.current
@@ -73,4 +82,5 @@ struct HydroDropApp: App {
         }
         try? context.save()
     }
+    #endif
 }

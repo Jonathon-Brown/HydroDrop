@@ -2,7 +2,6 @@ import SwiftUI
 
 struct RootTabView: View {
     @StateObject private var settings = AppSettings.shared
-    @ObservedObject private var store = StoreManager.shared
 
     var body: some View {
         TabView {
@@ -17,16 +16,16 @@ struct RootTabView: View {
         }
         .environmentObject(settings)
         .tint(Color(red: 0.18, green: 0.56, blue: 0.93))
-        .onChange(of: store.isSubscribed) { _, subscribed in
-            guard !subscribed else { return }
-            // A lapsed subscription shouldn't leave Plus-only settings switched on.
-            if settings.mascotSkin.requiresPlus {
-                settings.mascotSkin = .classic
-            }
-            settings.smartRemindersEnabled = false
-        }
     }
 }
+
+// Plus features used to be switched off here, in an `onChange` on the entitlement.
+// That only fires on a transition *within a session*: a subscription that lapsed
+// between launches started the next launch at false and never changed, so the handler
+// never ran and the paid mascot skin and pace-aware reminders stayed on for good.
+// Each feature now derives from the entitlement where it is used — see
+// `AppSettings.activeMascotSkin` and `AppSettings.smartRemindersActive` — which also
+// means the user's choices survive a lapse and come back with them.
 
 #Preview {
     RootTabView()

@@ -25,6 +25,9 @@ targets:
       properties:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # HydroDrop uses no encryption beyond what Apple exempts, so answering here
+        # keeps every upload out of App Store Connect's "Missing Compliance" state.
+        ITSAppUsesNonExemptEncryption: false
         # CloudKit delivers SwiftData sync via silent pushes.
         UIBackgroundModes:
           - remote-notification
@@ -60,6 +63,8 @@ targets:
       - path: HydroDrop/StoreKit/StoreManager.swift
       - path: HydroDrop/Models/MeasurementSystem.swift
       - path: HydroDrop/Models/MascotSkin.swift
+      - path: HydroDrop/Models/DayKey.swift
+      - path: HydroDrop/StoreKit/EntitlementCache.swift
     info:
       path: HydroDrop Watch App/Info.plist
       properties:
@@ -79,6 +84,19 @@ targets:
         MARKETING_VERSION: "1.0.1"
         CURRENT_PROJECT_VERSION: "4"
         SKIP_INSTALL: "YES"
+  HydroDropTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: HydroDropTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jonathonbrown.HydroDropTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HydroDrop.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HydroDrop"
+        SKIP_INSTALL: "YES"
+    dependencies:
+      - target: HydroDrop
   HydroDropScreenshotUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -97,6 +115,7 @@ schemes:
     build:
       targets:
         HydroDrop: all
+        HydroDropTests: [test]
         HydroDropScreenshotUITests: [test]
     run:
       config: Debug
@@ -107,6 +126,7 @@ schemes:
       # only emits `storeKitConfiguration` for the run action and silently drops it
       # here. Scripts/patch_scheme_storekit.py injects it after generation.
       targets:
+        - HydroDropTests
         - HydroDropScreenshotUITests
     profile:
       config: Release

@@ -3,6 +3,7 @@ import SwiftData
 
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject private var store = StoreManager.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
@@ -26,19 +27,15 @@ struct HomeView: View {
         StreakCalculator.currentStreak(
             entries: allEntries,
             goalML: settings.dailyGoalML,
-            frozenDays: settings.frozenStreakDays
+            frozenDayKeys: settings.frozenStreakDayKeys
         )
     }
 
     /// True when a freeze is currently holding the streak together, i.e. yesterday
     /// was missed but protected.
     private var streakIsFrozen: Bool {
-        guard let yesterday = Calendar.current.date(
-            byAdding: .day,
-            value: -1,
-            to: Calendar.current.startOfDay(for: Date())
-        ) else { return false }
-        return settings.frozenStreakDays.contains(yesterday)
+        guard let yesterday = DayKey.previousDayKey(before: Date()) else { return false }
+        return settings.frozenStreakDayKeys.contains(yesterday)
     }
 
     var body: some View {
@@ -48,7 +45,7 @@ struct HomeView: View {
                     streakBadge
 
                     VStack(spacing: 2) {
-                        MascotView(progress: progress, size: 150, skin: settings.mascotSkin)
+                        MascotView(progress: progress, size: 150, skin: settings.activeMascotSkin)
                         // The face carries the mood; naming it makes sure the signal
                         // still lands for anyone who reads the screen quickly.
                         Text(MascotMood.forProgress(progress).label)
@@ -81,8 +78,22 @@ struct HomeView: View {
             }
         }
         .onAppear {
-            pushWatchContext()
+            syncOnForeground()
+        }
+        // One-shot pace-aware reminders only cover a few days, so they have to be
+        // re-armed when the app is opened. Nothing did that before: the schedule was
+        // rebuilt on a settings change or a logged drink and nowhere else, so a user who
+        // stopped logging stopped being reminded — exactly backwards.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            syncOnForeground()
+        }
+        // The entitlement is usually known by the time this view appears, but on a cold
+        // launch it can land a moment later. The freeze is only ever spendable on
+        // yesterday, so a check that ran too early has to be re-run rather than skipped.
+        .onChange(of: store.isSubscribed) { _, _ in
             applyStreakFreezeIfNeeded()
+            ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
         }
         .onChange(of: todayTotal) { _, _ in
             pushWatchContext()
@@ -219,15 +230,24 @@ struct HomeView: View {
         ReminderManager.shared.refreshSchedule(entries: allEntries + [entry], goalML: settings.dailyGoalML)
     }
 
+    /// Work that has to happen every time the app reaches the foreground, not just on
+    /// the first appearance: the day may have rolled over, and the reminder horizon may
+    /// have run out, while the app was away.
+    private func syncOnForeground() {
+        pushWatchContext()
+        applyStreakFreezeIfNeeded()
+        ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
+    }
+
     /// Spends a HydroDrop+ freeze on yesterday if it was missed and a streak is at stake.
     private func applyStreakFreezeIfNeeded() {
         guard let day = StreakFreeze.dayToProtect(
             entries: allEntries,
             goalML: settings.dailyGoalML,
-            frozenDays: settings.frozenStreakDays,
+            frozenDayKeys: settings.frozenStreakDayKeys,
             isSubscribed: store.isSubscribed
         ) else { return }
-        settings.frozenStreakDays.append(day)
+        settings.frozenStreakDayKeys.append(day)
     }
 
     private func delete(_ entry: WaterEntry) {
