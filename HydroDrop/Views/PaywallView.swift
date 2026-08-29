@@ -6,13 +6,8 @@ private struct PlusFeature {
     let icon: String
 
     static let all: [PlusFeature] = [
-        // Every entry here must name something Plus actually unlocks. Basic streak
-        // tracking is free on Home and History, so only the freeze belongs here.
+        // Every entry here must name something Plus actually unlocks.
         .init(title: "30-day history & trends", icon: "chart.xyaxis.line"),
-        .init(title: "Apple Watch app", icon: "applewatch"),
-        .init(title: "Streak freeze — protect a missed day", icon: "snowflake"),
-        .init(title: "Smart, pace-aware reminders", icon: "bell.badge.fill"),
-        .init(title: "Four more mascots, each with its own charm", icon: "paintpalette.fill"),
         .init(title: "Support indie development", icon: "heart.fill"),
     ]
 }
@@ -69,6 +64,8 @@ struct PaywallView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+
+                    legalLinks
                 }
                 .padding()
             }
@@ -100,6 +97,17 @@ struct PaywallView: View {
                 Text(store.lastErrorMessage ?? "")
             }
         }
+    }
+
+    /// App Review requires functioning Terms of Use and Privacy Policy links on the
+    /// paywall itself (3.1.2(c)), so these sit outside the plan-loading branch and
+    /// render even when the product fetch comes back empty.
+    private var legalLinks: some View {
+        HStack(spacing: 16) {
+            Link("Terms of Use", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+            Link("Privacy Policy", destination: URL(string: "https://jonathon-brown.github.io/HydroDrop/privacy.html")!)
+        }
+        .font(.footnote)
     }
 
     /// The four locked mascots, shown rather than described. Held still so a row of
