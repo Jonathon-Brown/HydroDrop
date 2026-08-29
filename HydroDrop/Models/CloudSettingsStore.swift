@@ -22,6 +22,17 @@ final class CloudSettingsStore {
     private let cloud = NSUbiquitousKeyValueStore.default
     private var observer: NSObjectProtocol?
 
+    /// Screenshot automation runs against whatever iCloud account the machine is signed
+    /// into, which would make captures depend on another device's settings — and let a
+    /// test run write to them. Local-only there. Compiled out of Release.
+    private let isCloudEnabled: Bool = {
+        #if DEBUG
+        !ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory")
+        #else
+        true
+        #endif
+    }()
+
     private init() {}
 
     // MARK: - Reading
@@ -29,7 +40,8 @@ final class CloudSettingsStore {
     /// iCloud wins when it has an opinion. Local is the answer for a device that has
     /// never synced, and the fallback for a user who isn't signed in.
     func object(forKey key: String) -> Any? {
-        cloud.object(forKey: key) ?? local.object(forKey: key)
+        guard isCloudEnabled else { return local.object(forKey: key) }
+        return cloud.object(forKey: key) ?? local.object(forKey: key)
     }
 
     func int(forKey key: String) -> Int? { object(forKey: key) as? Int }
@@ -38,16 +50,22 @@ final class CloudSettingsStore {
     func string(forKey key: String) -> String? { object(forKey: key) as? String }
     func stringArray(forKey key: String) -> [String]? { object(forKey: key) as? [String] }
 
+    /// Whether iCloud itself holds a value, ignoring the local mirror. Used to decide
+    /// whether this device's settings should seed an empty cloud.
+    func hasCloudValue(forKey key: String) -> Bool {
+        isCloudEnabled && cloud.object(forKey: key) != nil
+    }
+
     // MARK: - Writing
 
     func set(_ value: Any?, forKey key: String) {
         guard let value else {
             local.removeObject(forKey: key)
-            cloud.removeObject(forKey: key)
+            if isCloudEnabled { cloud.removeObject(forKey: key) }
             return
         }
         local.set(value, forKey: key)
-        cloud.set(value, forKey: key)
+        if isCloudEnabled { cloud.set(value, forKey: key) }
     }
 
     // MARK: - Change notification
@@ -58,7 +76,7 @@ final class CloudSettingsStore {
     /// Call this once, after whatever owns the settings has finished initialising —
     /// never from inside that initialiser.
     func startObserving(_ handler: @escaping ([String]) -> Void) {
-        guard observer == nil else { return }
+        guard isCloudEnabled, observer == nil else { return }
         observer = NotificationCenter.default.addObserver(
             forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
             object: cloud,

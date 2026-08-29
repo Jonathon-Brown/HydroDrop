@@ -182,9 +182,10 @@ final class AppSettings: ObservableObject {
     /// once removes the whole category.
     private init() {
         let d = UserDefaults.standard
+        let synced = CloudSettingsStore.shared
         let screenshotMode = Self.isScreenshotMode
 
-        let storedGoal = d.object(forKey: Keys.dailyGoalML) as? Int ?? 2000
+        let storedGoal = synced.int(forKey: Keys.dailyGoalML) ?? 2000
 
         let storedInterval: Int
         if let savedMinutes = d.object(forKey: Keys.reminderIntervalMinutes) as? Int {
@@ -214,28 +215,28 @@ final class AppSettings: ObservableObject {
         }
 
         let storedSystem: MeasurementSystem
-        if let raw = d.string(forKey: Keys.measurementSystem), let saved = MeasurementSystem(rawValue: raw) {
+        if let raw = synced.string(forKey: Keys.measurementSystem), let saved = MeasurementSystem(rawValue: raw) {
             storedSystem = saved
         } else {
             storedSystem = .deviceDefault
         }
 
-        let storedSkin = (d.string(forKey: Keys.mascotSkin)).flatMap(MascotSkin.init(rawValue:)) ?? .classic
+        let storedSkin = synced.string(forKey: Keys.mascotSkin).flatMap(MascotSkin.init(rawValue:)) ?? .classic
 
         // Everything a captured screenshot actually shows, overridden in memory only —
         // nothing here writes over the defaults on disk.
         self.dailyGoalML = screenshotMode ? 2000 : storedGoal
         self.measurementSystem = screenshotMode ? .metric : storedSystem
         self.mascotSkin = screenshotMode ? .classic : storedSkin
-        self.frozenStreakDayKeys = screenshotMode ? [] : Self.loadFrozenDayKeys(from: d)
+        self.frozenStreakDayKeys = screenshotMode ? [] : Self.loadFrozenDayKeys(synced: synced, local: d)
 
         self.remindersEnabled = d.object(forKey: Keys.remindersEnabled) as? Bool ?? true
         self.reminderIntervalMinutes = storedInterval
         self.quietStartMinutes = storedStart
         self.quietEndMinutes = storedEnd
-        self.weightKG = d.object(forKey: Keys.weightKG) as? Double
-        self.biologicalSex = (d.string(forKey: Keys.biologicalSex)).flatMap(BiologicalSex.init(rawValue:))
-        self.activityLevel = (d.string(forKey: Keys.activityLevel)).flatMap(ActivityLevel.init(rawValue:))
+        self.weightKG = synced.double(forKey: Keys.weightKG)
+        self.biologicalSex = synced.string(forKey: Keys.biologicalSex).flatMap(BiologicalSex.init(rawValue:))
+        self.activityLevel = synced.string(forKey: Keys.activityLevel).flatMap(ActivityLevel.init(rawValue:))
         self.smartRemindersEnabled = d.object(forKey: Keys.smartRemindersEnabled) as? Bool ?? false
     }
 
@@ -243,16 +244,112 @@ final class AppSettings: ObservableObject {
     /// `[Date]`. The conversion uses the current calendar because that is the timezone
     /// those instants were written in for all but the users this migration exists to
     /// rescue — and for them, any day key at all beats an instant that will never match.
-    private static func loadFrozenDayKeys(from defaults: UserDefaults) -> [String] {
-        if let keys = defaults.array(forKey: Keys.frozenStreakDayKeys) as? [String] {
+    private static func loadFrozenDayKeys(synced: CloudSettingsStore, local: UserDefaults) -> [String] {
+        if let keys = synced.stringArray(forKey: Keys.frozenStreakDayKeys) {
             return keys
         }
-        guard let legacyDates = defaults.array(forKey: Keys.legacyFrozenStreakDays) as? [Date] else {
+        guard let legacyDates = local.array(forKey: Keys.legacyFrozenStreakDays) as? [Date] else {
             return []
         }
         let migrated = legacyDates.map { DayKey.key(for: $0) }
-        defaults.set(migrated, forKey: Keys.frozenStreakDayKeys)
-        defaults.removeObject(forKey: Keys.legacyFrozenStreakDays)
+        synced.set(migrated, forKey: Keys.frozenStreakDayKeys)
+        local.removeObject(forKey: Keys.legacyFrozenStreakDays)
         return migrated
+    }
+
+    // MARK: - iCloud
+
+    /// Person-level keys, i.e. the ones that follow the user rather than the device.
+    private static let syncedKeys = [
+        Keys.dailyGoalML,
+        Keys.measurementSystem,
+        Keys.mascotSkin,
+        Keys.frozenStreakDayKeys,
+        Keys.weightKG,
+        Keys.biologicalSex,
+        Keys.activityLevel,
+    ]
+
+    /// Starts mirroring person-level settings through iCloud.
+    ///
+    /// Called from `HydroDropApp.init` rather than from this initialiser: anything that
+    /// can call back into `AppSettings.shared` must not run while `AppSettings.shared` is
+    /// still being constructed.
+    func startCloudSync() {
+        guard !Self.isScreenshotMode else { return }
+        seedCloudFromLocalIfNeeded()
+        synced.startObserving { [weak self] keys in
+            self?.applyRemoteChanges(keys)
+        }
+    }
+
+    /// Pushes this device's existing settings up the first time, so upgrading users
+    /// don't start out looking like a device with no preferences at all. Only fills keys
+    /// iCloud has no value for, so it can never overwrite another device's answer.
+    private func seedCloudFromLocalIfNeeded() {
+        for key in Self.syncedKeys where !synced.hasCloudValue(forKey: key) {
+            switch key {
+            case Keys.dailyGoalML: synced.set(dailyGoalML, forKey: key)
+            case Keys.measurementSystem: synced.set(measurementSystem.rawValue, forKey: key)
+            case Keys.mascotSkin: synced.set(mascotSkin.rawValue, forKey: key)
+            case Keys.frozenStreakDayKeys: synced.set(frozenStreakDayKeys, forKey: key)
+            case Keys.weightKG: synced.set(weightKG, forKey: key)
+            case Keys.biologicalSex: synced.set(biologicalSex?.rawValue, forKey: key)
+            case Keys.activityLevel: synced.set(activityLevel?.rawValue, forKey: key)
+            default: break
+            }
+        }
+    }
+
+    /// Applies an edit made on another device.
+    ///
+    /// Scalars are last-writer-wins, which is what key-value storage already gives us.
+    /// The freeze ledger is not: it is merged, because two devices can each legitimately
+    /// have spent a freeze the other hasn't seen, and a plain overwrite would either lose
+    /// one or leave the month over its allowance.
+    private func applyRemoteChanges(_ keys: [String]) {
+        let changed = Set(keys)
+        var freezesToPublish: [String]?
+
+        isApplyingRemoteChange = true
+        if changed.contains(Keys.dailyGoalML), let goal = synced.int(forKey: Keys.dailyGoalML) {
+            dailyGoalML = goal
+        }
+        if changed.contains(Keys.measurementSystem),
+           let raw = synced.string(forKey: Keys.measurementSystem),
+           let system = MeasurementSystem(rawValue: raw) {
+            measurementSystem = system
+        }
+        if changed.contains(Keys.mascotSkin),
+           let raw = synced.string(forKey: Keys.mascotSkin),
+           let skin = MascotSkin(rawValue: raw) {
+            mascotSkin = skin
+        }
+        if changed.contains(Keys.weightKG) {
+            weightKG = synced.double(forKey: Keys.weightKG)
+        }
+        if changed.contains(Keys.biologicalSex) {
+            biologicalSex = synced.string(forKey: Keys.biologicalSex).flatMap(BiologicalSex.init(rawValue:))
+        }
+        if changed.contains(Keys.activityLevel) {
+            activityLevel = synced.string(forKey: Keys.activityLevel).flatMap(ActivityLevel.init(rawValue:))
+        }
+        if changed.contains(Keys.frozenStreakDayKeys) {
+            let remote = synced.stringArray(forKey: Keys.frozenStreakDayKeys) ?? []
+            let merged = StreakFreeze.merged(frozenStreakDayKeys, remote)
+            frozenStreakDayKeys = merged
+            // Only write back when the merge actually knows something iCloud doesn't;
+            // otherwise two devices would answer each other forever.
+            if merged != remote { freezesToPublish = merged }
+        }
+        isApplyingRemoteChange = false
+
+        if let freezesToPublish {
+            synced.set(freezesToPublish, forKey: Keys.frozenStreakDayKeys)
+        }
+        if changed.contains(Keys.dailyGoalML) {
+            // Pace-aware scheduling is keyed to the goal that just changed underneath it.
+            ReminderManager.shared.refreshSchedule()
+        }
     }
 }

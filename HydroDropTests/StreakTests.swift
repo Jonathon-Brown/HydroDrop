@@ -177,6 +177,44 @@ final class StreakTests: XCTestCase {
         )
     }
 
+    // MARK: - Merging two devices' ledgers
+
+    func testMergeIsAUnionAcrossDifferentMonths() {
+        XCTAssertEqual(
+            StreakFreeze.merged(["2026-07-04"], ["2026-08-12"]),
+            ["2026-07-04", "2026-08-12"]
+        )
+    }
+
+    /// Two devices that each spent "their" freeze in the same month must not end up with
+    /// two — the union is trimmed back to the monthly allowance.
+    func testMergeKeepsOnlyTheAllowanceWithinAMonth() {
+        let merged = StreakFreeze.merged(["2026-08-05"], ["2026-08-12"])
+        XCTAssertEqual(merged, ["2026-08-05"])
+        XCTAssertEqual(merged.count, StreakFreeze.monthlyAllowance)
+    }
+
+    /// Whichever device merges first has to reach the same answer, or the two will keep
+    /// correcting each other forever.
+    func testMergeIsOrderIndependentAndIdempotent() {
+        let a = ["2026-08-05", "2026-09-02"]
+        let b = ["2026-08-12", "2026-07-30"]
+        let forward = StreakFreeze.merged(a, b)
+        let backward = StreakFreeze.merged(b, a)
+        XCTAssertEqual(forward, backward)
+        XCTAssertEqual(StreakFreeze.merged(forward, backward), forward)
+    }
+
+    func testMergeDeduplicatesTheSameDay() {
+        XCTAssertEqual(StreakFreeze.merged(["2026-08-05"], ["2026-08-05"]), ["2026-08-05"])
+    }
+
+    func testMergeWithAnEmptyLedgerKeepsTheOther() {
+        XCTAssertEqual(StreakFreeze.merged([], ["2026-08-05"]), ["2026-08-05"])
+        XCTAssertEqual(StreakFreeze.merged(["2026-08-05"], []), ["2026-08-05"])
+        XCTAssertEqual(StreakFreeze.merged([], []), [])
+    }
+
     /// Regression: a freeze taken on the 1st in Tokyo was stored as an instant that fell
     /// in the previous month once read in Los Angeles, which handed out a second freeze
     /// in the same month.

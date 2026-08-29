@@ -7,6 +7,9 @@ struct HydroDropApp: App {
 
     init() {
         container = Self.makeContainer()
+        // Started here, not from AppSettings' own initialiser: the change handler calls
+        // back into AppSettings.shared, which must already exist by then.
+        AppSettings.shared.startCloudSync()
         WatchSessionManager.shared.activate(modelContainer: container)
     }
 
