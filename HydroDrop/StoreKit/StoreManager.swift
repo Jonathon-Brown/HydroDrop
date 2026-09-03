@@ -1,8 +1,5 @@
 import Foundation
 import StoreKit
-#if DEBUG
-import os
-#endif
 
 @MainActor
 final class StoreManager: ObservableObject {
@@ -13,45 +10,42 @@ final class StoreManager: ObservableObject {
         case yearly = "com.jonathonbrown.HydroDrop.plus.yearly"
     }
 
-    /// Outcome of the most recent product fetch. `unavailable` is distinct from `failed`:
-    /// StoreKit returns an empty array *without* throwing when products aren't purchasable
-    /// (still in review, agreements not in effect, storefront mismatch), and the paywall must
-    /// surface that as a resolved state rather than spinning forever.
-    enum ProductLoadState: Equatable {
+    /// Explicit lifecycle for the StoreKit product fetch so the UI can never
+    /// sit on an indefinite spinner. An empty result from the App Store is
+    /// treated as a failure, not as "loaded with nothing" — that empty-array
+    /// case is exactly what App Review saw on build 14.
+    enum ProductLoadState {
         case idle
         case loading
-        case loaded
-        case unavailable
+        case loaded([Product])
         case failed(String)
+
+        var products: [Product] {
+            if case .loaded(let products) = self { return products }
+            return []
+        }
+
+        var isLoaded: Bool {
+            if case .loaded = self { return true }
+            return false
+        }
     }
 
-    @Published private(set) var products: [Product] = []
-    @Published private(set) var productLoadState: ProductLoadState = .idle
-    /// Seeded from the last known entitlement so a paying user isn't shown the locked
-    /// app during the launch-time round trip. Corrected by `refreshEntitlement()` moments
-    /// later either way.
-    @Published private(set) var isSubscribed = EntitlementCache.isPlusActive
+    @Published private(set) var loadState: ProductLoadState = .idle
+    @Published private(set) var isSubscribed = false
     @Published private(set) var purchaseInProgress = false
     @Published var lastErrorMessage: String?
 
-    #if DEBUG
-    /// Why the most recent load produced no plans. Surfaced on the paywall in DEBUG builds.
-    @Published private(set) var diagnostic: String?
-    #endif
-
-    private static let productFetchTimeout: Duration = .seconds(15)
+    /// Convenience accessor so existing call sites keep working.
+    var products: [Product] { loadState.products }
 
     private var transactionListener: Task<Void, Never>?
-    private var loadTask: Task<Void, Never>?
 
     private init() {
         transactionListener = listenForTransactionUpdates()
         Task {
-            // Entitlement first. Behind the product fetch it inherited that fetch's
-            // 15-second timeout, which is how long the Watch app used to show its
-            // "subscribe on your iPhone" screen to people who already had.
-            await refreshEntitlement()
             await loadProducts()
+            await refreshEntitlement()
         }
     }
 
@@ -59,69 +53,21 @@ final class StoreManager: ObservableObject {
         transactionListener?.cancel()
     }
 
-    /// Coalesces concurrent callers onto a single in-flight fetch, so the paywall appearing
-    /// while the launch-time load is still running waits for that result instead of racing it.
     func loadProducts() async {
-        if let loadTask {
-            await loadTask.value
-            return
-        }
-        let task = Task { await performLoad() }
-        loadTask = task
-        await task.value
-        loadTask = nil
-    }
-
-    private func performLoad() async {
-        productLoadState = .loading
-        let ids = PlusProductID.allCases.map(\.rawValue)
+        loadState = .loading
         do {
-            let fetched = try await fetchProducts(ids: ids).sorted { $0.price < $1.price }
-            products = fetched
-            productLoadState = fetched.isEmpty ? .unavailable : .loaded
-            await recordDiagnostic(requested: ids, fetched: fetched, error: nil)
-        } catch {
-            products = []
-            productLoadState = .failed(error.localizedDescription)
-            await recordDiagnostic(requested: ids, fetched: [], error: error)
-        }
-    }
+            let ids = PlusProductID.allCases.map(\.rawValue)
+            let fetched = try await Product.products(for: ids).sorted { $0.price < $1.price }
 
-    /// The paywall shows one message for both `.unavailable` and `.failed`, which is right
-    /// for users and useless for debugging — an empty result and a thrown error look
-    /// identical on screen. This records what actually happened. DEBUG only.
-    private func recordDiagnostic(requested: [String], fetched: [Product], error: Error?) async {
-        #if DEBUG
-        var parts = ["got \(fetched.count)/\(requested.count)"]
-        // Storefront tells you which country's catalog answered; a product priced only in
-        // other regions comes back missing rather than as an error.
-        parts.append("storefront=\(await Storefront.current?.countryCode ?? "nil")")
-        parts.append("bundle=\(Bundle.main.bundleIdentifier ?? "nil")")
-        if let error {
-            let ns = error as NSError
-            parts.append("threw \(type(of: error)) \(ns.domain)#\(ns.code): \(error.localizedDescription)")
-        } else if fetched.isEmpty {
-            parts.append("empty, nothing thrown — StoreKit resolved the request and considers these IDs not purchasable here")
-        }
-        let text = parts.joined(separator: " · ")
-        diagnostic = text
-        Logger(subsystem: "com.jonathonbrown.HydroDrop", category: "skdiag")
-            .notice("[SKDIAG] \(text, privacy: .public)")
-        #endif
-    }
-
-    /// StoreKit has no built-in deadline, so race the fetch against one to guarantee the
-    /// paywall always leaves its loading state even on a stalled network.
-    private func fetchProducts(ids: [String]) async throws -> [Product] {
-        try await withThrowingTaskGroup(of: [Product].self) { group in
-            group.addTask { try await Product.products(for: ids) }
-            group.addTask {
-                try await Task.sleep(for: Self.productFetchTimeout)
-                throw StoreError.timedOut
+            if fetched.isEmpty {
+                loadState = .failed(
+                    "Subscription options couldn't be loaded from the App Store. Please check your connection and try again."
+                )
+            } else {
+                loadState = .loaded(fetched)
             }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else { return [] }
-            return first
+        } catch {
+            loadState = .failed(error.localizedDescription)
         }
     }
 
@@ -135,12 +81,7 @@ final class StoreManager: ObservableObject {
                 let transaction = try checkVerified(verification)
                 await transaction.finish()
                 await refreshEntitlement()
-            case .pending:
-                // Ask to Buy and other deferred approvals resolve later through
-                // `Transaction.updates`. Without a word here the button simply stops.
-                lastErrorMessage = "This purchase needs approval before it can finish. "
-                    + "HydroDrop+ unlocks as soon as it's approved."
-            case .userCancelled:
+            case .userCancelled, .pending:
                 break
             @unknown default:
                 break
@@ -159,22 +100,7 @@ final class StoreManager: ObservableObject {
         }
     }
 
-    /// Debug-only hook so screenshot automation can show the unlocked UI without a real
-    /// purchase. Compiled out of Release so shipping builds cannot be launched into an
-    /// entitled state.
-    private static var isScreenshotModeForcingSubscription: Bool {
-        #if DEBUG
-        ProcessInfo.processInfo.arguments.contains("-UITestForceSubscribed")
-        #else
-        false
-        #endif
-    }
-
     private func refreshEntitlement() async {
-        if Self.isScreenshotModeForcingSubscription {
-            isSubscribed = true
-            return
-        }
         var subscribed = false
         for await result in Transaction.currentEntitlements {
             if let transaction = try? checkVerified(result),
@@ -184,7 +110,6 @@ final class StoreManager: ObservableObject {
             }
         }
         isSubscribed = subscribed
-        EntitlementCache.isPlusActive = subscribed
     }
 
     private func listenForTransactionUpdates() -> Task<Void, Never> {
@@ -208,13 +133,6 @@ final class StoreManager: ObservableObject {
 
     enum StoreError: LocalizedError {
         case failedVerification
-        case timedOut
-
-        var errorDescription: String? {
-            switch self {
-            case .failedVerification: return "Could not verify this purchase."
-            case .timedOut: return "The App Store took too long to respond."
-            }
-        }
+        var errorDescription: String? { "Could not verify this purchase." }
     }
 }
