@@ -91,16 +91,21 @@ echo "Paywall honesty (2.3.1)"
 # Features that do NOT ship. Keep this list current — every entry here is a
 # claim the paywall must not make.
 #
-# Confirmed shipping and so removed from this list:
-#   build 15 — iCloud sync (cloudKitDatabase: .automatic + CloudKit
-#     entitlement), streak freeze (StreakFreeze.swift, applied in HomeView,
-#     surfaced in SettingsView), 30-day history, streak tracking.
-#   build 16 — mascot skins (MascotSkin.swift: 5 authored skins, charms
-#     rendered in MascotView.charmBackdrop/charmFill/charmForeground, gated
-#     via AppSettings.activeMascotSkin, picker in SettingsView); pace-aware
+# Confirmed shipping and so removed from this list. All of it ships in build
+# 15 — the binary behind the live 1.0 on the App Store:
+#   iCloud sync (cloudKitDatabase: .automatic + CloudKit entitlement), streak
+#     freeze (StreakFreeze.swift, applied in HomeView, surfaced in
+#     SettingsView), 30-day history, streak tracking.
+#   mascot skins (MascotSkin.swift: 5 authored skins, charms rendered in
+#     MascotView.charmBackdrop/charmFill/charmForeground, gated via
+#     AppSettings.activeMascotSkin, picker in SettingsView); pace-aware
 #     reminders (ReminderManager slot suppression on expectedFraction, fed
 #     live intake from HomeView, gated via AppSettings.smartRemindersActive).
 #     Both "pace-aware" and "Smart, pace" dropped — same shipping feature.
+#
+# These last two were previously filed here under "build 16". That was wrong:
+# build 16 changes only CURRENT_PROJECT_VERSION and adds this script, so its
+# HydroDrop/ tree is identical to build 15's and it ships nothing new.
 #
 # Still unshipped: alternate app icons. No setAlternateIconName call, no
 # CFBundleAlternateIcons in Info.plist, and a single AppIcon.appiconset.
