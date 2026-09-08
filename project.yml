@@ -39,6 +39,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jonathonbrown.HydroDrop
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # One alternate icon per paid mascot skin; AppIconManager switches between them.
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Sunrise AppIcon-Forest AppIcon-Grape AppIcon-Midnight"
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
         TARGETED_DEVICE_FAMILY: "1"

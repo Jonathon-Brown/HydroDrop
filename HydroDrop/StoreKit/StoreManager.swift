@@ -172,7 +172,10 @@ final class StoreManager: ObservableObject {
 
     private func refreshEntitlement() async {
         if Self.isScreenshotModeForcingSubscription {
+            // Seed the cache too, or the forced entitlement disagrees with everything
+            // that gates on `EntitlementCache` — skins, smart reminders, the app icon.
             isSubscribed = true
+            EntitlementCache.isPlusActive = true
             return
         }
         var subscribed = false

@@ -107,15 +107,17 @@ echo "Paywall honesty (2.3.1)"
 # build 16 changes only CURRENT_PROJECT_VERSION and adds this script, so its
 # HydroDrop/ tree is identical to build 15's and it ships nothing new.
 #
-# Still unshipped: alternate app icons. No setAlternateIconName call, no
-# CFBundleAlternateIcons in Info.plist, and a single AppIcon.appiconset.
-UNSHIPPED=("custom app icons")
+# Alternate app icons shipped in 1.1: one AppIcon-<Skin>.appiconset per paid
+# skin, registered via ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES and switched
+# by AppIconManager. Nothing on the paywall is unshipped at the moment; add a
+# quoted phrase here the day a claim gets ahead of the code again.
+UNSHIPPED=()
 FOUND_UNSHIPPED=0
 if [[ -f "$PAYWALL" ]]; then
   # Strip comment-only lines first. A comment explaining why a feature was
   # removed is not a claim to the user, and flagging it is a false positive.
   PAYWALL_CODE=$(grep -vE '^[[:space:]]*(//|\*|/\*)' "$PAYWALL")
-  for claim in "${UNSHIPPED[@]}"; do
+  for claim in ${UNSHIPPED[@]+"${UNSHIPPED[@]}"}; do
     if printf '%s\n' "$PAYWALL_CODE" | grep -qi "$claim"; then
       fail "paywall still advertises '$claim' — not in the binary"
       FOUND_UNSHIPPED=1

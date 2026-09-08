@@ -12,7 +12,7 @@ private struct PlusFeature {
         .init(title: "Apple Watch app", icon: "applewatch"),
         .init(title: "Streak freeze — protect a missed day", icon: "snowflake"),
         .init(title: "Smart, pace-aware reminders", icon: "bell.badge.fill"),
-        .init(title: "Four more mascots, each with its own charm", icon: "paintpalette.fill"),
+        .init(title: "Four more mascots, each with a matching app icon", icon: "paintpalette.fill"),
         .init(title: "Support indie development", icon: "heart.fill"),
     ]
 }

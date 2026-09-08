@@ -67,6 +67,10 @@ enum MascotSkin: String, CaseIterable, Identifiable {
     /// Only `classic` is available without a subscription.
     var requiresPlus: Bool { self != .classic }
 
+    /// The alternate app icon set that matches this skin, or nil for the primary icon.
+    /// Names must match `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES` in project.yml.
+    var appIconName: String? { self == .classic ? nil : "AppIcon-\(label)" }
+
     var label: String {
         switch self {
         case .classic: return "Classic"
