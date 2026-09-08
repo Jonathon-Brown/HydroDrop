@@ -181,7 +181,9 @@ else
   [[ -z "$EXPECTED_TEAM" ]] && warn "set HYDRODROP_TEAM_ID to have this verified"
 fi
 
-BUILD=$(grep -A2 'CFBundleVersion' project.yml 2>/dev/null | grep -oE '"[0-9]+"' | tr -d '"' | head -1)
+# project.yml sets CFBundleVersion to $(CURRENT_PROJECT_VERSION); the pinned number
+# lives on the CURRENT_PROJECT_VERSION line itself.
+BUILD=$(grep -E '^[[:space:]]*CURRENT_PROJECT_VERSION:' project.yml 2>/dev/null | grep -oE '"[0-9]+"' | tr -d '"' | head -1)
 if [[ -z "$BUILD" ]]; then
   warn "CFBundleVersion is not pinned in project.yml — XcodeGen may reset it"
   PLIST_BUILD=$(plutil -extract CFBundleVersion raw HydroDrop/Info.plist 2>/dev/null)
