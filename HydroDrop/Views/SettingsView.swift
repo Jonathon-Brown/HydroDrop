@@ -19,14 +19,7 @@ struct SettingsView: View {
                         Label("HydroDrop+ is active", systemImage: "checkmark.seal.fill")
                             .foregroundStyle(.green)
                         Button("Manage Subscription") {
-                            Task {
-                                guard let scene = UIApplication.shared.connectedScenes
-                                    .compactMap({ $0 as? UIWindowScene })
-                                    .first(where: { $0.activationState == .foregroundActive })
-                                    ?? UIApplication.shared.connectedScenes
-                                        .compactMap({ $0 as? UIWindowScene }).first else { return }
-                                try? await AppStore.showManageSubscriptions(in: scene)
-                            }
+                            Task { await presentManageSubscriptions() }
                         }
                     } else {
                         Button {
@@ -221,6 +214,22 @@ struct SettingsView: View {
             .sheet(isPresented: $showingGoalCalculator) {
                 GoalCalculatorView()
             }
+            // Same alert the paywall shows for purchase and restore failures. Gated on
+            // the entitlement because only the subscribed branch of this screen can set
+            // the message (Manage Subscription); the paywall sheet presents its own copy
+            // for the unsubscribed flows, and two views presenting the same error at
+            // once is one too many.
+            .alert(
+                "Something went wrong",
+                isPresented: Binding(
+                    get: { store.isSubscribed && store.lastErrorMessage != nil },
+                    set: { if !$0 { store.lastErrorMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { store.lastErrorMessage = nil }
+            } message: {
+                Text(store.lastErrorMessage ?? "")
+            }
         }
     }
 
@@ -235,6 +244,43 @@ struct SettingsView: View {
         } else {
             settings.mascotSkin = skin
         }
+    }
+
+    /// Presents the App Store's manage-subscriptions sheet. Both ways this used to fail
+    /// were silent: `try?` dropped whatever the sheet threw, and a missing window scene
+    /// returned without a word — the "button does nothing" reported against 1.0 and
+    /// 1.0.1. Errors now surface through `store.lastErrorMessage`, the alert path the
+    /// paywall already uses, and with no scene to host the sheet the same page opens in
+    /// the App Store app instead.
+    @MainActor
+    private func presentManageSubscriptions() async {
+        guard let scene = activeWindowScene else {
+            await openSubscriptionsInAppStore()
+            return
+        }
+        do {
+            try await AppStore.showManageSubscriptions(in: scene)
+        } catch {
+            store.lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// The foreground scene when there is one, otherwise any connected window scene.
+    private var activeWindowScene: UIWindowScene? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+    }
+
+    /// Fallback for when no window scene can host the sheet: the same subscriptions
+    /// page, opened in the App Store app.
+    @MainActor
+    private func openSubscriptionsInAppStore() async {
+        if let url = URL(string: "https://apps.apple.com/account/subscriptions"),
+           await UIApplication.shared.open(url) {
+            return
+        }
+        store.lastErrorMessage = "Couldn't open your subscriptions. "
+            + "You can manage them in Settings > Apple Account > Subscriptions."
     }
 
     private var appVersionLabel: String {
