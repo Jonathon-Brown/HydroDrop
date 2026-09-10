@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HydroDrop — Water tracker with a droplet mascot</title>
+<meta name="description" content="Track your water with a droplet that goes from parched to overjoyed as you reach your daily goal. One-tap logging, streaks, reminders, and an Apple Watch companion. No account, no ads.">
+
+<!-- Shows Apple's Smart App Banner at the top of the page in Safari on iOS -->
+<meta name="apple-itunes-app" content="app-id=6793399317">
+
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://jonathon-brown.github.io/HydroDrop/">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="HydroDrop">
+<meta property="og:title" content="HydroDrop — Water tracker with a droplet mascot">
+<meta property="og:description" content="Track your water with a droplet that goes from parched to overjoyed as you reach your daily goal. No account, no ads.">
+<meta property="og:url" content="https://jonathon-brown.github.io/HydroDrop/">
+<!-- og:image intentionally omitted. Once you have a real image in docs/, add:
+     <meta property="og:image" content="https://jonathon-brown.github.io/HydroDrop/YOUR-FILE.png"> -->
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 120'%3E%3Cpath fill='%232E8FED' d='M50 6C56 34 96 44 96 72A46 46 0 0 1 4 72C4 44 44 34 50 6Z'/%3E%3C/svg%3E">
+
+<style>
+  :root {
+    color-scheme: light dark;
+    --text: #1c1c1e;
+    --muted: #3a3a3c;
+    --faint: #6e6e73;
+    --bg: #ffffff;
+    --surface: #f2f2f7;
+    --line: #d1d1d6;
+    --link: #0a7cff;
+    --link-pressed: #006ae6;
+    --warn-line: #ff9f0a;
+    --warn-text: #b25000;
+
+    /* Mascot mood colors, from MascotMood in MascotView.swift */
+    --parched: #bfc7cc;
+    --thirsty: #99c7eb;
+    --content: #59adeb;
+    --happy: #2e8fed;
+    --overjoyed: #1a73f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --text: #f2f2f7;
+      --muted: #c7c7cc;
+      --faint: #8e8e93;
+      --bg: #000000;
+      --surface: #1c1c1e;
+      --line: #38383a;
+      --warn-text: #ff9f0a;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  a { color: var(--link); }
+  a:focus-visible {
+    outline: 3px solid var(--link);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  h1, h2 { line-height: 1.15; }
+  h2 {
+    font-size: 1.4rem;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.5rem;
+  }
+  p { margin: 0 0 1rem; }
+
+  main > section { margin-top: 80px; }
+
+  /* ---------- Hero ---------- */
+  .hero { text-align: center; }
+
+  .hero-drop {
+    display: block;
+    width: 132px;
+    height: auto;
+    margin: 0 auto 28px;
+    overflow: visible;
+    color: var(--overjoyed);
+    filter: drop-shadow(0 10px 14px rgba(26, 115, 242, 0.3));
+  }
+  .hero-drop .mouth { opacity: 0; }
+  .hero-drop .m5 { opacity: 1; }
+
+  .hero h1 {
+    font-size: 2.75rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin: 0 0 0.6rem;
+  }
+  .pitch {
+    font-size: 1.25rem;
+    line-height: 1.45;
+    color: var(--muted);
+    max-width: 26ch;
+    margin: 0 auto 32px;
+  }
+  .hero-note {
+    font-size: 0.9rem;
+    color: var(--faint);
+    margin: 16px 0 0;
+  }
+
+  .cta {
+    display: inline-block;
+    padding: 15px 30px;
+    border-radius: 14px;
+    background: var(--link);
+    color: #fff;
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1.2;
+    text-decoration: none;
+    text-wrap: balance; /* if it ever wraps on very narrow screens, split evenly */
+  }
+  .cta:hover { background: var(--link-pressed); }
+  .cta:active { transform: scale(0.98); }
+  .cta:focus-visible {
+    outline: 3px solid var(--link);
+    outline-offset: 4px;
+    border-radius: 14px;
+  }
+
+  /* ---------- Droplet mouths ---------- */
+  .mouth {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 3.4;
+    stroke-linecap: round;
+  }
+
+  /* One load-time moment: the hero droplet walks through all five moods,
+     then settles on overjoyed. Skipped entirely for reduced motion. */
+  @media (prefers-reduced-motion: no-preference) {
+    .hero-drop { animation: mood-color 3.2s ease-in-out 0.6s both; }
+    .hero-drop .mouth { animation-duration: 3.2s; animation-delay: 0.6s; animation-fill-mode: both; animation-timing-function: linear; }
+    .hero-drop .m1 { animation-name: m1; }
+    .hero-drop .m2 { animation-name: m2; }
+    .hero-drop .m3 { animation-name: m3; }
+    .hero-drop .m4 { animation-name: m4; }
+    .hero-drop .m5 { animation-name: m5; }
+  }
+  @keyframes mood-color {
+    0%, 18%   { color: #bfc7cc; }
+    22%, 43%  { color: #99c7eb; }
+    47%, 68%  { color: #59adeb; }
+    72%, 93%  { color: #2e8fed; }
+    97%, 100% { color: #1a73f2; }
+  }
+  @keyframes m1 { 0%, 18% { opacity: 1; } 22%, 100% { opacity: 0; } }
+  @keyframes m2 { 0%, 18% { opacity: 0; } 22%, 43% { opacity: 1; } 47%, 100% { opacity: 0; } }
+  @keyframes m3 { 0%, 43% { opacity: 0; } 47%, 68% { opacity: 1; } 72%, 100% { opacity: 0; } }
+  @keyframes m4 { 0%, 68% { opacity: 0; } 72%, 93% { opacity: 1; } 97%, 100% { opacity: 0; } }
+  @keyframes m5 { 0%, 93% { opacity: 0; } 97%, 100% { opacity: 1; } }
+
+  /* ---------- Moods ---------- */
+  .moods {
+    list-style: none;
+    margin: 28px 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    text-align: center;
+    font-size: clamp(0.68rem, 3.2vw, 0.85rem);
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .moods svg {
+    display: block;
+    width: 100%;
+    max-width: 60px;
+    height: auto;
+    margin: 0 auto 8px;
+    overflow: visible;
+  }
+  .mood-track {
+    height: 6px;
+    margin: 14px 10% 0;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--parched), var(--thirsty), var(--content), var(--happy), var(--overjoyed));
+  }
+  .mood-ends {
+    display: flex;
+    justify-content: space-between;
+    margin: 6px 10% 0;
+    font-size: 0.75rem;
+    color: var(--faint);
+  }
+
+  /* ---------- Screenshots ---------- */
+  .shots {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 58%;
+    gap: 12px;
+    margin: 24px -24px 0;
+    padding: 0 24px 8px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 24px;
+    scrollbar-width: none;
+  }
+  .shots::-webkit-scrollbar { display: none; }
+
+  .shot {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1290 / 2796;
+    border-radius: 24px;
+    object-fit: cover;
+    scroll-snap-align: start;
+  }
+  .shot-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 16px;
+    border: 2px dashed var(--warn-line);
+    background: var(--surface);
+    text-align: center;
+    font-size: 0.85rem;
+    line-height: 1.35;
+    color: var(--faint);
+  }
+  .shot-placeholder strong { color: var(--warn-text); }
+
+  @media (min-width: 600px) {
+    .shots {
+      grid-auto-flow: row;
+      grid-template-columns: repeat(3, 1fr);
+      margin: 24px 0 0;
+      padding: 0;
+      overflow: visible;
+    }
+  }
+
+  /* ---------- Feature lists ---------- */
+  .features {
+    display: grid;
+    gap: 0 28px;
+    margin: 20px 0 0;
+  }
+  .features > div {
+    padding: 14px 0 16px;
+    border-top: 1px solid var(--line);
+  }
+  .features dt { font-weight: 600; }
+  .features dd {
+    margin: 2px 0 0;
+    color: var(--muted);
+  }
+  @media (min-width: 560px) {
+    .features { grid-template-columns: 1fr 1fr; }
+  }
+
+  /* ---------- HydroDrop+ ---------- */
+  .plus {
+    padding: 32px 24px 24px;
+    border-radius: 22px;
+    background: var(--surface);
+  }
+  .plus h2 { font-size: 1.6rem; }
+  .price {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0;
+  }
+  .plus .features > div { border-top-color: var(--line); }
+  .fine {
+    margin: 12px 0 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--faint);
+  }
+
+  /* ---------- Closing ---------- */
+  .closing { text-align: center; }
+  .closing h2 {
+    font-size: 1.75rem;
+    margin-bottom: 20px;
+  }
+
+  /* ---------- Footer ---------- */
+  .site-footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 0.85rem;
+    color: var(--faint);
+  }
+  .site-footer nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    margin-bottom: 12px;
+    font-size: 0.95rem;
+  }
+  .site-footer p { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+
+<!-- Shared droplet body (shape, highlight, eyes). Fill follows CSS `color`. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="drop-body" viewBox="0 0 100 120">
+      <path d="M50 6C56 34 96 44 96 72A46 46 0 0 1 4 72C4 44 44 34 50 6Z" fill="currentColor"/>
+      <ellipse cx="32" cy="58" rx="6.5" ry="10" fill="#fff" fill-opacity=".35"/>
+      <circle cx="37.5" cy="80" r="5" fill="#fff"/>
+      <circle cx="62.5" cy="80" r="5" fill="#fff"/>
+      <circle cx="37.5" cy="80" r="2.6" fill="#000" fill-opacity=".85"/>
+      <circle cx="62.5" cy="80" r="2.6" fill="#000" fill-opacity=".85"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="hero">
+  <svg class="hero-drop" viewBox="0 0 100 120" role="img" aria-label="The HydroDrop droplet mascot">
+    <use href="#drop-body"/>
+    <path class="mouth m1" d="M34 95Q50 87 66 95"/>
+    <path class="mouth m2" d="M34 95Q50 92 66 95"/>
+    <path class="mouth m3" d="M34 95Q50 98 66 95"/>
+    <path class="mouth m4" d="M34 95Q50 103 66 95"/>
+    <path class="mouth m5" d="M34 95Q50 107 66 95"/>
+  </svg>
+
+  <h1>HydroDrop</h1>
+  <p class="pitch">A water tracker with a droplet that gets happier as you drink.</p>
+
+  <a class="cta" href="https://apps.apple.com/app/id6793399317">Download on the App Store</a>
+  <p class="hero-note">No account. No ads. Your data stays on your device.</p>
+</header>
+
+<main>
+
+  <section aria-labelledby="moods-title">
+    <h2 id="moods-title">Your droplet shows how you're doing</h2>
+    <p>It starts the day parched. Every drink you log moves it along, and once you reach your daily goal it's overjoyed.</p>
+
+    <ol class="moods">
+      <li>
+        <svg viewBox="0 0 100 120" style="color:#bfc7cc" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 87 66 95"/></svg>
+        Parched
+      </li>
+      <li>
+        <svg viewBox="0 0 100 120" style="color:#99c7eb" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 92 66 95"/></svg>
+        Thirsty
+      </li>
+      <li>
+        <svg viewBox="0 0 100 120" style="color:#59adeb" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 98 66 95"/></svg>
+        Content
+      </li>
+      <li>
+        <svg viewBox="0 0 100 120" style="color:#2e8fed" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 103 66 95"/></svg>
+        Happy
+      </li>
+      <li>
+        <svg viewBox="0 0 100 120" style="color:#1a73f2" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 107 66 95"/></svg>
+        Overjoyed
+      </li>
+    </ol>
+    <div class="mood-track" aria-hidden="true"></div>
+    <div class="mood-ends" aria-hidden="true"><span>Nothing logged</span><span>Goal reached</span></div>
+  </section>
+
+  <!-- =====================================================================
+       SCREENSHOT PLACEHOLDERS — replace before using this as the Marketing URL.
+
+       For each placeholder <div class="shot shot-placeholder">…</div>, swap in:
+         <img class="shot" src="YOUR-FILE.png" alt="Describe what the screen shows" loading="lazy">
+       Put the image files inside docs/ so GitHub Pages serves them.
+
+       The frame's aspect ratio is set for a 1290 × 2796 iPhone screenshot; if yours
+       differ, change `aspect-ratio` on .shot in the <style> block.
+
+       Prefer to launch without screenshots? Delete this whole <section>.
+       ===================================================================== -->
+  <section aria-labelledby="shots-title">
+    <h2 id="shots-title">A look inside</h2>
+    <div class="shots">
+      <div class="shot shot-placeholder">
+        <strong>Screenshot placeholder</strong>
+        <span>Suggested: Today screen</span>
+      </div>
+      <div class="shot shot-placeholder">
+        <strong>Screenshot placeholder</strong>
+        <span>Suggested: History</span>
+      </div>
+      <div class="shot shot-placeholder">
+        <strong>Screenshot placeholder</strong>
+        <span>Suggested: Mascot skins</span>
+      </div>
+    </div>
+  </section>
+  <!-- ===================== END SCREENSHOT PLACEHOLDERS ===================== -->
+
+  <section aria-labelledby="features-title">
+    <h2 id="features-title">What's in the app</h2>
+    <dl class="features">
+      <div>
+        <dt>One-tap logging</dt>
+        <dd>Log a drink in a single tap with quick-add presets.</dd>
+      </div>
+      <div>
+        <dt>Streaks</dt>
+        <dd>Reach your goal day after day and keep your streak going.</dd>
+      </div>
+      <div>
+        <dt>7-day history</dt>
+        <dd>See how your past week went.</dd>
+      </div>
+      <div>
+        <dt>Reminders on your schedule</dt>
+        <dd>Nudges at the interval you choose, only during your waking hours.</dd>
+      </div>
+      <div>
+        <dt>Apple Watch companion</dt>
+        <dd>Keep HydroDrop on your wrist with the Apple Watch app.</dd>
+      </div>
+      <div>
+        <dt>Private by default</dt>
+        <dd>No account and no ads. Your data stays on your device.</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="plus" aria-labelledby="plus-title">
+    <h2 id="plus-title">HydroDrop+</h2>
+    <p class="price">$1.99 a month or $14.99 a year</p>
+    <dl class="features">
+      <div>
+        <dt>Full history and trends</dt>
+        <dd>Look back over 30 days instead of 7.</dd>
+      </div>
+      <div>
+        <dt>Streak freeze</dt>
+        <dd>Protect your streak when you miss a day.</dd>
+      </div>
+      <div>
+        <dt>Pace-aware reminders</dt>
+        <dd>Nudges that account for how you're pacing toward today's goal.</dd>
+      </div>
+      <!-- CHECK BEFORE PUBLISHING: keep "matching Home Screen icon" only if
+           alternate app icons are in a build that's live on the App Store. -->
+      <div>
+        <dt>Mascot skins</dt>
+        <dd>Dress your droplet in Sunrise, Forest, Grape, or Midnight, each with a matching Home Screen icon.</dd>
+      </div>
+      <div>
+        <dt>iCloud sync</dt>
+        <dd>Keep your log in sync across your devices through your own iCloud account.</dd>
+      </div>
+    </dl>
+    <p class="fine">Prices shown in US dollars and may vary by country or region. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple ID settings.</p>
+  </section>
+
+  <section class="closing" aria-labelledby="closing-title">
+    <h2 id="closing-title">Start your streak today</h2>
+    <a class="cta" href="https://apps.apple.com/app/id6793399317">Download on the App Store</a>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <nav aria-label="Support and legal">
+    <a href="support.html">Support</a>
+    <a href="privacy.html">Privacy Policy</a>
+  </nav>
+  <p>© 2026 Jonathon Brown</p>
+  <p>Apple Watch, iCloud, and App Store are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
+</footer>
+
+</body>
+</html>
