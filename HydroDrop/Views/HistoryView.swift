@@ -94,7 +94,7 @@ struct HistoryView: View {
             }
             .navigationTitle("History")
             .sheet(isPresented: $showingPaywall) {
-                PaywallView()
+                PaywallView(source: .historyBanner)
             }
         }
     }

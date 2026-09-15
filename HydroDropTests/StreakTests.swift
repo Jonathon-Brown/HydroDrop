@@ -154,6 +154,59 @@ final class StreakTests: XCTestCase {
         XCTAssertNil(dayToProtect([("2026-08-19", 2000), ("2026-08-18", 2000)], frozen: [first!]))
     }
 
+    // MARK: - Lost streak (free-user notice)
+
+    private func lostStreak(
+        _ days: [(String, Int)],
+        frozen: [String] = [],
+        now: String = "2026-08-21T18:00:00Z"
+    ) -> StreakFreeze.LostStreak? {
+        StreakFreeze.lostStreakAFreezeWouldHaveSaved(
+            entries: entries(days),
+            goalML: goal,
+            frozenDayKeys: frozen,
+            now: date(now),
+            calendar: calendar("America/New_York")
+        )
+    }
+
+    func testReportsTheStreakThatEndedYesterday() {
+        XCTAssertEqual(
+            lostStreak([("2026-08-19", 2000), ("2026-08-18", 2000), ("2026-08-17", 2000)]),
+            StreakFreeze.LostStreak(missedDayKey: "2026-08-20", length: 3)
+        )
+    }
+
+    func testLostStreakMatchesWhenAFreezeWouldHaveBeenSpent() {
+        let days = [("2026-08-19", 2000), ("2026-08-18", 2000)]
+        XCTAssertEqual(lostStreak(days)?.missedDayKey, dayToProtect(days))
+    }
+
+    func testIgnoresAOneDayStreak() {
+        XCTAssertNil(lostStreak([("2026-08-19", 2000)]))
+    }
+
+    func testNoLostStreakWhenYesterdayMetTheGoal() {
+        XCTAssertNil(lostStreak([("2026-08-20", 2000), ("2026-08-19", 2000), ("2026-08-18", 2000)]))
+    }
+
+    func testNoLostStreakWhenYesterdayWasFrozen() {
+        XCTAssertNil(lostStreak([("2026-08-19", 2000), ("2026-08-18", 2000)], frozen: ["2026-08-20"]))
+    }
+
+    /// Two days late, a freeze could no longer have helped, so the notice must not claim it.
+    func testNoLostStreakOnceTheMissIsOlderThanYesterday() {
+        XCTAssertNil(lostStreak([("2026-08-18", 2000), ("2026-08-17", 2000)]))
+    }
+
+    /// Logging today doesn't undo yesterday's miss; the notice still applies.
+    func testTodaysProgressDoesNotHideTheLostStreak() {
+        XCTAssertEqual(
+            lostStreak([("2026-08-21", 2500), ("2026-08-19", 2000), ("2026-08-18", 2000)])?.length,
+            2
+        )
+    }
+
     func testAllowanceIsOnePerCalendarMonth() {
         XCTAssertEqual(StreakFreeze.freezesRemaining(frozenDayKeys: [], now: date("2026-08-21T18:00:00Z")), 1)
         XCTAssertEqual(

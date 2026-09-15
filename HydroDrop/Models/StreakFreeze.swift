@@ -69,4 +69,50 @@ enum StreakFreeze {
         let hadStreak = (totals[dayBefore] ?? 0) >= goalML || frozenDayKeys.contains(dayBefore)
         return hadStreak ? yesterday : nil
     }
+
+    /// A streak that ended yesterday and that a freeze would have carried through.
+    struct LostStreak: Equatable {
+        /// The missed day, which is also what a dismissal of the notice is keyed to.
+        let missedDayKey: String
+        /// How long the streak was when it ended.
+        let length: Int
+    }
+
+    /// The streak a free user just lost that a HydroDrop+ freeze would have saved, or nil.
+    ///
+    /// The same situation `dayToProtect` spends a freeze on, minus the entitlement and the
+    /// allowance: yesterday missed, not already frozen, with a streak behind it. Holding
+    /// to the same rule is what keeps "a freeze would have saved it" true — and, because
+    /// only yesterday ever qualifies, the claim expires on the same day a real freeze would.
+    ///
+    /// `minimumLength` is a presentation threshold, not a freeze rule: a subscriber's
+    /// freeze protects a one-day streak too, but telling someone their one-day streak
+    /// ended reads as a nag.
+    static func lostStreakAFreezeWouldHaveSaved(
+        entries: [WaterEntry],
+        goalML: Int,
+        frozenDayKeys: [String],
+        minimumLength: Int = 2,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> LostStreak? {
+        guard goalML > 0 else { return nil }
+        guard let yesterday = DayKey.previousDayKey(before: now, calendar: calendar),
+              !frozenDayKeys.contains(yesterday),
+              let yesterdayDate = DayKey.date(from: yesterday, calendar: calendar) else { return nil }
+
+        let totals = StreakCalculator.totalsByDay(entries, calendar: calendar)
+        guard (totals[yesterday] ?? 0) < goalML else { return nil }
+
+        // Evaluated as of yesterday, an unmet yesterday is treated as in progress, so this
+        // counts the run that ended the day before — the streak that was lost.
+        let length = StreakCalculator.currentStreak(
+            entries: entries,
+            goalML: goalML,
+            frozenDayKeys: frozenDayKeys,
+            now: yesterdayDate,
+            calendar: calendar
+        )
+        return length >= max(minimumLength, 1) ? LostStreak(missedDayKey: yesterday, length: length) : nil
+    }
 }

@@ -125,7 +125,15 @@ final class StoreManager: ObservableObject {
         }
     }
 
-    func purchase(_ product: Product) async {
+    enum PurchaseOutcome {
+        case succeeded
+        case pending
+        case cancelled
+        case failed
+    }
+
+    @discardableResult
+    func purchase(_ product: Product) async -> PurchaseOutcome {
         purchaseInProgress = true
         defer { purchaseInProgress = false }
         do {
@@ -135,18 +143,21 @@ final class StoreManager: ObservableObject {
                 let transaction = try checkVerified(verification)
                 await transaction.finish()
                 await refreshEntitlement()
+                return .succeeded
             case .pending:
                 // Ask to Buy and other deferred approvals resolve later through
                 // `Transaction.updates`. Without a word here the button simply stops.
                 lastErrorMessage = "This purchase needs approval before it can finish. "
                     + "HydroDrop+ unlocks as soon as it's approved."
+                return .pending
             case .userCancelled:
-                break
+                return .cancelled
             @unknown default:
-                break
+                return .cancelled
             }
         } catch {
             lastErrorMessage = error.localizedDescription
+            return .failed
         }
     }
 

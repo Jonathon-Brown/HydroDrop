@@ -7,7 +7,8 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject private var store = StoreManager.shared
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
-    @State private var showingPaywall = false
+    @State private var paywallSource: PaywallSource?
+    @State private var showingEventCounts = false
     @State private var showingBugReport = false
     @State private var showingGoalCalculator = false
 
@@ -23,7 +24,7 @@ struct SettingsView: View {
                         }
                     } else {
                         Button {
-                            showingPaywall = true
+                            paywallSource = .settingsRow
                         } label: {
                             Label("Upgrade to HydroDrop+", systemImage: "sparkles")
                         }
@@ -133,7 +134,7 @@ struct SettingsView: View {
                             Toggle("Smart reminders", isOn: $settings.smartRemindersEnabled)
                         } else {
                             Button {
-                                showingPaywall = true
+                                paywallSource = .settingsLockedReminder
                             } label: {
                                 HStack {
                                     Text("Smart reminders")
@@ -194,6 +195,16 @@ struct SettingsView: View {
                 Section("About") {
                     LabeledContent("App", value: "HydroDrop")
                     LabeledContent("Version", value: appVersionLabel)
+                        .contentShape(Rectangle())
+                        // Hidden way into the on-device paywall counts. Does nothing in
+                        // App Store builds; see `EventCountsView.isAvailable`.
+                        .onLongPressGesture(minimumDuration: 1.5) {
+                            Task {
+                                if await EventCountsView.isAvailable {
+                                    showingEventCounts = true
+                                }
+                            }
+                        }
                 }
             }
             .navigationTitle("Settings")
@@ -205,8 +216,11 @@ struct SettingsView: View {
                 // schedule matches the permission the user actually left us with.
                 ReminderManager.shared.refreshSchedule()
             }
-            .sheet(isPresented: $showingPaywall) {
-                PaywallView()
+            .sheet(item: $paywallSource) { source in
+                PaywallView(source: source)
+            }
+            .sheet(isPresented: $showingEventCounts) {
+                EventCountsView()
             }
             .sheet(isPresented: $showingBugReport) {
                 BugReportView()
@@ -240,7 +254,7 @@ struct SettingsView: View {
     /// Locked skins send the user to the paywall rather than silently doing nothing.
     private func selectSkin(_ skin: MascotSkin) {
         if skin.requiresPlus && !store.isSubscribed {
-            showingPaywall = true
+            paywallSource = .settingsLockedSkin
         } else {
             settings.mascotSkin = skin
         }

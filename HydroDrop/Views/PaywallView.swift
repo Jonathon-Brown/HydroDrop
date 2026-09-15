@@ -17,7 +17,22 @@ private struct PlusFeature {
     ]
 }
 
+/// Where the paywall was opened from. The raw values are the names `EventCounter` files
+/// impressions under, so renaming a case resets its count.
+enum PaywallSource: String, CaseIterable, Identifiable {
+    case settingsRow = "settings-row"
+    case settingsLockedReminder = "settings-locked-reminder"
+    case settingsLockedSkin = "settings-locked-skin"
+    case historyBanner = "history-banner"
+    case todayEntryPoint = "today-entry-point"
+    case streakBreakMessage = "streak-break-message"
+
+    var id: String { rawValue }
+}
+
 struct PaywallView: View {
+    let source: PaywallSource
+
     @ObservedObject private var store = StoreManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var selectedProductID: String?
@@ -103,6 +118,16 @@ struct PaywallView: View {
                 Button("OK", role: .cancel) { store.lastErrorMessage = nil }
             } message: {
                 Text(store.lastErrorMessage ?? "")
+            }
+        }
+        .onAppear {
+            EventCounter.record(.paywallShown(source))
+        }
+        // A successful purchase or restore dismisses the sheet by flipping the entitlement,
+        // so reaching here still unsubscribed means the user closed it (Close or swipe).
+        .onDisappear {
+            if !store.isSubscribed {
+                EventCounter.record(.paywallDismissedWithoutPurchase)
             }
         }
     }
@@ -247,7 +272,15 @@ struct PaywallView: View {
     private var purchaseButton: some View {
         Button {
             guard let product = selectedProduct else { return }
-            Task { await store.purchase(product) }
+            EventCounter.record(.purchaseAttempted)
+            Task {
+                switch await store.purchase(product) {
+                case .succeeded: EventCounter.record(.purchaseSucceeded)
+                case .pending: EventCounter.record(.purchasePending)
+                case .cancelled: EventCounter.record(.purchaseCancelled)
+                case .failed: EventCounter.record(.purchaseFailed)
+                }
+            }
         } label: {
             if store.purchaseInProgress {
                 ProgressView().tint(.white)
@@ -266,5 +299,5 @@ struct PaywallView: View {
 }
 
 #Preview {
-    PaywallView()
+    PaywallView(source: .settingsRow)
 }

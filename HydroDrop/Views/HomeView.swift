@@ -9,6 +9,13 @@ struct HomeView: View {
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
 
     @State private var showingAddSheet = false
+    @State private var paywallSource: PaywallSource?
+
+    /// The missed day whose streak-break notice was closed, and the one whose impression
+    /// has been counted. Device-local on purpose — plain `UserDefaults`, not the iCloud
+    /// store — and keyed by day so each broken streak is announced once, not every launch.
+    @AppStorage("streakBreakNotice.dismissedDayKey") private var dismissedStreakNoticeDayKey = ""
+    @AppStorage("streakBreakNotice.countedDayKey") private var countedStreakNoticeDayKey = ""
 
     private var todayEntries: [WaterEntry] {
         allEntries.filter { Calendar.current.isDateInToday($0.timestamp) }
@@ -38,11 +45,32 @@ struct HomeView: View {
         return settings.frozenStreakDayKeys.contains(yesterday)
     }
 
+    /// A streak a free user lost yesterday that a freeze would have saved, unless they've
+    /// already closed the notice for it.
+    ///
+    /// Derived rather than stored, so it corrects itself: if the entitlement or a synced
+    /// freeze lands a moment after launch, the subscriber's freeze is spent and this
+    /// becomes nil before anyone has read it.
+    private var visibleLostStreak: StreakFreeze.LostStreak? {
+        guard !store.isSubscribed else { return nil }
+        guard let lost = StreakFreeze.lostStreakAFreezeWouldHaveSaved(
+            entries: allEntries,
+            goalML: settings.dailyGoalML,
+            frozenDayKeys: settings.frozenStreakDayKeys
+        ) else { return nil }
+        return lost.missedDayKey == dismissedStreakNoticeDayKey ? nil : lost
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
                     streakBadge
+
+                    if let lost = visibleLostStreak {
+                        streakBreakNotice(lost)
+                            .transition(.opacity)
+                    }
 
                     VStack(spacing: 2) {
                         MascotView(progress: progress, size: 150, skin: settings.activeMascotSkin)
@@ -52,6 +80,10 @@ struct HomeView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .animation(.easeInOut, value: progress)
+
+                        if !store.isSubscribed {
+                            moreLooksLink
+                        }
                     }
 
                     VStack(spacing: 6) {
@@ -75,6 +107,9 @@ struct HomeView: View {
                 AddDrinkSheet { amount in
                     addEntry(amount: amount)
                 }
+            }
+            .sheet(item: $paywallSource) { source in
+                PaywallView(source: source)
             }
         }
         .onAppear {
@@ -122,6 +157,67 @@ struct HomeView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
         .background(Capsule().fill(Color(.secondarySystemBackground)))
+    }
+
+    /// Shown once per broken streak, and only to free users. Information first: it says
+    /// what happened and what would have prevented it, opens the paywall only if tapped,
+    /// and closes for good with the X.
+    private func streakBreakNotice(_ lost: StreakFreeze.LostStreak) -> some View {
+        Button {
+            paywallSource = .streakBreakMessage
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "snowflake")
+                    .foregroundStyle(.cyan)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Your \(lost.length)-day streak ended yesterday")
+                        .font(.subheadline.weight(.semibold))
+                    Text("A HydroDrop+ streak freeze would have kept it going.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 28)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Shows HydroDrop+")
+        .overlay(alignment: .topTrailing) {
+            Button {
+                withAnimation { dismissedStreakNoticeDayKey = lost.missedDayKey }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .onAppear {
+            guard countedStreakNoticeDayKey != lost.missedDayKey else { return }
+            countedStreakNoticeDayKey = lost.missedDayKey
+            EventCounter.record(.streakBreakMessageShown)
+        }
+    }
+
+    /// The one HydroDrop+ way in on Today: a quiet caption link under the mascot, which is
+    /// the paid skins' own showcase. The paywall it opens leads with those skins.
+    private var moreLooksLink: some View {
+        Button {
+            paywallSource = .todayEntryPoint
+        } label: {
+            Label("More looks", systemImage: "sparkles")
+                .font(.caption.weight(.semibold))
+                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityHint("Shows HydroDrop+ mascots")
     }
 
     private var progressBar: some View {
