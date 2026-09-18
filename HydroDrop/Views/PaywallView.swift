@@ -8,6 +8,7 @@ private struct PlusFeature {
     static let all: [PlusFeature] = [
         // Every entry here must name something Plus actually unlocks. Basic streak
         // tracking is free on Home and History, so only the freeze belongs here.
+        .init(title: "No ads, ever", icon: "nosign"),
         .init(title: "30-day history & trends", icon: "chart.xyaxis.line"),
         .init(title: "Apple Watch app", icon: "applewatch"),
         .init(title: "Streak freeze — protect a missed day", icon: "snowflake"),

@@ -11,6 +11,7 @@ struct HydroDropApp: App {
         // back into AppSettings.shared, which must already exist by then.
         AppSettings.shared.startCloudSync()
         WatchSessionManager.shared.activate(modelContainer: container)
+        AdManager.start()
     }
 
     /// Prefers an iCloud-backed store, but degrades to a local one rather than

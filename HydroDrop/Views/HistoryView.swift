@@ -87,6 +87,10 @@ struct HistoryView: View {
                     .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
 
                     if !store.isSubscribed {
+                        BannerAdView(adUnitID: AdManager.bannerAdUnitID)
+                    }
+
+                    if !store.isSubscribed {
                         upsellBanner
                     }
                 }

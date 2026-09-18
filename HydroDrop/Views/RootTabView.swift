@@ -26,6 +26,10 @@ struct RootTabView: View {
         .tint(Color(red: 0.18, green: 0.56, blue: 0.93))
         // Same rule as the mascot on screen: the icon follows what the user is entitled to.
         .task(id: iconSyncKey) { AppIconManager.sync(to: settings.activeMascotSkin) }
+        .task {
+            try? await Task.sleep(for: .seconds(2))
+            AdManager.requestTrackingAuthorizationIfNeeded()
+        }
     }
 }
 
