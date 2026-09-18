@@ -35,6 +35,13 @@ final class ScreenshotUITests: XCTestCase {
             app.staticTexts["530 mL"].waitForExistence(timeout: 3),
             "today's total didn't add up to the two quick adds"
         )
+
+        // A quick add offers a few seconds of undo. That bar is transient and has no
+        // business in an App Store screenshot, so wait it out rather than capture it.
+        let undo = app.buttons["Undo"]
+        if undo.exists {
+            XCTAssertTrue(undo.waitForNonExistence(timeout: 10), "the undo toast never went away")
+        }
         save(app.screenshot(), name: "01-today")
 
         app.tabBars.buttons["History"].tap()

@@ -17,5 +17,19 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<!-- The SwiftData store lives in this group container so the widget and the
+	     App Intents can read and write the same data the app does. -->
+	<!-- HydroDrop writes dietary water, and deletes the samples it wrote. It never
+	     reads anything from Health. -->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<!-- Hot-day suggestions ask Apple's weather service for the current conditions
+	     at the device's location. Nothing is stored and nothing is sent to us. -->
+	<key>com.apple.developer.weatherkit</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.jonathonbrown.HydroDrop</string>
+	</array>
 </dict>
 </plist>

@@ -65,13 +65,20 @@ enum ActivityLevel: String, CaseIterable, Identifiable, Codable {
 /// A simple, transparent rule-of-thumb hydration goal estimate.
 /// This is not medical advice.
 enum HydrationGoalCalculator {
-    static let validGoalRange = 500...5000
+    static let validGoalRange = MeasurementSystem.storedGoalRangeML
 
     /// Beyond this the goal saturates anyway, so it's the point past which a larger
     /// number is only a way to overflow the arithmetic.
     private static let maxWeightKG = 1000.0
 
-    static func recommendedGoalML(weightKG: Double, sex: BiologicalSex, activity: ActivityLevel) -> Int {
+    /// `roundedTo` is the granularity of the answer, in mL. The calculator in Settings
+    /// shows 50 mL steps; onboarding asks for a rounder 100.
+    static func recommendedGoalML(
+        weightKG: Double,
+        sex: BiologicalSex,
+        activity: ActivityLevel,
+        roundedTo granularity: Int = 50
+    ) -> Int {
         // Every bound here is applied in `Double`, before the conversion to `Int`.
         // Converting first and clamping afterwards traps on anything outside `Int`'s
         // range, and this is fed from a free-text keypad: an 18-digit weight crashed the
@@ -81,8 +88,9 @@ enum HydrationGoalCalculator {
 
         let raw = boundedWeight * sex.mLPerKG + activity.bonusML
         let bounded = min(max(raw, Double(validGoalRange.lowerBound)), Double(validGoalRange.upperBound))
-        let roundedToNearest50 = (bounded / 50).rounded() * 50
-        return Int(roundedToNearest50).clamped(to: validGoalRange)
+        let step = Double(max(granularity, 1))
+        let rounded = (bounded / step).rounded() * step
+        return Int(rounded).clamped(to: validGoalRange)
     }
 }
 

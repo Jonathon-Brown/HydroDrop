@@ -12,6 +12,9 @@ final class WatchSessionManager: NSObject, ObservableObject {
     @Published var todayTotalML: Int
     @Published var dailyGoalML: Int
     @Published var measurementSystem: MeasurementSystem
+    /// The phone's quick-add sizes, mirrored so the wrist offers the same buttons.
+    /// Falls back to the suggested sizes for the current unit system until one arrives.
+    @Published var quickAddPresetsML: [Int]
 
     /// The day the cached total belongs to. Stored as a day key rather than an instant,
     /// so "is this still today?" survives the watch and phone disagreeing about when
@@ -25,6 +28,7 @@ final class WatchSessionManager: NSObject, ObservableObject {
         static let legacyTodayTotalDate = "watch.todayTotalDate"
         static let dailyGoalML = "watch.dailyGoalML"
         static let measurementSystem = "watch.measurementSystem"
+        static let quickAddPresets = "watch.quickAddPresets"
         static let outbox = "watch.pendingDrinks"
     }
 
@@ -36,11 +40,15 @@ final class WatchSessionManager: NSObject, ObservableObject {
         todayTotalML = staleTotal ? 0 : (defaults.object(forKey: Keys.todayTotalML) as? Int ?? 0)
         totalDayKey = today
         dailyGoalML = defaults.object(forKey: Keys.dailyGoalML) as? Int ?? 2000
+        let system: MeasurementSystem
         if let raw = defaults.string(forKey: Keys.measurementSystem), let saved = MeasurementSystem(rawValue: raw) {
-            measurementSystem = saved
+            system = saved
         } else {
-            measurementSystem = .deviceDefault
+            system = .deviceDefault
         }
+        measurementSystem = system
+        let storedPresets = defaults.array(forKey: Keys.quickAddPresets) as? [Int]
+        quickAddPresetsML = Self.usablePresets(storedPresets) ?? system.defaultQuickAddPresetsML
         super.init()
         if staleTotal { persist() }
     }
@@ -130,6 +138,15 @@ final class WatchSessionManager: NSObject, ObservableObject {
         defaults.set(totalDayKey, forKey: Keys.todayTotalDayKey)
         defaults.set(dailyGoalML, forKey: Keys.dailyGoalML)
         defaults.set(measurementSystem.rawValue, forKey: Keys.measurementSystem)
+        defaults.set(quickAddPresetsML, forKey: Keys.quickAddPresets)
+    }
+
+    /// The presets cross a process boundary, so they are input rather than a given:
+    /// the wrong number of them, or an implausible amount, falls back to the defaults.
+    private static func usablePresets(_ presets: [Int]?) -> [Int]? {
+        let range = MeasurementSystem.plausibleDrinkRangeML
+        guard let presets, presets.count == 3, presets.allSatisfy(range.contains) else { return nil }
+        return presets
     }
 
     /// The phone is the source of truth for the day the context describes — but only for
@@ -153,6 +170,13 @@ final class WatchSessionManager: NSObject, ObservableObject {
         }
         if let raw = context["measurementSystem"] as? String, let system = MeasurementSystem(rawValue: raw) {
             measurementSystem = system
+        }
+        // A context from a phone that predates editable presets has none, which leaves
+        // the wrist on the sizes suited to the units it was just told about.
+        if let presets = Self.usablePresets(context["quickAddPresetsML"] as? [Int]) {
+            quickAddPresetsML = presets
+        } else if context["quickAddPresetsML"] == nil {
+            quickAddPresetsML = measurementSystem.defaultQuickAddPresetsML
         }
         persist()
     }

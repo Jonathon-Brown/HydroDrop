@@ -39,6 +39,10 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSUserNotificationsUsageDescription: "HydroDrop reminds you to drink water throughout the day."
+        NSHealthUpdateUsageDescription: "HydroDrop adds the drinks you log to Apple Health as dietary water, and removes them again if you delete them. This is off until you turn it on."
+        NSHealthShareUsageDescription: "HydroDrop does not read anything from Apple Health. It only adds the drinks you log."
+        NSLocationWhenInUseUsageDescription: "HydroDrop checks the weather where you are so it can suggest extra water on hot days. Your location is only used for that, and never leaves your device except to ask Apple for the forecast."
+        NSSupportsLiveActivities: true
         NSUserTrackingUsageDescription: "This identifier is used to show you more relevant ads, which helps keep HydroDrop's free tier free."
         GADApplicationIdentifier: "ca-app-pub-5814718978331211~3407720909" # HydroDrop's AdMob App ID
         SKAdNetworkItems:
@@ -114,7 +118,50 @@ targets:
         copy:
           destination: wrapper
           subpath: Watch
+      - target: HydroDropWidgets
+        embed: true
       - package: GoogleMobileAds
+  # The widget extension compiles a handful of the app's own files rather than taking
+  # a dependency on a framework: the set is small, and every one of them is a value
+  # type or a pure SwiftUI view with no reference back into the app.
+  HydroDropWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: HydroDropWidgets
+        excludes:
+          - "Info.plist"
+          - "HydroDropWidgets.entitlements"
+      - path: HydroDrop/Shared
+      - path: HydroDrop/Intents/LogWaterIntent.swift
+      - path: HydroDrop/Intents/GetTodayProgressIntent.swift
+      - path: HydroDrop/Models/WaterEntry.swift
+      - path: HydroDrop/Models/DrinkType.swift
+      - path: HydroDrop/Models/MeasurementSystem.swift
+      - path: HydroDrop/Models/MascotSkin.swift
+      - path: HydroDrop/Models/DayKey.swift
+      - path: HydroDrop/Views/MascotView.swift
+      - path: HydroDrop/Support/Diagnostics.swift
+      - path: HydroDrop/Models/StreakCalculator.swift
+    info:
+      path: HydroDropWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: HydroDrop
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jonathonbrown.HydroDrop.Widgets
+        CODE_SIGN_ENTITLEMENTS: HydroDropWidgets/HydroDropWidgets.entitlements
+        SWIFT_EMIT_LOC_STRINGS: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_PREVIEWS: YES
+        MARKETING_VERSION: "1.3"
+        CURRENT_PROJECT_VERSION: "24"
+        SKIP_INSTALL: "YES"
+
   HydroDrop Watch App:
     type: application
     platform: watchOS

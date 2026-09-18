@@ -4,7 +4,10 @@ struct WatchHomeView: View {
     @StateObject private var session = WatchSessionManager.shared
     @ObservedObject private var store = StoreManager.shared
 
-    private let quickAddPresets = [200, 330, 500]
+    /// Mirrored from the phone, so the wrist offers whatever the user set there.
+    private var quickAddPresets: [Int] {
+        session.quickAddPresetsML
+    }
 
     private var progress: Double {
         guard session.dailyGoalML > 0 else { return 0 }

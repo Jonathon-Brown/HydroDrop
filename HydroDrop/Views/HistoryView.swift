@@ -13,6 +13,7 @@ struct HistoryView: View {
     @ObservedObject private var store = StoreManager.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @State private var showingPaywall = false
+    @State private var showingWeeklyRecap = false
 
     private let freeDayCount = 7
     private let plusDayCount = 30
@@ -48,6 +49,11 @@ struct HistoryView: View {
         displayedDays.filter { $0.totalML >= settings.dailyGoalML }.count
     }
 
+    private var todayTotal: Int {
+        let totals = StreakCalculator.totalsByDay(allEntries, calendar: calendar)
+        return totals[DayKey.key(for: Date(), calendar: calendar)] ?? 0
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -58,18 +64,21 @@ struct HistoryView: View {
                         Text("Last \(dayCount) days")
                             .font(.headline)
 
+                        // Plotted in the display unit so the axis reads in the same
+                        // unit as everything else on the screen.
                         Chart(displayedDays) { day in
                             BarMark(
                                 x: .value("Day", day.date, unit: .day),
-                                y: .value("mL", day.totalML)
+                                y: .value(settings.measurementSystem.unitLabel, settings.measurementSystem.displayVolume(fromML: day.totalML))
                             )
                             .foregroundStyle(day.totalML >= settings.dailyGoalML ? Color.blue : Color.blue.opacity(0.45))
                             .cornerRadius(dayCount > freeDayCount ? 2 : 6)
 
-                            RuleMark(y: .value("Goal", settings.dailyGoalML))
+                            RuleMark(y: .value("Goal", settings.measurementSystem.displayVolume(fromML: settings.dailyGoalML)))
                                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                                 .foregroundStyle(.secondary)
                         }
+                        .chartYAxisLabel(settings.measurementSystem.unitLabel)
                         .frame(height: 220)
                         .chartXAxis {
                             if dayCount > freeDayCount {
@@ -90,6 +99,35 @@ struct HistoryView: View {
                         BannerAdView(adUnitID: AdManager.bannerAdUnitID)
                     }
 
+                    if store.isSubscribed {
+                        Button {
+                            showingWeeklyRecap = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "calendar")
+                                    .foregroundStyle(.blue)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Your week in water")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Averages, your best day, and when you tend to fall behind.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding()
+                            .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    BadgeShelf(
+                        earnedDays: Set(settings.celebratedMilestones),
+                        currentStreak: streak
+                    )
+
                     if !store.isSubscribed {
                         upsellBanner
                     }
@@ -97,8 +135,27 @@ struct HistoryView: View {
                 .padding()
             }
             .navigationTitle("History")
+            .toolbar {
+                // Nothing worth sharing until there is a streak to share.
+                if streak > 0 {
+                    ToolbarItem(placement: .primaryAction) {
+                        StreakShareButton(
+                            streak: streak,
+                            skin: settings.activeMascotSkin,
+                            todayTotalML: todayTotal,
+                            goalML: settings.dailyGoalML,
+                            system: settings.measurementSystem
+                        )
+                        .labelStyle(.iconOnly)
+                    }
+                }
+            }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView(source: .historyBanner)
+            }
+            .sheet(isPresented: $showingWeeklyRecap) {
+                WeeklyRecapView()
+                    .environmentObject(settings)
             }
         }
     }

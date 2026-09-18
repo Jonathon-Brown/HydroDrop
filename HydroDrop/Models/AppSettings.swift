@@ -32,6 +32,18 @@ final class AppSettings: ObservableObject {
         static let legacyFrozenStreakDays = "frozenStreakDays"
         static let mascotSkin = "mascotSkin"
         static let smartRemindersEnabled = "smartRemindersEnabled"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let customQuickAddPresets = "customQuickAddPresets"
+        static let celebratedMilestones = "celebratedMilestones"
+        static let hasSeededMilestones = "hasSeededMilestones"
+        static let healthKitSyncEnabled = "healthKitSyncEnabled"
+        static let healthSyncStartDate = "healthSyncStartDate"
+        static let weeklyRecapEnabled = "weeklyRecapEnabled"
+        static let weatherGoalEnabled = "weatherGoalEnabled"
+        static let liveActivityEnabled = "liveActivityEnabled"
+        static let weatherBumpDayKey = "weatherBumpDayKey"
+        static let weatherBumpML = "weatherBumpML"
+        static let weatherBumpDismissedDayKey = "weatherBumpDismissedDayKey"
     }
 
     static let reminderIntervalRange = 20...120
@@ -44,6 +56,16 @@ final class AppSettings: ObservableObject {
     private static var isScreenshotMode: Bool {
         #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory")
+        #else
+        false
+        #endif
+    }
+
+    /// UI tests that drive the tab bar on a fresh simulator would otherwise start
+    /// underneath first-launch onboarding. In memory only, and compiled out of Release.
+    private static var isSkippingOnboardingForUITests: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-UITestSkipOnboarding")
         #else
         false
         #endif
@@ -98,13 +120,78 @@ final class AppSettings: ObservableObject {
         quietStartMinutes == quietEndMinutes
     }
 
+    /// The three quick-add cup sizes shown on the home screen, in mL.
+    ///
+    /// nil means "whatever suits the unit system", which is how every install starts
+    /// and what a reset goes back to: an imperial user then gets 8, 12 and 16 oz
+    /// rather than the metric sizes converted. Once the user edits a slot their sizes
+    /// are kept verbatim, including across a change of units, because at that point
+    /// the numbers are theirs and not ours to round.
+    @Published var customQuickAddPresetsML: [Int]? {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(customQuickAddPresetsML, forKey: Keys.customQuickAddPresets)
+            // The "Log a glass" notification button names the first preset.
+            ReminderManager.shared.registerCategories()
+        }
+    }
+
     /// Preset quick-add cup sizes shown on the home screen, in mL.
-    let quickAddPresets: [Int] = [200, 330, 500]
+    var quickAddPresets: [Int] {
+        Self.sanitisedPresets(customQuickAddPresetsML) ?? measurementSystem.defaultQuickAddPresetsML
+    }
+
+    static let quickAddSlotCount = 3
+
+    /// A stored preset list is only usable if it has the right shape and plausible
+    /// amounts. Anything else (a truncated write, a value from a future version) falls
+    /// back to the defaults rather than putting a nonsense button on the home screen.
+    private static func sanitisedPresets(_ presets: [Int]?) -> [Int]? {
+        guard let presets, presets.count == quickAddSlotCount else { return nil }
+        let range = MeasurementSystem.plausibleDrinkRangeML
+        guard presets.allSatisfy(range.contains) else { return nil }
+        return presets
+    }
+
+    /// Replaces one quick-add slot, seeding the other two from whatever is on screen
+    /// now so the first edit doesn't blank the rest.
+    func setQuickAddPreset(_ amountML: Int, at index: Int) {
+        var presets = quickAddPresets
+        guard presets.indices.contains(index) else { return }
+        presets[index] = amountML
+        customQuickAddPresetsML = presets
+    }
+
+    /// Whether first-launch onboarding has been finished (or skipped) on this account.
+    ///
+    /// Person-level and synced, so a second device usually inherits the answer. Set
+    /// once in the initialiser for every install that predates onboarding, and again by
+    /// `completeOnboardingIfExistingUser(entryCount:)` once the store has been opened,
+    /// so nobody who already has history is shown the intro.
+    @Published var hasCompletedOnboarding: Bool {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            Self.persistOnboarding(hasCompletedOnboarding, synced: synced, local: defaults)
+        }
+    }
+
+    /// Only a `true` ever reaches iCloud. A fresh install's "not yet" is a fact about
+    /// that device; written to the cloud it would be mirrored down onto a device that
+    /// finished the intro long ago and reopen it there on the next launch.
+    private static func persistOnboarding(_ completed: Bool, synced: CloudSettingsStore, local: UserDefaults) {
+        if completed {
+            synced.set(true, forKey: Keys.hasCompletedOnboarding)
+        } else {
+            local.set(false, forKey: Keys.hasCompletedOnboarding)
+        }
+    }
 
     @Published var measurementSystem: MeasurementSystem {
         didSet {
             guard !isApplyingRemoteChange else { return }
             synced.set(measurementSystem.rawValue, forKey: Keys.measurementSystem)
+            // The "Log a glass" notification button names an amount in these units.
+            ReminderManager.shared.registerCategories()
         }
     }
 
@@ -128,6 +215,46 @@ final class AppSettings: ObservableObject {
             guard !isApplyingRemoteChange else { return }
             synced.set(activityLevel?.rawValue, forKey: Keys.activityLevel)
         }
+    }
+
+    /// Streak milestones the user has earned, in days.
+    ///
+    /// The record of what has been *awarded*, not a recomputation of what today's
+    /// history would justify: goals change, and a badge someone earned at a lower goal
+    /// is still theirs. Merged as a union across devices for the same reason.
+    @Published var celebratedMilestones: [Int] {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(celebratedMilestones, forKey: Keys.celebratedMilestones)
+        }
+    }
+
+    /// Whether the badge shelf has been filled in from the history that existed before
+    /// milestones did. Stops an upgrading user being handed a stack of celebrations for
+    /// streaks they finished months ago.
+    @Published var hasSeededMilestones: Bool {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(hasSeededMilestones, forKey: Keys.hasSeededMilestones)
+        }
+    }
+
+    /// Awards every milestone `longestStreak` has already passed, silently.
+    ///
+    /// Runs once per person. Anything reached after this earns its celebration in the
+    /// usual way.
+    func seedMilestones(longestStreak: Int) {
+        guard !hasSeededMilestones else { return }
+        let earned = StreakMilestone.reached(by: longestStreak).map(\.days)
+        celebratedMilestones = Array(Set(celebratedMilestones).union(earned)).sorted()
+        hasSeededMilestones = true
+    }
+
+    /// Records a milestone as earned. Idempotent, so a celebration shown twice by two
+    /// devices still leaves one badge.
+    func recordMilestone(_ milestone: StreakMilestone) {
+        guard !celebratedMilestones.contains(milestone.days) else { return }
+        celebratedMilestones = (celebratedMilestones + [milestone.days]).sorted()
     }
 
     /// Days a HydroDrop+ streak freeze has been spent on, as `DayKey` strings.
@@ -155,6 +282,33 @@ final class AppSettings: ObservableObject {
         (mascotSkin.requiresPlus && !EntitlementCache.isPlusActive) ? .classic : mascotSkin
     }
 
+    /// Whether drinks are mirrored into Apple Health.
+    ///
+    /// Device-level and deliberately not synced: Health authorization is granted per
+    /// device, and a phone that has been given permission cannot grant it on behalf of
+    /// an iPad that has not.
+    @Published var healthKitSyncEnabled: Bool {
+        didSet {
+            defaults.set(healthKitSyncEnabled, forKey: Keys.healthKitSyncEnabled)
+        }
+    }
+
+    /// The earliest drink eligible to be written to Health.
+    ///
+    /// Set to the moment sync is switched on, so turning it on does not silently hand
+    /// Health a year of history nobody asked it to hold. Moved back to the distant past
+    /// only when the user explicitly asks for their existing drinks to be added.
+    @Published var healthSyncStartDate: Date {
+        didSet {
+            defaults.set(healthSyncStartDate, forKey: Keys.healthSyncStartDate)
+        }
+    }
+
+    /// Whether the user has already had their history written to Health.
+    var hasBackfilledHealth: Bool {
+        healthSyncStartDate <= Date.distantPast
+    }
+
     /// Pace-aware reminders (HydroDrop+), as the user set it. Gate reads on
     /// `smartRemindersActive`, never on this.
     @Published var smartRemindersEnabled: Bool {
@@ -162,6 +316,88 @@ final class AppSettings: ObservableObject {
             defaults.set(smartRemindersEnabled, forKey: Keys.smartRemindersEnabled)
             ReminderManager.shared.refreshSchedule()
         }
+    }
+
+    // MARK: - HydroDrop+ smart features
+    //
+    // All three follow the pattern `smartRemindersEnabled` established: the stored
+    // preference is what the user set, and the `...Active` computed property is the
+    // preference *and* a live entitlement. Gate behaviour on the latter, never the
+    // former, so a lapsed subscription stops the feature without erasing the choice.
+
+    /// Sunday evening recap of the week just gone.
+    @Published var weeklyRecapEnabled: Bool {
+        didSet {
+            defaults.set(weeklyRecapEnabled, forKey: Keys.weeklyRecapEnabled)
+            WeeklyRecapNotifier.shared.refresh()
+        }
+    }
+
+    var weeklyRecapActive: Bool { weeklyRecapEnabled && EntitlementCache.isPlusActive }
+
+    /// Suggesting extra water on a hot day. Off until asked for, because it is the one
+    /// feature here that wants the user's location.
+    @Published var weatherGoalEnabled: Bool {
+        didSet {
+            defaults.set(weatherGoalEnabled, forKey: Keys.weatherGoalEnabled)
+            if !weatherGoalEnabled { clearWeatherBump() }
+        }
+    }
+
+    var weatherGoalActive: Bool { weatherGoalEnabled && EntitlementCache.isPlusActive }
+
+    /// Today's progress on the Lock Screen while the day is in progress.
+    @Published var liveActivityEnabled: Bool {
+        didSet {
+            defaults.set(liveActivityEnabled, forKey: Keys.liveActivityEnabled)
+        }
+    }
+
+    var liveActivityActive: Bool { liveActivityEnabled && EntitlementCache.isPlusActive }
+
+    // MARK: Weather bump
+
+    /// The day an accepted weather bump applies to, and how much it adds.
+    ///
+    /// Device-level and one day long by design. A suggestion accepted on a hot Tuesday
+    /// is about Tuesday, and the saved goal is never touched: `dailyGoalML` is what the
+    /// user chose, and this rides on top of it for the day.
+    @Published private(set) var weatherBumpDayKey: String
+    @Published private(set) var weatherBumpML: Int
+    /// A suggestion the user waved away, so it is not offered again the same day.
+    @Published private(set) var weatherBumpDismissedDayKey: String
+
+    /// Today's target: the saved goal plus an accepted bump, if there is one for today.
+    ///
+    /// Used for what is on screen and for pacing the day's reminders. Streaks
+    /// deliberately still count at `dailyGoalML`: the bump is advice for one hot day,
+    /// and accepting advice should never be what breaks a streak.
+    func todayGoalML(now: Date = Date()) -> Int {
+        guard weatherBumpDayKey == DayKey.key(for: now), weatherBumpML > 0 else { return dailyGoalML }
+        return min(dailyGoalML + weatherBumpML, MeasurementSystem.storedGoalRangeML.upperBound)
+    }
+
+    func acceptWeatherBump(_ amountML: Int, now: Date = Date()) {
+        weatherBumpDayKey = DayKey.key(for: now)
+        weatherBumpML = max(0, amountML)
+        defaults.set(weatherBumpDayKey, forKey: Keys.weatherBumpDayKey)
+        defaults.set(weatherBumpML, forKey: Keys.weatherBumpML)
+    }
+
+    func dismissWeatherBump(now: Date = Date()) {
+        weatherBumpDismissedDayKey = DayKey.key(for: now)
+        defaults.set(weatherBumpDismissedDayKey, forKey: Keys.weatherBumpDismissedDayKey)
+    }
+
+    func hasDismissedWeatherBump(now: Date = Date()) -> Bool {
+        weatherBumpDismissedDayKey == DayKey.key(for: now)
+    }
+
+    private func clearWeatherBump() {
+        weatherBumpDayKey = ""
+        weatherBumpML = 0
+        defaults.removeObject(forKey: Keys.weatherBumpDayKey)
+        defaults.removeObject(forKey: Keys.weatherBumpML)
     }
 
     /// Whether pace-aware scheduling should actually be used: the preference *and* a
@@ -223,6 +459,32 @@ final class AppSettings: ObservableObject {
 
         let storedSkin = synced.string(forKey: Keys.mascotSkin).flatMap(MascotSkin.init(rawValue:)) ?? .classic
 
+        // Anyone who installed before onboarding existed has no stored answer, and must
+        // not be shown the intro. Any trace of an earlier launch counts: a stored goal
+        // or unit system (which the first cloud sync seeds for every existing user), a
+        // touched reminder setting, or the entitlement cache `StoreManager` writes on
+        // every launch. A fresh install has none of these when this runs.
+        let storedOnboarding: Bool
+        let onboardingNeedsPersisting: Bool
+        if let answer = synced.bool(forKey: Keys.hasCompletedOnboarding) {
+            storedOnboarding = answer
+            onboardingNeedsPersisting = false
+        } else {
+            let earlierLaunchKeys = [
+                Keys.dailyGoalML, Keys.measurementSystem, Keys.mascotSkin, Keys.weightKG,
+                Keys.remindersEnabled, Keys.reminderIntervalMinutes, "reminderIntervalHours",
+                Keys.quietStartMinutes, Keys.quietEndMinutes,
+                Keys.legacyQuietStartHour, Keys.legacyQuietEndHour,
+                Keys.smartRemindersEnabled, Keys.legacyFrozenStreakDays,
+                "plus.entitlementActive", "watch.seenLogIdentifiers",
+            ]
+            let looksLikeExistingUser = earlierLaunchKeys.contains { key in
+                synced.object(forKey: key) != nil || d.object(forKey: key) != nil
+            } || !(synced.stringArray(forKey: Keys.frozenStreakDayKeys) ?? []).isEmpty
+            storedOnboarding = looksLikeExistingUser
+            onboardingNeedsPersisting = true
+        }
+
         // Everything a captured screenshot actually shows, overridden in memory only —
         // nothing here writes over the defaults on disk.
         self.dailyGoalML = screenshotMode ? 2000 : storedGoal
@@ -238,6 +500,41 @@ final class AppSettings: ObservableObject {
         self.biologicalSex = synced.string(forKey: Keys.biologicalSex).flatMap(BiologicalSex.init(rawValue:))
         self.activityLevel = synced.string(forKey: Keys.activityLevel).flatMap(ActivityLevel.init(rawValue:))
         self.smartRemindersEnabled = d.object(forKey: Keys.smartRemindersEnabled) as? Bool ?? false
+        self.healthKitSyncEnabled = d.object(forKey: Keys.healthKitSyncEnabled) as? Bool ?? false
+        self.healthSyncStartDate = d.object(forKey: Keys.healthSyncStartDate) as? Date ?? Date()
+        // On for subscribers who have not said otherwise; the weather one stays off
+        // until asked for, because it is the one that wants a location.
+        self.weeklyRecapEnabled = d.object(forKey: Keys.weeklyRecapEnabled) as? Bool ?? true
+        self.weatherGoalEnabled = d.object(forKey: Keys.weatherGoalEnabled) as? Bool ?? false
+        self.liveActivityEnabled = d.object(forKey: Keys.liveActivityEnabled) as? Bool ?? true
+        self.weatherBumpDayKey = d.string(forKey: Keys.weatherBumpDayKey) ?? ""
+        self.weatherBumpML = d.object(forKey: Keys.weatherBumpML) as? Int ?? 0
+        self.weatherBumpDismissedDayKey = d.string(forKey: Keys.weatherBumpDismissedDayKey) ?? ""
+        self.hasCompletedOnboarding = (screenshotMode || Self.isSkippingOnboardingForUITests) ? true : storedOnboarding
+        // Screenshot automation taps buttons by their "200 mL" labels, so it has to
+        // start from the suggested sizes rather than whatever a previous run stored.
+        self.customQuickAddPresetsML = screenshotMode ? nil : synced.intArray(forKey: Keys.customQuickAddPresets)
+        // Screenshot runs start with a clean shelf, so a capture never depends on what
+        // a previous run happened to earn.
+        self.celebratedMilestones = screenshotMode ? [] : (synced.intArray(forKey: Keys.celebratedMilestones) ?? [])
+        self.hasSeededMilestones = screenshotMode ? true : (synced.bool(forKey: Keys.hasSeededMilestones) ?? false)
+
+        // Written now rather than left to the observer: a first-launch decision of
+        // "not yet" has to survive the cloud seeding that follows, which would otherwise
+        // make the next launch read this install as a pre-onboarding one.
+        if onboardingNeedsPersisting && !screenshotMode && !Self.isSkippingOnboardingForUITests {
+            Self.persistOnboarding(storedOnboarding, synced: synced, local: d)
+        }
+    }
+
+    /// Marks onboarding complete for an install that already has water logged.
+    ///
+    /// The initialiser can only see preferences; the entries live in the store, which
+    /// is opened afterwards. A user restoring from iCloud onto a new phone has history
+    /// and nothing else, and is exactly who this catches.
+    func completeOnboardingIfExistingUser(entryCount: Int) {
+        guard !hasCompletedOnboarding, entryCount > 0 else { return }
+        hasCompletedOnboarding = true
     }
 
     /// Reads the day-key list, converting anything left by a version that stored
@@ -268,6 +565,10 @@ final class AppSettings: ObservableObject {
         Keys.weightKG,
         Keys.biologicalSex,
         Keys.activityLevel,
+        Keys.hasCompletedOnboarding,
+        Keys.customQuickAddPresets,
+        Keys.celebratedMilestones,
+        Keys.hasSeededMilestones,
     ]
 
     /// Starts mirroring person-level settings through iCloud.
@@ -296,6 +597,10 @@ final class AppSettings: ObservableObject {
             case Keys.weightKG: synced.set(weightKG, forKey: key)
             case Keys.biologicalSex: synced.set(biologicalSex?.rawValue, forKey: key)
             case Keys.activityLevel: synced.set(activityLevel?.rawValue, forKey: key)
+            case Keys.hasCompletedOnboarding: if hasCompletedOnboarding { synced.set(true, forKey: key) }
+            case Keys.customQuickAddPresets: synced.set(customQuickAddPresetsML, forKey: key)
+            case Keys.celebratedMilestones: synced.set(celebratedMilestones, forKey: key)
+            case Keys.hasSeededMilestones: synced.set(hasSeededMilestones, forKey: key)
             default: break
             }
         }
@@ -310,6 +615,7 @@ final class AppSettings: ObservableObject {
     private func applyRemoteChanges(_ keys: [String]) {
         let changed = Set(keys)
         var freezesToPublish: [String]?
+        var milestonesToPublish: [Int]?
 
         isApplyingRemoteChange = true
         if changed.contains(Keys.dailyGoalML), let goal = synced.int(forKey: Keys.dailyGoalML) {
@@ -334,6 +640,25 @@ final class AppSettings: ObservableObject {
         if changed.contains(Keys.activityLevel) {
             activityLevel = synced.string(forKey: Keys.activityLevel).flatMap(ActivityLevel.init(rawValue:))
         }
+        // Only ever promoted to true: another device finishing the intro should close it
+        // here, but nothing remote should reopen it.
+        if changed.contains(Keys.hasCompletedOnboarding), synced.bool(forKey: Keys.hasCompletedOnboarding) == true {
+            hasCompletedOnboarding = true
+        }
+        if changed.contains(Keys.customQuickAddPresets) {
+            customQuickAddPresetsML = synced.intArray(forKey: Keys.customQuickAddPresets)
+        }
+        // A union, never an overwrite: two devices can each have awarded a badge the
+        // other has not seen, and a badge is never taken back.
+        if changed.contains(Keys.celebratedMilestones) {
+            let remote = synced.intArray(forKey: Keys.celebratedMilestones) ?? []
+            let merged = Array(Set(celebratedMilestones).union(remote)).sorted()
+            celebratedMilestones = merged
+            if merged != remote { milestonesToPublish = merged }
+        }
+        if changed.contains(Keys.hasSeededMilestones), synced.bool(forKey: Keys.hasSeededMilestones) == true {
+            hasSeededMilestones = true
+        }
         if changed.contains(Keys.frozenStreakDayKeys) {
             let remote = synced.stringArray(forKey: Keys.frozenStreakDayKeys) ?? []
             let merged = StreakFreeze.merged(frozenStreakDayKeys, remote)
@@ -347,9 +672,17 @@ final class AppSettings: ObservableObject {
         if let freezesToPublish {
             synced.set(freezesToPublish, forKey: Keys.frozenStreakDayKeys)
         }
+        if let milestonesToPublish {
+            synced.set(milestonesToPublish, forKey: Keys.celebratedMilestones)
+        }
         if changed.contains(Keys.dailyGoalML) {
             // Pace-aware scheduling is keyed to the goal that just changed underneath it.
             ReminderManager.shared.refreshSchedule()
+        }
+        // Both of these name the amount on the "Log a glass" button. The observers that
+        // would normally do this are suppressed while a remote change is being applied.
+        if changed.contains(Keys.customQuickAddPresets) || changed.contains(Keys.measurementSystem) {
+            ReminderManager.shared.registerCategories()
         }
     }
 }

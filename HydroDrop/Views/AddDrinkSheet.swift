@@ -1,52 +1,52 @@
 import SwiftUI
 
+/// Logs a drink of any size, type and time.
+///
+/// The amount is chosen in the user's display unit and handed back in mL. The time
+/// defaults to now, and can be moved back up to a week for a glass that was drunk
+/// before it was tapped. It can never be moved forward.
 struct AddDrinkSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var settings: AppSettings
-    @State private var amount: Int = 250
-    let onAdd: (Int) -> Void
 
-    private let step = 25
-    private let range = 25...2000
+    @State private var amountML: Int
+    @State private var drinkType: DrinkType = .water
+    @State private var usesCustomTime = false
+    @State private var timestamp = Date()
+    /// Captured when the sheet opens, so the picker's upper bound holds still while it
+    /// is on screen. The saved time is clamped again on the way out.
+    private let openedAt = Date()
+
+    let onAdd: (Int, DrinkType, Date) -> Void
+
+    init(onAdd: @escaping (Int, DrinkType, Date) -> Void) {
+        self.onAdd = onAdd
+        let system = AppSettings.shared.measurementSystem
+        _amountML = State(initialValue: system.mL(fromDisplayVolume: Double(system.customDrinkPresets[1])))
+    }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 28) {
-                Spacer()
+            VStack(spacing: 0) {
+                AmountPicker(amountML: $amountML, system: settings.measurementSystem)
+                    .padding(.horizontal)
+                    .padding(.top, 12)
 
-                Text(settings.measurementSystem.format(mL: amount))
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .contentTransition(.numericText())
-                    .animation(.snappy, value: amount)
+                Form {
+                    DrinkTypePicker(drinkType: $drinkType)
 
-                HStack(spacing: 24) {
-                    stepperButton(systemImage: "minus.circle.fill") {
-                        amount = max(range.lowerBound, amount - step)
-                    }
-                    Slider(
-                        value: Binding(
-                            get: { Double(amount) },
-                            set: { amount = Int($0 / Double(step)) * step }
-                        ),
-                        in: Double(range.lowerBound)...Double(range.upperBound)
-                    )
-                    stepperButton(systemImage: "plus.circle.fill") {
-                        amount = min(range.upperBound, amount + step)
+                    Toggle("Log at another time", isOn: $usesCustomTime.animation())
+                    if usesCustomTime {
+                        DatePicker(
+                            "Time",
+                            selection: $timestamp,
+                            in: DrinkTime.range(now: openedAt)
+                        )
                     }
                 }
-                .padding(.horizontal)
-
-                HStack(spacing: 12) {
-                    ForEach([100, 250, 500, 750], id: \.self) { preset in
-                        Button(settings.measurementSystem.formattedNumber(mL: preset)) { amount = preset }
-                            .buttonStyle(.bordered)
-                    }
-                }
-
-                Spacer()
 
                 Button {
-                    onAdd(amount)
+                    onAdd(amountML, drinkType, usesCustomTime ? DrinkTime.clamped(timestamp) : Date())
                     dismiss()
                 } label: {
                     Text("Add Drink")
@@ -56,8 +56,8 @@ struct AddDrinkSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .padding(.horizontal)
+                .padding(.bottom, 12)
             }
-            .padding()
             .navigationTitle("Add Water")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -66,19 +66,10 @@ struct AddDrinkSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
-    }
-
-    private func stepperButton(systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.title)
-                .foregroundStyle(.blue)
-        }
     }
 }
 
 #Preview {
-    AddDrinkSheet { _ in }
+    AddDrinkSheet { _, _, _ in }
         .environmentObject(AppSettings.shared)
 }

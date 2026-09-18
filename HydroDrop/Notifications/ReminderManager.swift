@@ -8,6 +8,13 @@ final class ReminderManager {
     private let center = UNUserNotificationCenter.current()
     private let categoryIdentifier = "HYDRO_REMINDER"
     private let identifierPrefix = "hydrodrop.reminder."
+    /// Deliberately outside `identifierPrefix`, so a schedule rebuild leaves a pending
+    /// snooze alone.
+    private let snoozeIdentifier = "hydrodrop.snooze"
+
+    static let logGlassActionIdentifier = "HYDRO_LOG_GLASS"
+    static let snoozeActionIdentifier = "HYDRO_SNOOZE"
+    static let snoozeMinutes = 30
 
     private static let messages = [
         "Time for a sip! 💧 Your droplet is getting thirsty.",
@@ -28,6 +35,54 @@ final class ReminderManager {
     private var tail: Task<Void, Never>?
 
     private init() {}
+
+    /// Registers the reminder category with its two buttons.
+    ///
+    /// The "Log a glass" title names the amount it will log, so this is re-run from
+    /// every schedule refresh: a change of units or presets changes the title, and
+    /// `setNotificationCategories` replaces the set wholesale, which is what we want.
+    /// Reads `AppSettings`, so main thread only, like `refreshSchedule`.
+    func registerCategories() {
+        assert(Thread.isMainThread, "AppSettings is main-actor state; snapshot it on the main thread")
+        let settings = AppSettings.shared
+        let amount = settings.quickAddPresets.first ?? 250
+        let logGlass = UNNotificationAction(
+            identifier: Self.logGlassActionIdentifier,
+            title: "Log a glass (\(settings.measurementSystem.format(mL: amount)))",
+            options: []
+        )
+        let snooze = UNNotificationAction(
+            identifier: Self.snoozeActionIdentifier,
+            title: "Snooze \(Self.snoozeMinutes) min",
+            options: []
+        )
+        let category = UNNotificationCategory(
+            identifier: categoryIdentifier,
+            actions: [logGlass, snooze],
+            intentIdentifiers: [],
+            options: []
+        )
+        center.setNotificationCategories([category])
+    }
+
+    /// One follow-up nudge, `snoozeMinutes` from now. A second snooze replaces the first
+    /// rather than stacking, because the identifier is fixed.
+    func scheduleSnooze() async {
+        let content = UNMutableNotificationContent()
+        content.title = "HydroDrop"
+        content.body = "Snooze is over. Time for that glass of water."
+        content.sound = .default
+        content.categoryIdentifier = categoryIdentifier
+        let trigger = UNTimeIntervalNotificationTrigger(
+            timeInterval: TimeInterval(Self.snoozeMinutes * 60),
+            repeats: false
+        )
+        do {
+            try await center.add(UNNotificationRequest(identifier: snoozeIdentifier, content: content, trigger: trigger))
+        } catch {
+            Diagnostics.log("failed to schedule a snoozed reminder: \(error)")
+        }
+    }
 
     func requestAuthorizationIfNeeded(completion: ((Bool) -> Void)? = nil) {
         center.getNotificationSettings { settings in
@@ -64,12 +119,14 @@ final class ReminderManager {
     func refreshSchedule(entries: [WaterEntry]? = nil, goalML: Int? = nil) {
         assert(Thread.isMainThread, "AppSettings is main-actor state; snapshot it on the main thread")
 
+        registerCategories()
+
         let settings = AppSettings.shared
         let calendar = Calendar.current
         let todayTotal = entries.map { entries in
             entries
                 .filter { calendar.isDateInToday($0.timestamp) }
-                .reduce(0) { $0 + $1.amountML }
+                .reduce(0) { $0 + $1.hydratedML }
         }
         let snapshot = ScheduleSnapshot(
             remindersEnabled: settings.remindersEnabled,

@@ -31,13 +31,14 @@ final class WatchSessionManager: NSObject {
     /// The day the total belongs to travels with it. Application context delivery is
     /// opportunistic — a context sent at 23:58 can arrive after midnight — and without
     /// the day the watch had no way to tell yesterday's total from today's.
-    func pushContext(totalML: Int, goalML: Int, measurementSystem: MeasurementSystem) {
+    func pushContext(totalML: Int, goalML: Int, measurementSystem: MeasurementSystem, quickAddPresetsML: [Int]) {
         guard WCSession.isSupported(), WCSession.default.activationState == .activated else { return }
         do {
             try WCSession.default.updateApplicationContext([
                 "todayTotalML": totalML,
                 "dailyGoalML": goalML,
                 "measurementSystem": measurementSystem.rawValue,
+                "quickAddPresetsML": quickAddPresetsML,
                 "dayKey": DayKey.key(for: Date()),
             ])
         } catch {
@@ -49,19 +50,21 @@ final class WatchSessionManager: NSObject {
     ///
     /// Needed after a watch-originated drink: `HomeView` only pushes context while it is
     /// on screen, so a drink logged from the wrist left the watch showing its own
-    /// optimistic total and the phone showing the real one.
-    private func pushCurrentContext() {
+    /// optimistic total and the phone showing the real one. The same applies to a drink
+    /// logged from a notification action, which is why this is not private.
+    func pushCurrentContext() {
         guard let modelContext else { return }
         let startOfDay = Calendar.current.startOfDay(for: Date())
         let descriptor = FetchDescriptor<WaterEntry>(
             predicate: #Predicate { $0.timestamp >= startOfDay }
         )
-        let total = (try? modelContext.fetch(descriptor))?.reduce(0) { $0 + $1.amountML } ?? 0
+        let total = (try? modelContext.fetch(descriptor))?.reduce(0) { $0 + $1.hydratedML } ?? 0
         let settings = AppSettings.shared
         pushContext(
             totalML: total,
             goalML: settings.dailyGoalML,
-            measurementSystem: settings.measurementSystem
+            measurementSystem: settings.measurementSystem,
+            quickAddPresetsML: settings.quickAddPresets
         )
     }
 
@@ -86,6 +89,7 @@ final class WatchSessionManager: NSObject {
         }
         if let identifier { rememberSaved(identifier) }
         pushCurrentContext()
+        WidgetPublisher.publish(context: modelContext, isShared: SharedModelContainer.isShared(modelContext.container))
     }
 
     private func hasAlreadySaved(_ identifier: String) -> Bool {
@@ -127,7 +131,7 @@ extension WatchSessionManager: WCSessionDelegate {
             return
         }
         // The amount crosses a process boundary, so it is input, not a given.
-        guard amountML > 0, amountML <= 5000 else {
+        guard MeasurementSystem.plausibleDrinkRangeML.contains(amountML) else {
             Diagnostics.log("dropped a watch drink with an implausible amount: \(amountML)")
             return
         }

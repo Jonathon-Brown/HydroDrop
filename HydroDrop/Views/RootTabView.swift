@@ -3,6 +3,7 @@ import SwiftUI
 struct RootTabView: View {
     @StateObject private var settings = AppSettings.shared
     @ObservedObject private var store = StoreManager.shared
+    @ObservedObject private var router = AppRouter.shared
 
     /// Re-evaluated whenever the chosen skin or the entitlement changes. `activeMascotSkin`
     /// reads `EntitlementCache`, which `StoreManager` writes in the same call that flips
@@ -26,10 +27,34 @@ struct RootTabView: View {
         .tint(Color(red: 0.18, green: 0.56, blue: 0.93))
         // Same rule as the mascot on screen: the icon follows what the user is entitled to.
         .task(id: iconSyncKey) { AppIconManager.sync(to: settings.activeMascotSkin) }
-        .task {
+        // Held back until onboarding is out of the way: the tracking alert landing on
+        // top of the intro would be the first thing a new user sees.
+        .task(id: settings.hasCompletedOnboarding) {
+            guard settings.hasCompletedOnboarding else { return }
             try? await Task.sleep(for: .seconds(2))
             AdManager.requestTrackingAuthorizationIfNeeded()
         }
+        .sheet(isPresented: $router.showingWeeklyRecap) {
+            WeeklyRecapView()
+                .environmentObject(settings)
+        }
+        .fullScreenCover(isPresented: onboardingIsPresented) {
+            OnboardingView(mode: .firstLaunch) {
+                settings.hasCompletedOnboarding = true
+            }
+            .environmentObject(settings)
+        }
+    }
+
+    /// Onboarding is on screen exactly while the flag is off. The flag can also flip from
+    /// underneath (another device finishing the intro), which closes the cover too.
+    private var onboardingIsPresented: Binding<Bool> {
+        Binding(
+            get: { !settings.hasCompletedOnboarding },
+            set: { presented in
+                if !presented { settings.hasCompletedOnboarding = true }
+            }
+        )
     }
 }
 
