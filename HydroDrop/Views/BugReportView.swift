@@ -9,7 +9,7 @@ struct BugReportView: View {
     @State private var showingNoMailAlert = false
     @State private var showingSentConfirmation = false
 
-    private let supportEmail = "hydrodrop.support@gmail.com"
+    private let supportEmail = "support@hydrodrop.us"
 
     private var canSubmit: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
