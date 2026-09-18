@@ -356,6 +356,8 @@ struct MascotView: View {
     @State private var isBreathing = false
     @State private var isBlinking = false
     @State private var pop: CGFloat = 0
+    /// When the most recent drink landed, or nil if no splash is in flight.
+    @State private var splashStart: Date?
 
     private var mood: MascotMood { MascotMood.forProgress(progress) }
     private var tone: MascotTone { mood.tone(skin: skin) }
@@ -377,6 +379,7 @@ struct MascotView: View {
             charmForeground
             sweatDrop
             sparkles
+            splash
         }
         .frame(width: size * 1.32, height: size * 1.5)
         .rotationEffect(.degrees(mood.restTilt))
@@ -397,16 +400,85 @@ struct MascotView: View {
             isBreathing = true
             await runBlinkLoop()
         }
-        .onChange(of: progress) { _, _ in
+        .onChange(of: progress) { oldValue, newValue in
             guard animates else { return }
             // Squash on the way in, then spring back — a gulp, not a jump.
             pop = 1
+            // Only a drink splashes. Progress also falls, when an entry is undone or
+            // deleted, and throwing water in the air for that reads as a reward.
+            if newValue > oldValue {
+                splashStart = Date()
+            }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(0.16))
                 pop = 0
             }
         }
     }
+
+    // MARK: Splash
+
+    /// Droplets thrown up and out when a drink is logged.
+    ///
+    /// Drawn in a `Canvas` driven by elapsed time rather than by a spring on a dozen
+    /// views: the whole thing is over in under a second, and it should cost nothing
+    /// once it is.
+    @ViewBuilder
+    private var splash: some View {
+        if let splashStart, animates {
+            TimelineView(.animation) { context in
+                Canvas { canvas, size in
+                    drawSplash(
+                        in: &canvas,
+                        size: size,
+                        elapsed: context.date.timeIntervalSince(splashStart)
+                    )
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .task(id: splashStart) {
+                try? await Task.sleep(for: .seconds(Self.splashDuration))
+                // Tears the `TimelineView` down once the splash is spent, so an idle
+                // mascot is not still being asked for a frame sixty times a second.
+                self.splashStart = nil
+            }
+        }
+    }
+
+    private static let splashDuration: Double = 0.85
+
+    private func drawSplash(in canvas: inout GraphicsContext, size: CGSize, elapsed: Double) {
+        guard elapsed >= 0, elapsed < Self.splashDuration else { return }
+        let progressThrough = elapsed / Self.splashDuration
+        let fade = 1 - progressThrough * progressThrough
+        let gravity = 2.6
+        let origin = CGPoint(x: size.width / 2, y: size.height * 0.30)
+        let colour = tone.lit(0.42)
+
+        for index in 0..<Self.splashDropletCount {
+            // Fanned evenly either side of straight up, so the spray is symmetric
+            // however many droplets there are.
+            let spread = Double(index) / Double(Self.splashDropletCount - 1) - 0.5
+            let angle = -Double.pi / 2 + spread * (Double.pi * 0.86)
+            let speed = 0.88 + abs(spread) * 0.32
+            let reach = size.width * 0.62
+
+            let x = origin.x + cos(angle) * speed * reach * elapsed / Self.splashDuration
+            let y = origin.y
+                + sin(angle) * speed * reach * elapsed / Self.splashDuration
+                + 0.5 * gravity * reach * elapsed * elapsed
+
+            let radius = (3.2 - abs(spread) * 1.1) * (1 - progressThrough * 0.45)
+            guard radius > 0.4 else { continue }
+            canvas.fill(
+                Path(ellipseIn: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)),
+                with: .color(colour.opacity(fade))
+            )
+        }
+    }
+
+    private static let splashDropletCount = 9
 
     // MARK: Body
 
