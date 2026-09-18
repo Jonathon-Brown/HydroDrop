@@ -13,6 +13,8 @@ struct HomeView: View {
     @State private var showingAddSheet = false
     @State private var paywallSource: PaywallSource?
     @State private var editingEntry: WaterEntry?
+    /// The milestone whose celebration is on screen.
+    @State private var celebration: StreakMilestone?
     /// The drink that can still be taken back, and the task that retires the offer.
     @State private var pendingUndo: PendingUndo?
     @State private var undoDismissal: Task<Void, Never>?
@@ -142,6 +144,16 @@ struct HomeView: View {
             .sheet(item: $paywallSource) { source in
                 PaywallView(source: source)
             }
+            .sheet(item: $celebration) { milestone in
+                MilestoneCelebrationView(
+                    milestone: milestone,
+                    streak: streak,
+                    skin: settings.activeMascotSkin,
+                    todayTotalML: todayTotal,
+                    goalML: settings.dailyGoalML,
+                    system: settings.measurementSystem
+                )
+            }
             .overlay(alignment: .bottom) {
                 if let pendingUndo {
                     UndoToast(message: pendingUndo.message) {
@@ -154,6 +166,7 @@ struct HomeView: View {
         }
         .onAppear {
             syncOnForeground()
+            checkMilestones()
             considerReviewPrompt()
         }
         // One-shot pace-aware reminders only cover a few days, so they have to be
@@ -187,6 +200,13 @@ struct HomeView: View {
             mirrorToCompanions()
         }
         .onChange(of: streak) { _, _ in
+            checkMilestones()
+            considerReviewPrompt()
+        }
+        // A celebration and a review request must not stack, so the ask waits until
+        // the celebration is out of the way.
+        .onChange(of: celebration) { _, current in
+            guard current == nil else { return }
             considerReviewPrompt()
         }
         .onChange(of: settings.hasCompletedOnboarding) { _, _ in
@@ -204,16 +224,55 @@ struct HomeView: View {
     /// actually been made.
     private func considerReviewPrompt() {
         guard !reviewPromptPending, ReviewPrompter.shouldPrompt(streak: streak) else { return }
-        guard settings.hasCompletedOnboarding, paywallSource == nil, !showingAddSheet, !store.purchaseInProgress else { return }
+        guard isClearOfOtherPresentations else { return }
         reviewPromptPending = true
         Task { @MainActor in
             defer { reviewPromptPending = false }
             try? await Task.sleep(for: .seconds(1.5))
-            guard settings.hasCompletedOnboarding, paywallSource == nil, !showingAddSheet, !store.purchaseInProgress else { return }
+            guard isClearOfOtherPresentations else { return }
             guard scenePhase == .active, ReviewPrompter.shouldPrompt(streak: streak) else { return }
             ReviewPrompter.markPrompted()
             requestReview()
         }
+    }
+
+    /// True when there is nothing on screen a system alert would land on top of.
+    private var isClearOfOtherPresentations: Bool {
+        settings.hasCompletedOnboarding
+            && paywallSource == nil
+            && celebration == nil
+            && editingEntry == nil
+            && !showingAddSheet
+            && !store.purchaseInProgress
+    }
+
+    /// Awards any milestone the streak has reached, and celebrates the newest one.
+    ///
+    /// The badge is recorded before the celebration is shown, not after: a celebration
+    /// interrupted by the app being killed is a small loss, and one shown twice for the
+    /// same milestone is a bug the user cannot un-see.
+    private func checkMilestones() {
+        guard settings.hasCompletedOnboarding else { return }
+
+        // Everyone who was already keeping a streak before milestones existed starts
+        // with the badges they had earned, awarded quietly and only once.
+        if !settings.hasSeededMilestones {
+            settings.seedMilestones(
+                longestStreak: StreakCalculator.longestStreak(
+                    entries: allEntries,
+                    goalML: settings.dailyGoalML,
+                    frozenDayKeys: settings.frozenStreakDayKeys
+                )
+            )
+        }
+
+        guard celebration == nil else { return }
+        guard let milestone = StreakMilestone.newlyReached(
+            streak: streak,
+            alreadyCelebrated: Set(settings.celebratedMilestones)
+        ) else { return }
+        settings.recordMilestone(milestone)
+        celebration = milestone
     }
 
     private var streakBadge: some View {

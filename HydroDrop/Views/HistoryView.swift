@@ -48,6 +48,11 @@ struct HistoryView: View {
         displayedDays.filter { $0.totalML >= settings.dailyGoalML }.count
     }
 
+    private var todayTotal: Int {
+        let totals = StreakCalculator.totalsByDay(allEntries, calendar: calendar)
+        return totals[DayKey.key(for: Date(), calendar: calendar)] ?? 0
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -93,6 +98,11 @@ struct HistoryView: View {
                         BannerAdView(adUnitID: AdManager.bannerAdUnitID)
                     }
 
+                    BadgeShelf(
+                        earnedDays: Set(settings.celebratedMilestones),
+                        currentStreak: streak
+                    )
+
                     if !store.isSubscribed {
                         upsellBanner
                     }
@@ -100,6 +110,21 @@ struct HistoryView: View {
                 .padding()
             }
             .navigationTitle("History")
+            .toolbar {
+                // Nothing worth sharing until there is a streak to share.
+                if streak > 0 {
+                    ToolbarItem(placement: .primaryAction) {
+                        StreakShareButton(
+                            streak: streak,
+                            skin: settings.activeMascotSkin,
+                            todayTotalML: todayTotal,
+                            goalML: settings.dailyGoalML,
+                            system: settings.measurementSystem
+                        )
+                        .labelStyle(.iconOnly)
+                    }
+                }
+            }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView(source: .historyBanner)
             }
