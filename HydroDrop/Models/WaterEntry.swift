@@ -22,6 +22,14 @@ final class WaterEntry {
         set { drinkTypeRawValue = newValue.rawValue }
     }
 
+    /// The Apple Health sample this drink was written as, if it has been.
+    ///
+    /// Doubles as the record of what is already in Health, which is what stops a drink
+    /// being written twice. Optional for the same reason as `drinkTypeRawValue`: a
+    /// record already in CloudKit has no such field and comes back as nil, which is
+    /// exactly right for a drink that predates Health sync.
+    var healthKitSampleUUID: String?
+
     /// How much of this drink counts towards the daily goal. Totals, streaks and the
     /// history chart are all built from this rather than from `amountML`.
     var hydratedML: Int {

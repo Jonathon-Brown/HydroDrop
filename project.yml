@@ -39,6 +39,8 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSUserNotificationsUsageDescription: "HydroDrop reminds you to drink water throughout the day."
+        NSHealthUpdateUsageDescription: "HydroDrop adds the drinks you log to Apple Health as dietary water, and removes them again if you delete them. This is off until you turn it on."
+        NSHealthShareUsageDescription: "HydroDrop does not read anything from Apple Health. It only adds the drinks you log."
         NSUserTrackingUsageDescription: "This identifier is used to show you more relevant ads, which helps keep HydroDrop's free tier free."
         GADApplicationIdentifier: "ca-app-pub-5814718978331211~3407720909" # HydroDrop's AdMob App ID
         SKAdNetworkItems:

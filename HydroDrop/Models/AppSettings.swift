@@ -36,6 +36,8 @@ final class AppSettings: ObservableObject {
         static let customQuickAddPresets = "customQuickAddPresets"
         static let celebratedMilestones = "celebratedMilestones"
         static let hasSeededMilestones = "hasSeededMilestones"
+        static let healthKitSyncEnabled = "healthKitSyncEnabled"
+        static let healthSyncStartDate = "healthSyncStartDate"
     }
 
     static let reminderIntervalRange = 20...120
@@ -274,6 +276,33 @@ final class AppSettings: ObservableObject {
         (mascotSkin.requiresPlus && !EntitlementCache.isPlusActive) ? .classic : mascotSkin
     }
 
+    /// Whether drinks are mirrored into Apple Health.
+    ///
+    /// Device-level and deliberately not synced: Health authorization is granted per
+    /// device, and a phone that has been given permission cannot grant it on behalf of
+    /// an iPad that has not.
+    @Published var healthKitSyncEnabled: Bool {
+        didSet {
+            defaults.set(healthKitSyncEnabled, forKey: Keys.healthKitSyncEnabled)
+        }
+    }
+
+    /// The earliest drink eligible to be written to Health.
+    ///
+    /// Set to the moment sync is switched on, so turning it on does not silently hand
+    /// Health a year of history nobody asked it to hold. Moved back to the distant past
+    /// only when the user explicitly asks for their existing drinks to be added.
+    @Published var healthSyncStartDate: Date {
+        didSet {
+            defaults.set(healthSyncStartDate, forKey: Keys.healthSyncStartDate)
+        }
+    }
+
+    /// Whether the user has already had their history written to Health.
+    var hasBackfilledHealth: Bool {
+        healthSyncStartDate <= Date.distantPast
+    }
+
     /// Pace-aware reminders (HydroDrop+), as the user set it. Gate reads on
     /// `smartRemindersActive`, never on this.
     @Published var smartRemindersEnabled: Bool {
@@ -383,6 +412,8 @@ final class AppSettings: ObservableObject {
         self.biologicalSex = synced.string(forKey: Keys.biologicalSex).flatMap(BiologicalSex.init(rawValue:))
         self.activityLevel = synced.string(forKey: Keys.activityLevel).flatMap(ActivityLevel.init(rawValue:))
         self.smartRemindersEnabled = d.object(forKey: Keys.smartRemindersEnabled) as? Bool ?? false
+        self.healthKitSyncEnabled = d.object(forKey: Keys.healthKitSyncEnabled) as? Bool ?? false
+        self.healthSyncStartDate = d.object(forKey: Keys.healthSyncStartDate) as? Date ?? Date()
         self.hasCompletedOnboarding = (screenshotMode || Self.isSkippingOnboardingForUITests) ? true : storedOnboarding
         // Screenshot automation taps buttons by their "200 mL" labels, so it has to
         // start from the suggested sizes rather than whatever a previous run stored.
