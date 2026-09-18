@@ -108,7 +108,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
         MARKETING_VERSION: "1.4"
-        CURRENT_PROJECT_VERSION: "25"
+        CURRENT_PROJECT_VERSION: "26"
         CODE_SIGN_ENTITLEMENTS: HydroDrop/HydroDrop.entitlements
         SKIP_INSTALL: "NO"
         INSTALL_PATH: /Applications
@@ -159,7 +159,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
         MARKETING_VERSION: "1.4"
-        CURRENT_PROJECT_VERSION: "25"
+        CURRENT_PROJECT_VERSION: "26"
         SKIP_INSTALL: "YES"
 
   HydroDrop Watch App:
@@ -190,7 +190,7 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         ENABLE_PREVIEWS: YES
         MARKETING_VERSION: "1.4"
-        CURRENT_PROJECT_VERSION: "25"
+        CURRENT_PROJECT_VERSION: "26"
         SKIP_INSTALL: "YES"
   HydroDropTests:
     type: bundle.unit-test
