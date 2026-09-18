@@ -469,6 +469,12 @@ struct OnboardingView: View {
             hasLoggedFirstSip = true
         }
 
+        WidgetPublisher.publish(
+            context: modelContext,
+            settings: settings,
+            isShared: SharedModelContainer.isShared(modelContext.container)
+        )
+
         let startOfDay = Calendar.current.startOfDay(for: Date())
         let descriptor = FetchDescriptor<WaterEntry>(predicate: #Predicate { $0.timestamp >= startOfDay })
         let todayEntries = (try? modelContext.fetch(descriptor)) ?? [entry]

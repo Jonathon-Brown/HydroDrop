@@ -172,16 +172,19 @@ struct HomeView: View {
             ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
         }
         .onChange(of: todayTotal) { _, _ in
-            pushWatchContext()
+            mirrorToCompanions()
         }
         .onChange(of: settings.dailyGoalML) { _, _ in
-            pushWatchContext()
+            mirrorToCompanions()
         }
         .onChange(of: settings.measurementSystem) { _, _ in
-            pushWatchContext()
+            mirrorToCompanions()
         }
         .onChange(of: settings.quickAddPresets) { _, _ in
-            pushWatchContext()
+            mirrorToCompanions()
+        }
+        .onChange(of: settings.activeMascotSkin) { _, _ in
+            mirrorToCompanions()
         }
         .onChange(of: streak) { _, _ in
             considerReviewPrompt()
@@ -430,6 +433,11 @@ struct HomeView: View {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
         offerUndo(of: entry)
+        WidgetPublisher.publish(
+            entries: allEntries + [entry],
+            settings: settings,
+            isShared: SharedModelContainer.isShared(modelContext.container)
+        )
         // Logging changes today's pace, so the rest of the day's nudges are now stale.
         ReminderManager.shared.refreshSchedule(entries: allEntries + [entry], goalML: settings.dailyGoalML)
     }
@@ -472,8 +480,24 @@ struct HomeView: View {
 
     /// Everything that has to catch up after the log changes in any way.
     private func afterLogChange() {
-        pushWatchContext()
+        mirrorToCompanions()
         ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
+    }
+
+    /// Hands the current state to the two places that render it without the app being
+    /// open: the watch and the widgets.
+    private func mirrorToCompanions() {
+        WatchSessionManager.shared.pushContext(
+            totalML: todayTotal,
+            goalML: settings.dailyGoalML,
+            measurementSystem: settings.measurementSystem,
+            quickAddPresetsML: settings.quickAddPresets
+        )
+        WidgetPublisher.publish(
+            entries: allEntries,
+            settings: settings,
+            isShared: SharedModelContainer.isShared(modelContext.container)
+        )
     }
 
     /// SwiftData autosaves, but an edit the user just confirmed should not wait for it:
@@ -491,7 +515,7 @@ struct HomeView: View {
     /// the first appearance: the day may have rolled over, and the reminder horizon may
     /// have run out, while the app was away.
     private func syncOnForeground() {
-        pushWatchContext()
+        mirrorToCompanions()
         applyStreakFreezeIfNeeded()
         ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
     }
@@ -519,14 +543,7 @@ struct HomeView: View {
         let message: String
     }
 
-    private func pushWatchContext() {
-        WatchSessionManager.shared.pushContext(
-            totalML: todayTotal,
-            goalML: settings.dailyGoalML,
-            measurementSystem: settings.measurementSystem,
-            quickAddPresetsML: settings.quickAddPresets
-        )
-    }
+
 }
 
 #Preview {

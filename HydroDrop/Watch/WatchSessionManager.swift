@@ -89,6 +89,7 @@ final class WatchSessionManager: NSObject {
         }
         if let identifier { rememberSaved(identifier) }
         pushCurrentContext()
+        WidgetPublisher.publish(context: modelContext, isShared: SharedModelContainer.isShared(modelContext.container))
     }
 
     private func hasAlreadySaved(_ identifier: String) -> Bool {

@@ -59,6 +59,11 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
             return
         }
         WatchSessionManager.shared.pushCurrentContext()
+        WidgetPublisher.publish(
+            context: context,
+            settings: settings,
+            isShared: SharedModelContainer.isShared(modelContainer)
+        )
 
         // A logged drink changes today's pace, the same as it would from the Today screen.
         let startOfDay = Calendar.current.startOfDay(for: Date())
