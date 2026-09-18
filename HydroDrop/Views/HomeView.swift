@@ -1,15 +1,20 @@
 import SwiftUI
 import SwiftData
+import StoreKit
 
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.requestReview) private var requestReview
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject private var store = StoreManager.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
 
     @State private var showingAddSheet = false
     @State private var paywallSource: PaywallSource?
+    /// A review request already waiting on its short delay, so a burst of changes to
+    /// the streak can't queue several.
+    @State private var reviewPromptPending = false
 
     /// The missed day whose streak-break notice was closed, and the one whose impression
     /// has been counted. Device-local on purpose — plain `UserDefaults`, not the iCloud
@@ -118,6 +123,7 @@ struct HomeView: View {
         }
         .onAppear {
             syncOnForeground()
+            considerReviewPrompt()
         }
         // One-shot pace-aware reminders only cover a few days, so they have to be
         // re-armed when the app is opened. Nothing did that before: the schedule was
@@ -142,6 +148,34 @@ struct HomeView: View {
         }
         .onChange(of: settings.measurementSystem) { _, _ in
             pushWatchContext()
+        }
+        .onChange(of: streak) { _, _ in
+            considerReviewPrompt()
+        }
+        .onChange(of: settings.hasCompletedOnboarding) { _, _ in
+            considerReviewPrompt()
+        }
+    }
+
+    /// Asks for an App Store review on reaching a week-long streak, once per version.
+    ///
+    /// Never while onboarding is up, never with the paywall or the custom-amount sheet
+    /// open, and never mid-purchase: the system alert would land on top of whatever the
+    /// user was doing, and a rating asked for during a purchase reads as a toll. The
+    /// short delay lets the streak badge and haptic finish first. Every condition is
+    /// re-checked after the delay, and the version is only marked once the request has
+    /// actually been made.
+    private func considerReviewPrompt() {
+        guard !reviewPromptPending, ReviewPrompter.shouldPrompt(streak: streak) else { return }
+        guard settings.hasCompletedOnboarding, paywallSource == nil, !showingAddSheet, !store.purchaseInProgress else { return }
+        reviewPromptPending = true
+        Task { @MainActor in
+            defer { reviewPromptPending = false }
+            try? await Task.sleep(for: .seconds(1.5))
+            guard settings.hasCompletedOnboarding, paywallSource == nil, !showingAddSheet, !store.purchaseInProgress else { return }
+            guard scenePhase == .active, ReviewPrompter.shouldPrompt(streak: streak) else { return }
+            ReviewPrompter.markPrompted()
+            requestReview()
         }
     }
 
