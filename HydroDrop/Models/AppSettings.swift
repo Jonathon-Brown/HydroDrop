@@ -33,6 +33,7 @@ final class AppSettings: ObservableObject {
         static let mascotSkin = "mascotSkin"
         static let smartRemindersEnabled = "smartRemindersEnabled"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let customQuickAddPresets = "customQuickAddPresets"
     }
 
     static let reminderIntervalRange = 20...120
@@ -109,10 +110,46 @@ final class AppSettings: ObservableObject {
         quietStartMinutes == quietEndMinutes
     }
 
-    /// Preset quick-add cup sizes shown on the home screen, in mL. Round numbers in
-    /// whichever unit the user reads, so an imperial user gets 8, 12 and 16 oz.
+    /// The three quick-add cup sizes shown on the home screen, in mL.
+    ///
+    /// nil means "whatever suits the unit system", which is how every install starts
+    /// and what a reset goes back to: an imperial user then gets 8, 12 and 16 oz
+    /// rather than the metric sizes converted. Once the user edits a slot their sizes
+    /// are kept verbatim, including across a change of units, because at that point
+    /// the numbers are theirs and not ours to round.
+    @Published var customQuickAddPresetsML: [Int]? {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(customQuickAddPresetsML, forKey: Keys.customQuickAddPresets)
+            // The "Log a glass" notification button names the first preset.
+            ReminderManager.shared.registerCategories()
+        }
+    }
+
+    /// Preset quick-add cup sizes shown on the home screen, in mL.
     var quickAddPresets: [Int] {
-        measurementSystem.defaultQuickAddPresetsML
+        Self.sanitisedPresets(customQuickAddPresetsML) ?? measurementSystem.defaultQuickAddPresetsML
+    }
+
+    static let quickAddSlotCount = 3
+
+    /// A stored preset list is only usable if it has the right shape and plausible
+    /// amounts. Anything else (a truncated write, a value from a future version) falls
+    /// back to the defaults rather than putting a nonsense button on the home screen.
+    private static func sanitisedPresets(_ presets: [Int]?) -> [Int]? {
+        guard let presets, presets.count == quickAddSlotCount else { return nil }
+        let range = MeasurementSystem.plausibleDrinkRangeML
+        guard presets.allSatisfy(range.contains) else { return nil }
+        return presets
+    }
+
+    /// Replaces one quick-add slot, seeding the other two from whatever is on screen
+    /// now so the first edit doesn't blank the rest.
+    func setQuickAddPreset(_ amountML: Int, at index: Int) {
+        var presets = quickAddPresets
+        guard presets.indices.contains(index) else { return }
+        presets[index] = amountML
+        customQuickAddPresetsML = presets
     }
 
     /// Whether first-launch onboarding has been finished (or skipped) on this account.
@@ -143,6 +180,8 @@ final class AppSettings: ObservableObject {
         didSet {
             guard !isApplyingRemoteChange else { return }
             synced.set(measurementSystem.rawValue, forKey: Keys.measurementSystem)
+            // The "Log a glass" notification button names an amount in these units.
+            ReminderManager.shared.registerCategories()
         }
     }
 
@@ -303,6 +342,9 @@ final class AppSettings: ObservableObject {
         self.activityLevel = synced.string(forKey: Keys.activityLevel).flatMap(ActivityLevel.init(rawValue:))
         self.smartRemindersEnabled = d.object(forKey: Keys.smartRemindersEnabled) as? Bool ?? false
         self.hasCompletedOnboarding = (screenshotMode || Self.isSkippingOnboardingForUITests) ? true : storedOnboarding
+        // Screenshot automation taps buttons by their "200 mL" labels, so it has to
+        // start from the suggested sizes rather than whatever a previous run stored.
+        self.customQuickAddPresetsML = screenshotMode ? nil : synced.intArray(forKey: Keys.customQuickAddPresets)
 
         // Written now rather than left to the observer: a first-launch decision of
         // "not yet" has to survive the cloud seeding that follows, which would otherwise
@@ -351,6 +393,7 @@ final class AppSettings: ObservableObject {
         Keys.biologicalSex,
         Keys.activityLevel,
         Keys.hasCompletedOnboarding,
+        Keys.customQuickAddPresets,
     ]
 
     /// Starts mirroring person-level settings through iCloud.
@@ -380,6 +423,7 @@ final class AppSettings: ObservableObject {
             case Keys.biologicalSex: synced.set(biologicalSex?.rawValue, forKey: key)
             case Keys.activityLevel: synced.set(activityLevel?.rawValue, forKey: key)
             case Keys.hasCompletedOnboarding: if hasCompletedOnboarding { synced.set(true, forKey: key) }
+            case Keys.customQuickAddPresets: synced.set(customQuickAddPresetsML, forKey: key)
             default: break
             }
         }
@@ -423,6 +467,9 @@ final class AppSettings: ObservableObject {
         if changed.contains(Keys.hasCompletedOnboarding), synced.bool(forKey: Keys.hasCompletedOnboarding) == true {
             hasCompletedOnboarding = true
         }
+        if changed.contains(Keys.customQuickAddPresets) {
+            customQuickAddPresetsML = synced.intArray(forKey: Keys.customQuickAddPresets)
+        }
         if changed.contains(Keys.frozenStreakDayKeys) {
             let remote = synced.stringArray(forKey: Keys.frozenStreakDayKeys) ?? []
             let merged = StreakFreeze.merged(frozenStreakDayKeys, remote)
@@ -439,6 +486,11 @@ final class AppSettings: ObservableObject {
         if changed.contains(Keys.dailyGoalML) {
             // Pace-aware scheduling is keyed to the goal that just changed underneath it.
             ReminderManager.shared.refreshSchedule()
+        }
+        // Both of these name the amount on the "Log a glass" button. The observers that
+        // would normally do this are suppressed while a remote change is being applied.
+        if changed.contains(Keys.customQuickAddPresets) || changed.contains(Keys.measurementSystem) {
+            ReminderManager.shared.registerCategories()
         }
     }
 }

@@ -49,6 +49,7 @@ final class CloudSettingsStore {
     func double(forKey key: String) -> Double? { object(forKey: key) as? Double }
     func string(forKey key: String) -> String? { object(forKey: key) as? String }
     func stringArray(forKey key: String) -> [String]? { object(forKey: key) as? [String] }
+    func intArray(forKey key: String) -> [Int]? { object(forKey: key) as? [Int] }
 
     /// Whether iCloud itself holds a value, ignoring the local mirror. Used to decide
     /// whether this device's settings should seed an empty cloud.

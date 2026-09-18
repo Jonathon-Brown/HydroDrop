@@ -19,6 +19,12 @@ enum MeasurementSystem: String, CaseIterable, Identifiable {
     /// the calculator because the watch target compiles this file and not that one.
     static let storedGoalRangeML = 500...5000
 
+    /// Any single drink the app will accept, in the storage unit. Wider than either
+    /// system's picker range, because it also has to accept the top of the *other*
+    /// system's range after conversion (68 fl oz is 2011 mL, past the metric 2000) and
+    /// to vet amounts arriving from the watch or from iCloud.
+    static let plausibleDrinkRangeML = 1...5000
+
     var label: String {
         switch self {
         case .metric: return "Metric (mL)"
