@@ -6,8 +6,15 @@ struct HydroDropApp: App {
     let container: ModelContainer
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Collapses the duplicates a store migration leaves behind the moment CloudKit
+    /// mirrors the legacy rows back down, rather than waiting for the next launch. Held
+    /// for the app's lifetime so its notification observer stays registered.
+    private let remoteChangeObserver: StoreRemoteChangeObserver
+
     init() {
         container = Self.makeContainer()
+        remoteChangeObserver = StoreRemoteChangeObserver(container: container)
+        remoteChangeObserver.start()
         // Started here, not from AppSettings' own initialiser: the change handler calls
         // back into AppSettings.shared, which must already exist by then.
         AppSettings.shared.startCloudSync()
