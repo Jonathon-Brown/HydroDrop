@@ -12,6 +12,10 @@ struct HomeView: View {
 
     @State private var showingAddSheet = false
     @State private var paywallSource: PaywallSource?
+    @State private var editingEntry: WaterEntry?
+    /// The drink that can still be taken back, and the task that retires the offer.
+    @State private var pendingUndo: PendingUndo?
+    @State private var undoDismissal: Task<Void, Never>?
     /// A review request already waiting on its short delay, so a burst of changes to
     /// the streak can't queue several.
     @State private var reviewPromptPending = false
@@ -26,8 +30,10 @@ struct HomeView: View {
         allEntries.filter { Calendar.current.isDateInToday($0.timestamp) }
     }
 
+    /// What today counts for, which is the hydrating share of each drink rather than
+    /// the volume poured. Identical to the poured total for water.
     private var todayTotal: Int {
-        todayEntries.reduce(0) { $0 + $1.amountML }
+        todayEntries.reduce(0) { $0 + $1.hydratedML }
     }
 
     private var progress: Double {
@@ -113,12 +119,37 @@ struct HomeView: View {
             }
             .navigationTitle("Today")
             .sheet(isPresented: $showingAddSheet) {
-                AddDrinkSheet { amount in
-                    addEntry(amount: amount)
+                AddDrinkSheet { amount, drinkType, timestamp in
+                    addEntry(amount: amount, drinkType: drinkType, timestamp: timestamp)
                 }
+            }
+            .sheet(item: $editingEntry) { entry in
+                EditEntrySheet(entry: entry) {
+                    // The edit may have moved the drink to another day or changed what
+                    // it counts for, so everything downstream of the total is stale.
+                    saveContext()
+                    clearUndo()
+                    afterLogChange()
+                } onDelete: {
+                    editingEntry = nil
+                    // Deleted only once the sheet has gone. SwiftUI re-renders a sheet
+                    // while it dismisses, and reading a model that no longer exists
+                    // from that render is a crash.
+                    Task { @MainActor in delete(entry) }
+                }
+                .environmentObject(settings)
             }
             .sheet(item: $paywallSource) { source in
                 PaywallView(source: source)
+            }
+            .overlay(alignment: .bottom) {
+                if let pendingUndo {
+                    UndoToast(message: pendingUndo.message) {
+                        undo(pendingUndo.entry)
+                    }
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
         .onAppear {
@@ -147,6 +178,9 @@ struct HomeView: View {
             pushWatchContext()
         }
         .onChange(of: settings.measurementSystem) { _, _ in
+            pushWatchContext()
+        }
+        .onChange(of: settings.quickAddPresets) { _, _ in
             pushWatchContext()
         }
         .onChange(of: streak) { _, _ in
@@ -281,7 +315,7 @@ struct HomeView: View {
                 Spacer()
             }
             HStack(spacing: 12) {
-                ForEach(settings.quickAddPresets, id: \.self) { amount in
+                ForEach(Array(settings.quickAddPresets.enumerated()), id: \.offset) { _, amount in
                     Button {
                         addEntry(amount: amount)
                     } label: {
@@ -330,18 +364,18 @@ struct HomeView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(todayEntries) { entry in
-                        HStack {
-                            Image(systemName: "drop.fill")
-                                .foregroundStyle(.blue)
-                            Text(settings.measurementSystem.format(mL: entry.amountML))
-                            Spacer()
-                            Text(entry.timestamp, style: .time)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                        Button {
+                            editingEntry = entry
+                        } label: {
+                            logRow(entry)
                         }
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
                         .contextMenu {
+                            Button {
+                                editingEntry = entry
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
                             Button(role: .destructive) {
                                 delete(entry)
                             } label: {
@@ -355,13 +389,102 @@ struct HomeView: View {
         }
     }
 
-    private func addEntry(amount: Int) {
-        let entry = WaterEntry(amountML: amount)
+    /// One row of today's log: what it was, how much, and when.
+    private func logRow(_ entry: WaterEntry) -> some View {
+        let type = entry.drinkType
+        return HStack(spacing: 10) {
+            Image(systemName: type.icon)
+                .foregroundStyle(.blue)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(settings.measurementSystem.format(mL: entry.amountML))
+                    .foregroundStyle(.primary)
+                if type.countsForLess {
+                    // Without this the log's numbers don't add up to the total above it.
+                    Text("\(type.label) · counts as \(settings.measurementSystem.format(mL: entry.hydratedML))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if type != .water {
+                    Text(type.label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Text(entry.timestamp, style: .time)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Edit this drink")
+    }
+
+    private func addEntry(amount: Int, drinkType: DrinkType = .water, timestamp: Date = Date()) {
+        let entry = WaterEntry(amountML: amount, timestamp: timestamp, drinkType: drinkType)
         modelContext.insert(entry)
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
+        offerUndo(of: entry)
         // Logging changes today's pace, so the rest of the day's nudges are now stale.
         ReminderManager.shared.refreshSchedule(entries: allEntries + [entry], goalML: settings.dailyGoalML)
+    }
+
+    /// Shows the undo bar for a few seconds. A second drink replaces the offer rather
+    /// than stacking: only the most recent one can be taken back, which is the one the
+    /// user is looking at.
+    private func offerUndo(of entry: WaterEntry) {
+        undoDismissal?.cancel()
+        // The message is built now rather than read back off the model: the entry can
+        // be gone before the toast is, and the bar should describe what was logged.
+        let pending = PendingUndo(
+            entry: entry,
+            message: "Logged \(settings.measurementSystem.format(mL: entry.amountML))"
+        )
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            pendingUndo = pending
+        }
+        undoDismissal = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { pendingUndo = nil }
+        }
+    }
+
+    private func clearUndo() {
+        undoDismissal?.cancel()
+        undoDismissal = nil
+        withAnimation(.easeOut(duration: 0.2)) { pendingUndo = nil }
+    }
+
+    /// Takes back the drink the toast is offering. A no-op if it has already gone,
+    /// which is what a delete from the context menu in the same few seconds leaves.
+    private func undo(_ entry: WaterEntry) {
+        clearUndo()
+        guard entry.modelContext != nil else { return }
+        modelContext.delete(entry)
+        afterLogChange()
+    }
+
+    /// Everything that has to catch up after the log changes in any way.
+    private func afterLogChange() {
+        pushWatchContext()
+        ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
+    }
+
+    /// SwiftData autosaves, but an edit the user just confirmed should not wait for it:
+    /// a background kill in between would lose the change with no sign of it.
+    private func saveContext() {
+        guard modelContext.hasChanges else { return }
+        do {
+            try modelContext.save()
+        } catch {
+            Diagnostics.log("failed to save an edited entry: \(error)")
+        }
     }
 
     /// Work that has to happen every time the app reaches the foreground, not just on
@@ -385,14 +508,23 @@ struct HomeView: View {
     }
 
     private func delete(_ entry: WaterEntry) {
+        if pendingUndo?.entry.persistentModelID == entry.persistentModelID { clearUndo() }
         modelContext.delete(entry)
+        afterLogChange()
+    }
+
+    /// A drink that can still be taken back, with the words to describe it.
+    private struct PendingUndo {
+        let entry: WaterEntry
+        let message: String
     }
 
     private func pushWatchContext() {
         WatchSessionManager.shared.pushContext(
             totalML: todayTotal,
             goalML: settings.dailyGoalML,
-            measurementSystem: settings.measurementSystem
+            measurementSystem: settings.measurementSystem,
+            quickAddPresetsML: settings.quickAddPresets
         )
     }
 }
