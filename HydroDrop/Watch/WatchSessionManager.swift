@@ -49,8 +49,9 @@ final class WatchSessionManager: NSObject {
     ///
     /// Needed after a watch-originated drink: `HomeView` only pushes context while it is
     /// on screen, so a drink logged from the wrist left the watch showing its own
-    /// optimistic total and the phone showing the real one.
-    private func pushCurrentContext() {
+    /// optimistic total and the phone showing the real one. The same applies to a drink
+    /// logged from a notification action, which is why this is not private.
+    func pushCurrentContext() {
         guard let modelContext else { return }
         let startOfDay = Calendar.current.startOfDay(for: Date())
         let descriptor = FetchDescriptor<WaterEntry>(
