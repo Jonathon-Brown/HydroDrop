@@ -40,7 +40,7 @@ targets:
           - UIInterfaceOrientationPortrait
         NSUserNotificationsUsageDescription: "HydroDrop reminds you to drink water throughout the day."
         NSUserTrackingUsageDescription: "This identifier is used to show you more relevant ads, which helps keep HydroDrop's free tier free."
-        GADApplicationIdentifier: "ca-app-pub-3940256099942544~1458002511" # TODO: replace with your real AdMob App ID before release builds
+        GADApplicationIdentifier: "ca-app-pub-5814718978331211~3407720909" # HydroDrop's AdMob App ID
         SKAdNetworkItems:
           - SKAdNetworkIdentifier: cstr6suwn9.skadnetwork
           - SKAdNetworkIdentifier: 4fzdc2evr5.skadnetwork

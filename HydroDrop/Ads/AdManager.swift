@@ -9,9 +9,9 @@ import AppTrackingTransparency
 /// checks in HomeView/HistoryView, and "No ads, ever" in PaywallView's
 /// feature list.
 enum AdManager {
-    /// Swap this for your real AdMob banner ad unit ID before shipping.
+    /// HydroDrop's real AdMob banner ad unit ID, used in release builds.
     ///
-    /// Create one at admob.google.com → Apps → HydroDrop → Ad units → Banner.
+    /// Created at admob.google.com → Apps → HydroDrop → Ad units → Banner.
     /// The DEBUG branch keeps Google's public test unit in local/simulator
     /// builds so you never risk serving (or accidentally clicking) live ads
     /// while developing — doing that on your own device is one of the
@@ -20,7 +20,7 @@ enum AdManager {
         #if DEBUG
         return "ca-app-pub-3940256099942544/2435281174"
         #else
-        return "ca-app-pub-REPLACE_WITH_YOUR_APP_ID/REPLACE_WITH_YOUR_BANNER_UNIT_ID"
+        return "ca-app-pub-5814718978331211/5842312557"
         #endif
     }
 

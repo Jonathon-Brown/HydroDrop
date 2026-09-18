@@ -25,9 +25,8 @@
 	<key>NSUserTrackingUsageDescription</key>
 	<string>This identifier is used to show you more relevant ads, which helps keep HydroDrop's free tier free.</string>
 	<key>GADApplicationIdentifier</key>
-	<!-- Google's public test App ID. Replace with your real AdMob App ID
-	     (admob.google.com → Apps → HydroDrop) before shipping to TestFlight/App Review. -->
-	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<!-- HydroDrop's AdMob App ID (admob.google.com → Apps → HydroDrop). -->
+	<string>ca-app-pub-5814718978331211~3407720909</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict><key>SKAdNetworkIdentifier</key><string>cstr6suwn9.skadnetwork</string></dict>
