@@ -11,8 +11,9 @@ struct EditEntrySheet: View {
 
     let entry: WaterEntry
     /// Called after the edit lands, so the caller can save, re-arm reminders and
-    /// update the watch.
-    let onSave: () -> Void
+    /// update the watch. Carries the Apple Health sample this edit has orphaned, if
+    /// there is one, since the entry no longer remembers it.
+    let onSave: (String?) -> Void
     /// Called instead of dismissing: the caller closes this sheet and then deletes,
     /// because a model read back after deletion is a crash.
     let onDelete: () -> Void
@@ -24,7 +25,7 @@ struct EditEntrySheet: View {
     private let openedAt = Date()
     private let originalTimestamp: Date
 
-    init(entry: WaterEntry, onSave: @escaping () -> Void, onDelete: @escaping () -> Void) {
+    init(entry: WaterEntry, onSave: @escaping (String?) -> Void, onDelete: @escaping () -> Void) {
         self.entry = entry
         self.onSave = onSave
         self.onDelete = onDelete
@@ -89,17 +90,31 @@ struct EditEntrySheet: View {
     }
 
     private func save() {
+        let newTimestamp = timestamp == originalTimestamp ? originalTimestamp : DrinkTime.clamped(timestamp)
+        let isUnchanged = entry.amountML == amountML
+            && entry.drinkType == drinkType
+            && entry.timestamp == newTimestamp
+
+        // Health only needs disturbing when something it recorded actually moved.
+        var orphanedSampleUUID: String?
+        if !isUnchanged {
+            orphanedSampleUUID = entry.healthKitSampleUUID
+            // Cleared so the next reconcile writes the corrected drink. The old sample
+            // is deleted by the caller.
+            entry.healthKitSampleUUID = nil
+        }
+
         entry.amountML = amountML
         entry.drinkType = drinkType
         // An entry being edited may already be older than the backfill window, so the
         // clamp only applies when the user actually moved it.
-        entry.timestamp = timestamp == originalTimestamp ? originalTimestamp : DrinkTime.clamped(timestamp)
-        onSave()
+        entry.timestamp = newTimestamp
+        onSave(orphanedSampleUUID)
         dismiss()
     }
 }
 
 #Preview {
-    EditEntrySheet(entry: WaterEntry(amountML: 330, drinkType: .coffee), onSave: {}, onDelete: {})
+    EditEntrySheet(entry: WaterEntry(amountML: 330, drinkType: .coffee), onSave: { _ in }, onDelete: {})
         .environmentObject(AppSettings.shared)
 }

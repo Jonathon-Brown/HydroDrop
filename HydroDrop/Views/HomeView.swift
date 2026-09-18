@@ -126,12 +126,13 @@ struct HomeView: View {
                 }
             }
             .sheet(item: $editingEntry) { entry in
-                EditEntrySheet(entry: entry) {
+                EditEntrySheet(entry: entry) { orphanedSampleUUID in
                     // The edit may have moved the drink to another day or changed what
                     // it counts for, so everything downstream of the total is stale.
                     saveContext()
                     clearUndo()
                     afterLogChange()
+                    retireHealthSample(orphanedSampleUUID)
                 } onDelete: {
                     editingEntry = nil
                     // Deleted only once the sheet has gone. SwiftUI re-renders a sheet
@@ -533,14 +534,37 @@ struct HomeView: View {
     private func undo(_ entry: WaterEntry) {
         clearUndo()
         guard entry.modelContext != nil else { return }
+        // Read before the delete: once the entry is gone, so is the only record of
+        // which Health sample belonged to it.
+        let sampleUUID = entry.healthKitSampleUUID
         modelContext.delete(entry)
         afterLogChange()
+        retireHealthSample(sampleUUID)
     }
 
     /// Everything that has to catch up after the log changes in any way.
     private func afterLogChange() {
         mirrorToCompanions()
+        syncHealth()
         ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
+    }
+
+    /// Writes anything Health is missing. Cheap and a no-op when sync is off, so it can
+    /// sit on every path that changes the log rather than only the ones in this app:
+    /// a drink logged by an App Intent in the widget process is picked up here.
+    private func syncHealth() {
+        guard settings.healthKitSyncEnabled else { return }
+        Task { @MainActor in
+            await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
+        }
+    }
+
+    /// Removes a Health sample whose drink has been deleted or rewritten.
+    private func retireHealthSample(_ uuid: String?) {
+        guard let uuid, settings.healthKitSyncEnabled else { return }
+        Task { @MainActor in
+            await HealthKitManager.shared.deleteSample(uuidString: uuid)
+        }
     }
 
     /// Hands the current state to the two places that render it without the app being
@@ -575,6 +599,7 @@ struct HomeView: View {
     /// have run out, while the app was away.
     private func syncOnForeground() {
         mirrorToCompanions()
+        syncHealth()
         applyStreakFreezeIfNeeded()
         ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
     }
@@ -592,8 +617,10 @@ struct HomeView: View {
 
     private func delete(_ entry: WaterEntry) {
         if pendingUndo?.entry.persistentModelID == entry.persistentModelID { clearUndo() }
+        let sampleUUID = entry.healthKitSampleUUID
         modelContext.delete(entry)
         afterLogChange()
+        retireHealthSample(sampleUUID)
     }
 
     /// A drink that can still be taken back, with the words to describe it.

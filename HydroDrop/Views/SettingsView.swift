@@ -5,6 +5,7 @@ import StoreKit
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.modelContext) private var modelContext
     @ObservedObject private var store = StoreManager.shared
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var paywallSource: PaywallSource?
@@ -13,6 +14,9 @@ struct SettingsView: View {
     @State private var showingGoalCalculator = false
     @State private var showingIntroReplay = false
     @State private var editingPreset: PresetSlot?
+    @State private var healthAuthorizationMessage: String?
+    @State private var showingBackfillConfirmation = false
+    @State private var isSyncingHealth = false
 
     var body: some View {
         NavigationStack {
@@ -211,6 +215,10 @@ struct SettingsView: View {
                     }
                 }
 
+                if HealthKitManager.isAvailable {
+                    healthSection
+                }
+
                 Section("Support") {
                     Button {
                         showingBugReport = true
@@ -260,6 +268,27 @@ struct SettingsView: View {
             .sheet(isPresented: $showingGoalCalculator) {
                 GoalCalculatorView()
             }
+            .alert(
+                "Apple Health",
+                isPresented: Binding(
+                    get: { healthAuthorizationMessage != nil },
+                    set: { if !$0 { healthAuthorizationMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { healthAuthorizationMessage = nil }
+            } message: {
+                Text(healthAuthorizationMessage ?? "")
+            }
+            .confirmationDialog(
+                "Add your existing drinks to Apple Health?",
+                isPresented: $showingBackfillConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Add them") { backfillHealth() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every drink you have logged in HydroDrop will be added to Health as dietary water. You can remove them again in the Health app at any time.")
+            }
             .sheet(item: $editingPreset) { slot in
                 QuickAddPresetSheet(slot: slot) { amountML in
                     settings.setQuickAddPreset(amountML, at: slot.index)
@@ -288,6 +317,90 @@ struct SettingsView: View {
             } message: {
                 Text(store.lastErrorMessage ?? "")
             }
+        }
+    }
+
+    // MARK: - Apple Health
+
+    @ViewBuilder
+    private var healthSection: some View {
+        Section {
+            Toggle("Sync to Apple Health", isOn: healthToggleBinding)
+
+            if settings.healthKitSyncEnabled {
+                if settings.hasBackfilledHealth {
+                    Label("Your earlier drinks have been added.", systemImage: "checkmark.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button {
+                        showingBackfillConfirmation = true
+                    } label: {
+                        Label("Add past drinks to Health", systemImage: "clock.arrow.circlepath")
+                    }
+                    .disabled(isSyncingHealth)
+                }
+            }
+        } header: {
+            Text("Apple Health")
+        } footer: {
+            Text(healthFooter)
+        }
+    }
+
+    private var healthFooter: String {
+        if settings.healthKitSyncEnabled {
+            return "New drinks are added to Health as dietary water, using the amount HydroDrop counts, so a coffee adds what it actually hydrates. Deleting or editing a drink here updates Health too. HydroDrop never reads anything from Health, and turning this off leaves whatever is already there in place."
+        }
+        return "Off by default. When on, the drinks you log are added to Health as dietary water. HydroDrop only ever writes, never reads, and nothing is sent to us."
+    }
+
+    /// Turning the toggle on asks Health for permission first, and only commits the
+    /// setting once permission is actually granted. Flipping a switch that then does
+    /// nothing is worse than the switch refusing to move.
+    private var healthToggleBinding: Binding<Bool> {
+        Binding(
+            get: { settings.healthKitSyncEnabled },
+            set: { wantsOn in
+                if wantsOn {
+                    enableHealthSync()
+                } else {
+                    settings.healthKitSyncEnabled = false
+                }
+            }
+        )
+    }
+
+    private func enableHealthSync() {
+        isSyncingHealth = true
+        Task { @MainActor in
+            defer { isSyncingHealth = false }
+            switch await HealthKitManager.shared.requestAuthorization() {
+            case .granted:
+                // Only from here on. Turning sync on is not a request to hand Health
+                // everything logged before it.
+                settings.healthSyncStartDate = Date()
+                settings.healthKitSyncEnabled = true
+                await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
+            case .denied:
+                settings.healthKitSyncEnabled = false
+                healthAuthorizationMessage = "HydroDrop needs permission to add water to Health. You can grant it in the Health app, under Sharing, Apps and Services, HydroDrop."
+            case .unavailable:
+                settings.healthKitSyncEnabled = false
+                healthAuthorizationMessage = "Apple Health is not available on this device."
+            case .failed(let reason):
+                settings.healthKitSyncEnabled = false
+                healthAuthorizationMessage = reason
+            }
+        }
+    }
+
+    private func backfillHealth() {
+        isSyncingHealth = true
+        Task { @MainActor in
+            defer { isSyncingHealth = false }
+            settings.healthSyncStartDate = .distantPast
+            await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
         }
     }
 
