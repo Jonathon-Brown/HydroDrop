@@ -10,8 +10,25 @@ struct HydroDropApp: App {
         // Started here, not from AppSettings' own initialiser: the change handler calls
         // back into AppSettings.shared, which must already exist by then.
         AppSettings.shared.startCloudSync()
+        // The settings initialiser can only see preferences; anyone with water already
+        // logged (an iCloud restore onto a new phone, say) is recognised here instead.
+        AppSettings.shared.completeOnboardingIfExistingUser(entryCount: Self.entryCount(in: container))
         WatchSessionManager.shared.activate(modelContainer: container)
+        // Installed before the first scene exists, so a "Log a glass" tap that launches
+        // the app in the background is handled rather than dropped.
+        NotificationActionHandler.shared.activate(modelContainer: container)
+        ReminderManager.shared.registerCategories()
         AdManager.start()
+    }
+
+    private static func entryCount(in container: ModelContainer) -> Int {
+        let context = ModelContext(container)
+        do {
+            return try context.fetchCount(FetchDescriptor<WaterEntry>())
+        } catch {
+            Diagnostics.log("could not count entries at launch: \(error)")
+            return 0
+        }
     }
 
     /// Prefers an iCloud-backed store, but degrades to a local one rather than

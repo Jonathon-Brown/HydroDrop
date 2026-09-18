@@ -32,6 +32,7 @@ final class AppSettings: ObservableObject {
         static let legacyFrozenStreakDays = "frozenStreakDays"
         static let mascotSkin = "mascotSkin"
         static let smartRemindersEnabled = "smartRemindersEnabled"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 
     static let reminderIntervalRange = 20...120
@@ -44,6 +45,16 @@ final class AppSettings: ObservableObject {
     private static var isScreenshotMode: Bool {
         #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory")
+        #else
+        false
+        #endif
+    }
+
+    /// UI tests that drive the tab bar on a fresh simulator would otherwise start
+    /// underneath first-launch onboarding. In memory only, and compiled out of Release.
+    private static var isSkippingOnboardingForUITests: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-UITestSkipOnboarding")
         #else
         false
         #endif
@@ -98,8 +109,35 @@ final class AppSettings: ObservableObject {
         quietStartMinutes == quietEndMinutes
     }
 
-    /// Preset quick-add cup sizes shown on the home screen, in mL.
-    let quickAddPresets: [Int] = [200, 330, 500]
+    /// Preset quick-add cup sizes shown on the home screen, in mL. Round numbers in
+    /// whichever unit the user reads, so an imperial user gets 8, 12 and 16 oz.
+    var quickAddPresets: [Int] {
+        measurementSystem.defaultQuickAddPresetsML
+    }
+
+    /// Whether first-launch onboarding has been finished (or skipped) on this account.
+    ///
+    /// Person-level and synced, so a second device usually inherits the answer. Set
+    /// once in the initialiser for every install that predates onboarding, and again by
+    /// `completeOnboardingIfExistingUser(entryCount:)` once the store has been opened,
+    /// so nobody who already has history is shown the intro.
+    @Published var hasCompletedOnboarding: Bool {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            Self.persistOnboarding(hasCompletedOnboarding, synced: synced, local: defaults)
+        }
+    }
+
+    /// Only a `true` ever reaches iCloud. A fresh install's "not yet" is a fact about
+    /// that device; written to the cloud it would be mirrored down onto a device that
+    /// finished the intro long ago and reopen it there on the next launch.
+    private static func persistOnboarding(_ completed: Bool, synced: CloudSettingsStore, local: UserDefaults) {
+        if completed {
+            synced.set(true, forKey: Keys.hasCompletedOnboarding)
+        } else {
+            local.set(false, forKey: Keys.hasCompletedOnboarding)
+        }
+    }
 
     @Published var measurementSystem: MeasurementSystem {
         didSet {
@@ -223,6 +261,32 @@ final class AppSettings: ObservableObject {
 
         let storedSkin = synced.string(forKey: Keys.mascotSkin).flatMap(MascotSkin.init(rawValue:)) ?? .classic
 
+        // Anyone who installed before onboarding existed has no stored answer, and must
+        // not be shown the intro. Any trace of an earlier launch counts: a stored goal
+        // or unit system (which the first cloud sync seeds for every existing user), a
+        // touched reminder setting, or the entitlement cache `StoreManager` writes on
+        // every launch. A fresh install has none of these when this runs.
+        let storedOnboarding: Bool
+        let onboardingNeedsPersisting: Bool
+        if let answer = synced.bool(forKey: Keys.hasCompletedOnboarding) {
+            storedOnboarding = answer
+            onboardingNeedsPersisting = false
+        } else {
+            let earlierLaunchKeys = [
+                Keys.dailyGoalML, Keys.measurementSystem, Keys.mascotSkin, Keys.weightKG,
+                Keys.remindersEnabled, Keys.reminderIntervalMinutes, "reminderIntervalHours",
+                Keys.quietStartMinutes, Keys.quietEndMinutes,
+                Keys.legacyQuietStartHour, Keys.legacyQuietEndHour,
+                Keys.smartRemindersEnabled, Keys.legacyFrozenStreakDays,
+                "plus.entitlementActive", "watch.seenLogIdentifiers",
+            ]
+            let looksLikeExistingUser = earlierLaunchKeys.contains { key in
+                synced.object(forKey: key) != nil || d.object(forKey: key) != nil
+            } || !(synced.stringArray(forKey: Keys.frozenStreakDayKeys) ?? []).isEmpty
+            storedOnboarding = looksLikeExistingUser
+            onboardingNeedsPersisting = true
+        }
+
         // Everything a captured screenshot actually shows, overridden in memory only —
         // nothing here writes over the defaults on disk.
         self.dailyGoalML = screenshotMode ? 2000 : storedGoal
@@ -238,6 +302,24 @@ final class AppSettings: ObservableObject {
         self.biologicalSex = synced.string(forKey: Keys.biologicalSex).flatMap(BiologicalSex.init(rawValue:))
         self.activityLevel = synced.string(forKey: Keys.activityLevel).flatMap(ActivityLevel.init(rawValue:))
         self.smartRemindersEnabled = d.object(forKey: Keys.smartRemindersEnabled) as? Bool ?? false
+        self.hasCompletedOnboarding = (screenshotMode || Self.isSkippingOnboardingForUITests) ? true : storedOnboarding
+
+        // Written now rather than left to the observer: a first-launch decision of
+        // "not yet" has to survive the cloud seeding that follows, which would otherwise
+        // make the next launch read this install as a pre-onboarding one.
+        if onboardingNeedsPersisting && !screenshotMode && !Self.isSkippingOnboardingForUITests {
+            Self.persistOnboarding(storedOnboarding, synced: synced, local: d)
+        }
+    }
+
+    /// Marks onboarding complete for an install that already has water logged.
+    ///
+    /// The initialiser can only see preferences; the entries live in the store, which
+    /// is opened afterwards. A user restoring from iCloud onto a new phone has history
+    /// and nothing else, and is exactly who this catches.
+    func completeOnboardingIfExistingUser(entryCount: Int) {
+        guard !hasCompletedOnboarding, entryCount > 0 else { return }
+        hasCompletedOnboarding = true
     }
 
     /// Reads the day-key list, converting anything left by a version that stored
@@ -268,6 +350,7 @@ final class AppSettings: ObservableObject {
         Keys.weightKG,
         Keys.biologicalSex,
         Keys.activityLevel,
+        Keys.hasCompletedOnboarding,
     ]
 
     /// Starts mirroring person-level settings through iCloud.
@@ -296,6 +379,7 @@ final class AppSettings: ObservableObject {
             case Keys.weightKG: synced.set(weightKG, forKey: key)
             case Keys.biologicalSex: synced.set(biologicalSex?.rawValue, forKey: key)
             case Keys.activityLevel: synced.set(activityLevel?.rawValue, forKey: key)
+            case Keys.hasCompletedOnboarding: if hasCompletedOnboarding { synced.set(true, forKey: key) }
             default: break
             }
         }
@@ -333,6 +417,11 @@ final class AppSettings: ObservableObject {
         }
         if changed.contains(Keys.activityLevel) {
             activityLevel = synced.string(forKey: Keys.activityLevel).flatMap(ActivityLevel.init(rawValue:))
+        }
+        // Only ever promoted to true: another device finishing the intro should close it
+        // here, but nothing remote should reopen it.
+        if changed.contains(Keys.hasCompletedOnboarding), synced.bool(forKey: Keys.hasCompletedOnboarding) == true {
+            hasCompletedOnboarding = true
         }
         if changed.contains(Keys.frozenStreakDayKeys) {
             let remote = synced.stringArray(forKey: Keys.frozenStreakDayKeys) ?? []

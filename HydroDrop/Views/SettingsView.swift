@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var showingEventCounts = false
     @State private var showingBugReport = false
     @State private var showingGoalCalculator = false
+    @State private var showingIntroReplay = false
 
     var body: some View {
         NavigationStack {
@@ -32,14 +33,7 @@ struct SettingsView: View {
                 }
 
                 Section("Daily goal") {
-                    Stepper(value: $settings.dailyGoalML, in: 500...5000, step: 100) {
-                        HStack {
-                            Text("Goal")
-                            Spacer()
-                            Text(settings.measurementSystem.format(mL: settings.dailyGoalML))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    GoalStepper(goalML: $settings.dailyGoalML, system: settings.measurementSystem)
                     Button {
                         showingGoalCalculator = true
                     } label: {
@@ -121,12 +115,12 @@ struct SettingsView: View {
 
                         DatePicker(
                             "From",
-                            selection: minuteOfDayBinding(for: \.quietStartMinutes),
+                            selection: MinuteOfDay.dateBinding($settings.quietStartMinutes),
                             displayedComponents: .hourAndMinute
                         )
                         DatePicker(
                             "Until",
-                            selection: minuteOfDayBinding(for: \.quietEndMinutes),
+                            selection: MinuteOfDay.dateBinding($settings.quietEndMinutes),
                             displayedComponents: .hourAndMinute
                         )
 
@@ -194,6 +188,11 @@ struct SettingsView: View {
 
                 Section("About") {
                     LabeledContent("App", value: "HydroDrop")
+                    Button {
+                        showingIntroReplay = true
+                    } label: {
+                        Label("Replay intro", systemImage: "play.circle")
+                    }
                     LabeledContent("Version", value: appVersionLabel)
                         .contentShape(Rectangle())
                         // Hidden way into the on-device paywall counts. Does nothing in
@@ -227,6 +226,12 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingGoalCalculator) {
                 GoalCalculatorView()
+            }
+            .fullScreenCover(isPresented: $showingIntroReplay) {
+                OnboardingView(mode: .replay) {
+                    showingIntroReplay = false
+                }
+                .environmentObject(settings)
             }
             // Same alert the paywall shows for purchase and restore failures. Gated on
             // the entitlement because only the subscribed branch of this screen can set
@@ -304,34 +309,7 @@ struct SettingsView: View {
     }
 
     private var intervalLabel: String {
-        let total = settings.reminderIntervalMinutes
-        let hours = total / 60
-        let minutes = total % 60
-        switch (hours, minutes) {
-        case (0, _):
-            return "\(minutes) min"
-        case (_, 0):
-            return hours == 1 ? "1 hour" : "\(hours) hours"
-        default:
-            return "\(hours) hr \(minutes) min"
-        }
-    }
-
-    /// Bridges an Int "minutes since midnight" setting to a DatePicker's Date binding.
-    private func minuteOfDayBinding(for keyPath: ReferenceWritableKeyPath<AppSettings, Int>) -> Binding<Date> {
-        Binding(
-            get: {
-                let totalMinutes = settings[keyPath: keyPath]
-                var components = DateComponents()
-                components.hour = totalMinutes / 60
-                components.minute = totalMinutes % 60
-                return Calendar.current.date(from: components) ?? Date()
-            },
-            set: { newDate in
-                let comps = Calendar.current.dateComponents([.hour, .minute], from: newDate)
-                settings[keyPath: keyPath] = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-            }
-        )
+        DurationLabel.label(minutes: settings.reminderIntervalMinutes)
     }
 }
 

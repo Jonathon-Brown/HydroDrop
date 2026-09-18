@@ -7,6 +7,9 @@ import XCTest
 final class PaywallDiagnosticUITests: XCTestCase {
     func testPaywallLoadsSubscriptionOptions() throws {
         let app = XCUIApplication()
+        // A fresh simulator has no history, and first-launch onboarding would sit on top
+        // of the tab bar these tests drive.
+        app.launchArguments = ["-UITestSkipOnboarding"]
         app.launch()
 
         app.tabBars.buttons["Settings"].tap()
@@ -55,6 +58,9 @@ final class PaywallDiagnosticUITests: XCTestCase {
     /// trapped behind it.
     func testPaywallCanAlwaysBeClosed() throws {
         let app = XCUIApplication()
+        // A fresh simulator has no history, and first-launch onboarding would sit on top
+        // of the tab bar these tests drive.
+        app.launchArguments = ["-UITestSkipOnboarding"]
         app.launch()
 
         app.tabBars.buttons["Settings"].tap()
