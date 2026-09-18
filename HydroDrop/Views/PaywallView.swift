@@ -14,6 +14,10 @@ private struct PlusFeature {
         .init(title: "Streak freeze — protect a missed day", icon: "snowflake"),
         .init(title: "Smart, pace-aware reminders", icon: "bell.badge.fill"),
         .init(title: "Weekly recap of your hydration", icon: "calendar.badge.clock"),
+        .init(title: "Hot-day nudges from the weather", icon: "thermometer.sun.fill"),
+        .init(title: "Live Activity while you drink toward your goal", icon: "timer"),
+        .init(title: "Lock Screen widgets at a glance", icon: "lock.fill"),
+        .init(title: "Home Screen widgets at a glance", icon: "square.grid.2x2.fill"),
         .init(title: "Four more mascots, each with a matching app icon", icon: "paintpalette.fill"),
         .init(title: "Support indie development", icon: "heart.fill"),
     ]

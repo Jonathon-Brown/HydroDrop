@@ -119,10 +119,6 @@ echo "Paywall honesty (2.3.1)"
 # promise it. Remove a line here in the same change that adds it to
 # PaywallView.PlusFeature.all, and not before.
 UNSHIPPED=(
-  "hot day"
-  "weather"
-  "Live Activity"
-  "Lock Screen"
 )
 FOUND_UNSHIPPED=0
 if [[ -f "$PAYWALL" ]]; then
