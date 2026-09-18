@@ -15,6 +15,46 @@ enum StreakCalculator {
             .mapValues { $0.reduce(0) { $0 + $1.hydratedML } }
     }
 
+    /// The longest run of goal-meeting days anywhere in the history.
+    ///
+    /// Measured against the goal as it stands today, because that is the only goal we
+    /// have: HydroDrop stores drinks, not the goal each day was judged against. Someone
+    /// who has since raised their goal will see a shorter best run than they lived, and
+    /// someone who lowered it a longer one. That is why this only ever *adds* badges,
+    /// through `AppSettings.seedMilestones`, and never takes one away.
+    ///
+    /// Frozen days bridge a gap without counting themselves, exactly as they do in
+    /// `currentStreak`.
+    static func longestStreak(
+        entries: [WaterEntry],
+        goalML: Int,
+        frozenDayKeys: [String] = [],
+        calendar: Calendar = .current
+    ) -> Int {
+        guard goalML > 0 else { return 0 }
+        let totals = totalsByDay(entries, calendar: calendar)
+        let metDays = Set(totals.filter { $0.value >= goalML }.keys)
+        let frozen = Set(frozenDayKeys)
+        let linked = metDays.union(frozen)
+        guard !linked.isEmpty else { return 0 }
+
+        var best = 0
+        for day in linked {
+            // Only start counting from the first day of a run, so each run is walked once.
+            let previous = DayKey.previousDayKey(before: day, calendar: calendar)
+            if let previous, linked.contains(previous) { continue }
+
+            var run = 0
+            var cursor: String? = day
+            while let current = cursor, linked.contains(current) {
+                if metDays.contains(current) { run += 1 }
+                cursor = DayKey.nextDayKey(after: current, calendar: calendar)
+            }
+            best = max(best, run)
+        }
+        return best
+    }
+
     /// Consecutive days (ending today or yesterday) where intake met the goal.
     ///
     /// Days in `frozenDayKeys` bridge a miss without counting towards the total, so a

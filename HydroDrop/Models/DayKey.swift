@@ -34,6 +34,13 @@ enum DayKey {
         return previousDayKey(before: date, calendar: calendar)
     }
 
+    /// The day after `dayKey`, derived without leaving day-key space.
+    static func nextDayKey(after dayKey: String, calendar: Calendar = .current) -> String? {
+        guard let date = date(from: dayKey, calendar: calendar),
+              let next = calendar.date(byAdding: .day, value: 1, to: date) else { return nil }
+        return key(for: next, calendar: calendar)
+    }
+
     /// The month a day belongs to, e.g. "2026-08". Used for the monthly freeze allowance.
     static func monthKey(for date: Date, calendar: Calendar = .current) -> String {
         String(key(for: date, calendar: calendar).prefix(7))

@@ -34,6 +34,8 @@ final class AppSettings: ObservableObject {
         static let smartRemindersEnabled = "smartRemindersEnabled"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let customQuickAddPresets = "customQuickAddPresets"
+        static let celebratedMilestones = "celebratedMilestones"
+        static let hasSeededMilestones = "hasSeededMilestones"
     }
 
     static let reminderIntervalRange = 20...120
@@ -207,6 +209,46 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Streak milestones the user has earned, in days.
+    ///
+    /// The record of what has been *awarded*, not a recomputation of what today's
+    /// history would justify: goals change, and a badge someone earned at a lower goal
+    /// is still theirs. Merged as a union across devices for the same reason.
+    @Published var celebratedMilestones: [Int] {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(celebratedMilestones, forKey: Keys.celebratedMilestones)
+        }
+    }
+
+    /// Whether the badge shelf has been filled in from the history that existed before
+    /// milestones did. Stops an upgrading user being handed a stack of celebrations for
+    /// streaks they finished months ago.
+    @Published var hasSeededMilestones: Bool {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(hasSeededMilestones, forKey: Keys.hasSeededMilestones)
+        }
+    }
+
+    /// Awards every milestone `longestStreak` has already passed, silently.
+    ///
+    /// Runs once per person. Anything reached after this earns its celebration in the
+    /// usual way.
+    func seedMilestones(longestStreak: Int) {
+        guard !hasSeededMilestones else { return }
+        let earned = StreakMilestone.reached(by: longestStreak).map(\.days)
+        celebratedMilestones = Array(Set(celebratedMilestones).union(earned)).sorted()
+        hasSeededMilestones = true
+    }
+
+    /// Records a milestone as earned. Idempotent, so a celebration shown twice by two
+    /// devices still leaves one badge.
+    func recordMilestone(_ milestone: StreakMilestone) {
+        guard !celebratedMilestones.contains(milestone.days) else { return }
+        celebratedMilestones = (celebratedMilestones + [milestone.days]).sorted()
+    }
+
     /// Days a HydroDrop+ streak freeze has been spent on, as `DayKey` strings.
     @Published var frozenStreakDayKeys: [String] {
         didSet {
@@ -345,6 +387,10 @@ final class AppSettings: ObservableObject {
         // Screenshot automation taps buttons by their "200 mL" labels, so it has to
         // start from the suggested sizes rather than whatever a previous run stored.
         self.customQuickAddPresetsML = screenshotMode ? nil : synced.intArray(forKey: Keys.customQuickAddPresets)
+        // Screenshot runs start with a clean shelf, so a capture never depends on what
+        // a previous run happened to earn.
+        self.celebratedMilestones = screenshotMode ? [] : (synced.intArray(forKey: Keys.celebratedMilestones) ?? [])
+        self.hasSeededMilestones = screenshotMode ? true : (synced.bool(forKey: Keys.hasSeededMilestones) ?? false)
 
         // Written now rather than left to the observer: a first-launch decision of
         // "not yet" has to survive the cloud seeding that follows, which would otherwise
@@ -394,6 +440,8 @@ final class AppSettings: ObservableObject {
         Keys.activityLevel,
         Keys.hasCompletedOnboarding,
         Keys.customQuickAddPresets,
+        Keys.celebratedMilestones,
+        Keys.hasSeededMilestones,
     ]
 
     /// Starts mirroring person-level settings through iCloud.
@@ -424,6 +472,8 @@ final class AppSettings: ObservableObject {
             case Keys.activityLevel: synced.set(activityLevel?.rawValue, forKey: key)
             case Keys.hasCompletedOnboarding: if hasCompletedOnboarding { synced.set(true, forKey: key) }
             case Keys.customQuickAddPresets: synced.set(customQuickAddPresetsML, forKey: key)
+            case Keys.celebratedMilestones: synced.set(celebratedMilestones, forKey: key)
+            case Keys.hasSeededMilestones: synced.set(hasSeededMilestones, forKey: key)
             default: break
             }
         }
@@ -438,6 +488,7 @@ final class AppSettings: ObservableObject {
     private func applyRemoteChanges(_ keys: [String]) {
         let changed = Set(keys)
         var freezesToPublish: [String]?
+        var milestonesToPublish: [Int]?
 
         isApplyingRemoteChange = true
         if changed.contains(Keys.dailyGoalML), let goal = synced.int(forKey: Keys.dailyGoalML) {
@@ -470,6 +521,17 @@ final class AppSettings: ObservableObject {
         if changed.contains(Keys.customQuickAddPresets) {
             customQuickAddPresetsML = synced.intArray(forKey: Keys.customQuickAddPresets)
         }
+        // A union, never an overwrite: two devices can each have awarded a badge the
+        // other has not seen, and a badge is never taken back.
+        if changed.contains(Keys.celebratedMilestones) {
+            let remote = synced.intArray(forKey: Keys.celebratedMilestones) ?? []
+            let merged = Array(Set(celebratedMilestones).union(remote)).sorted()
+            celebratedMilestones = merged
+            if merged != remote { milestonesToPublish = merged }
+        }
+        if changed.contains(Keys.hasSeededMilestones), synced.bool(forKey: Keys.hasSeededMilestones) == true {
+            hasSeededMilestones = true
+        }
         if changed.contains(Keys.frozenStreakDayKeys) {
             let remote = synced.stringArray(forKey: Keys.frozenStreakDayKeys) ?? []
             let merged = StreakFreeze.merged(frozenStreakDayKeys, remote)
@@ -482,6 +544,9 @@ final class AppSettings: ObservableObject {
 
         if let freezesToPublish {
             synced.set(freezesToPublish, forKey: Keys.frozenStreakDayKeys)
+        }
+        if let milestonesToPublish {
+            synced.set(milestonesToPublish, forKey: Keys.celebratedMilestones)
         }
         if changed.contains(Keys.dailyGoalML) {
             // Pace-aware scheduling is keyed to the goal that just changed underneath it.
