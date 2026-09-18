@@ -17,6 +17,20 @@ enum AppGroup {
         UserDefaults(suiteName: identifier)
     }
 
+    /// Why the App Group is or isn't reachable from the current process, phrased for a
+    /// Console log. `nil` means everything resolved; a returned string is the first
+    /// thing that didn't, so a widget rendering an empty view can say *why* rather than
+    /// leaving it indistinguishable from a genuinely empty day.
+    static var unreachableReason: String? {
+        guard defaults != nil else {
+            return "UserDefaults(suiteName: \"\(identifier)\") is nil — App Groups entitlement missing from this process"
+        }
+        guard containerURL != nil else {
+            return "container URL for \"\(identifier)\" could not be resolved — App Group not provisioned for this process"
+        }
+        return nil
+    }
+
     /// Where the shared SwiftData store lives. Under Library/Application Support inside
     /// the group container, which is where a database belongs and what the system
     /// excludes from iCloud document backup on our behalf.

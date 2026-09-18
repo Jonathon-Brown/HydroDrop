@@ -4,6 +4,7 @@ import SwiftData
 @main
 struct HydroDropApp: App {
     let container: ModelContainer
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         container = Self.makeContainer()
@@ -20,11 +21,18 @@ struct HydroDropApp: App {
         ReminderManager.shared.registerCategories()
         // Published before any view appears, so a widget added while the app was
         // uninstalled has something true to draw as soon as the app is opened again.
+        Self.publishWidgetSnapshot(from: container)
+        AdManager.start()
+    }
+
+    /// Recomputes and publishes the widget snapshot from the store. Runs at launch and
+    /// again every time the app returns to the foreground, so a widget that fell back to
+    /// an empty view while the app was away is corrected the moment the app is active.
+    private static func publishWidgetSnapshot(from container: ModelContainer) {
         WidgetPublisher.publish(
             context: ModelContext(container),
             isShared: SharedModelContainer.isShared(container)
         )
-        AdManager.start()
     }
 
     private static func entryCount(in container: ModelContainer) -> Int {
@@ -66,6 +74,14 @@ struct HydroDropApp: App {
             RootTabView()
         }
         .modelContainer(container)
+        // A widget can fall back to an empty view while the app is backgrounded (the day
+        // rolled over, or the shared snapshot was never reached). Returning to the
+        // foreground republishes the current state so the widget catches up without the
+        // user having to log anything.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Self.publishWidgetSnapshot(from: container)
+        }
     }
 
     /// Populates a week of realistic sample entries for App Store screenshot automation only.

@@ -336,7 +336,24 @@ struct SettingsView: View {
             } message: {
                 Text(store.lastErrorMessage ?? "")
             }
+            // The daily goal, the unit system and the quick-add sizes all appear on the
+            // widget, and none of them flow through a store write that would republish
+            // on their own. Republish whenever one changes so the widget matches Settings
+            // immediately rather than at the next logged drink or foreground.
+            .onChange(of: settings.dailyGoalML) { _, _ in republishWidget() }
+            .onChange(of: settings.measurementSystem) { _, _ in republishWidget() }
+            .onChange(of: settings.quickAddPresets) { _, _ in republishWidget() }
         }
+    }
+
+    /// Recomputes the widget snapshot from the store after a settings change the widget
+    /// renders. The totals come straight back out of the store rather than being carried
+    /// in, so a goal or unit change never disturbs today's count.
+    private func republishWidget() {
+        WidgetPublisher.publish(
+            context: modelContext,
+            isShared: SharedModelContainer.isShared(modelContext.container)
+        )
     }
 
     // MARK: - HydroDrop+ smart features

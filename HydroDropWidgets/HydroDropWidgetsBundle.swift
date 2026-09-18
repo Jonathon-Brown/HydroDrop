@@ -26,7 +26,19 @@ struct HydrationProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<HydrationTimelineEntry>) -> Void) {
         let now = Date()
-        let entry = HydrationTimelineEntry(date: now, snapshot: WidgetBridge.currentSnapshot(now: now))
+        let snapshot = WidgetBridge.currentSnapshot(now: now)
+        // An empty snapshot means either the app has genuinely published nothing, or
+        // this process cannot reach the shared suite the app publishes into. Those look
+        // identical on screen — a 0 mL view — so name the second case in Console rather
+        // than rendering it silently.
+        if snapshot == .empty {
+            if let reason = AppGroup.unreachableReason {
+                Diagnostics.log("widget timeline: App Group unreachable from the widget process — \(reason)")
+            } else {
+                Diagnostics.log("widget timeline: shared suite reachable but no snapshot published yet — rendering empty")
+            }
+        }
+        let entry = HydrationTimelineEntry(date: now, snapshot: snapshot)
         // Progress only moves when a drink is logged, and every path that logs one
         // reloads the timeline itself. The only thing that changes on its own is the
         // date, so the next scheduled reload is the one that empties the day.
