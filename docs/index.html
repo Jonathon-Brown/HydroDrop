@@ -34,8 +34,6 @@
     --line: #d1d1d6;
     --link: #0a7cff;
     --link-pressed: #006ae6;
-    --warn-line: #ff9f0a;
-    --warn-text: #b25000;
 
     /* Mascot mood colors, from MascotMood in MascotView.swift */
     --parched: #bfc7cc;
@@ -52,7 +50,6 @@
       --bg: #000000;
       --surface: #1c1c1e;
       --line: #38383a;
-      --warn-text: #ff9f0a;
     }
   }
 
@@ -228,25 +225,12 @@
     height: auto;
     aspect-ratio: 1290 / 2796;
     border-radius: 24px;
+    border: 1px solid var(--line);
+    background: var(--surface);
     object-fit: cover;
+    object-position: top;
     scroll-snap-align: start;
   }
-  .shot-placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    padding: 16px;
-    border: 2px dashed var(--warn-line);
-    background: var(--surface);
-    text-align: center;
-    font-size: 0.85rem;
-    line-height: 1.35;
-    color: var(--faint);
-  }
-  .shot-placeholder strong { color: var(--warn-text); }
-
   @media (min-width: 600px) {
     .shots {
       grid-auto-flow: row;
@@ -386,36 +370,16 @@
     <div class="mood-ends" aria-hidden="true"><span>Nothing logged</span><span>Goal reached</span></div>
   </section>
 
-  <!-- =====================================================================
-       SCREENSHOT PLACEHOLDERS — replace before using this as the Marketing URL.
-
-       For each placeholder <div class="shot shot-placeholder">…</div>, swap in:
-         <img class="shot" src="YOUR-FILE.png" alt="Describe what the screen shows" loading="lazy">
-       Put the image files inside docs/ so GitHub Pages serves them.
-
-       The frame's aspect ratio is set for a 1290 × 2796 iPhone screenshot; if yours
-       differ, change `aspect-ratio` on .shot in the <style> block.
-
-       Prefer to launch without screenshots? Delete this whole <section>.
-       ===================================================================== -->
+  <!-- Screenshot files live in docs/screenshots/ (600px-wide JPEGs).
+       If you swap in different screens, update the file name and alt text together. -->
   <section aria-labelledby="shots-title">
     <h2 id="shots-title">A look inside</h2>
     <div class="shots">
-      <div class="shot shot-placeholder">
-        <strong>Screenshot placeholder</strong>
-        <span>Suggested: Today screen</span>
-      </div>
-      <div class="shot shot-placeholder">
-        <strong>Screenshot placeholder</strong>
-        <span>Suggested: History</span>
-      </div>
-      <div class="shot shot-placeholder">
-        <strong>Screenshot placeholder</strong>
-        <span>Suggested: Mascot skins</span>
-      </div>
+      <img class="shot" src="screenshots/today.jpg" alt="HydroDrop's Today screen, with the droplet mascot and today's progress toward the goal" loading="lazy" decoding="async">
+      <img class="shot" src="screenshots/history.jpg" alt="HydroDrop's History screen, showing daily water totals" loading="lazy" decoding="async">
+      <img class="shot" src="screenshots/skins.jpg" alt="Choosing a mascot skin in HydroDrop+" loading="lazy" decoding="async">
     </div>
   </section>
-  <!-- ===================== END SCREENSHOT PLACEHOLDERS ===================== -->
 
   <section aria-labelledby="features-title">
     <h2 id="features-title">What's in the app</h2>

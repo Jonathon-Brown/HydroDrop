@@ -99,6 +99,10 @@ struct HomeView: View {
                     quickAddSection
 
                     todayLogSection
+
+                    if !store.isSubscribed {
+                        BannerAdView(adUnitID: AdManager.bannerAdUnitID)
+                    }
                 }
                 .padding()
             }
