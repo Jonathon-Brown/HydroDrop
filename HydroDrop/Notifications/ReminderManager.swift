@@ -126,7 +126,7 @@ final class ReminderManager {
         let todayTotal = entries.map { entries in
             entries
                 .filter { calendar.isDateInToday($0.timestamp) }
-                .reduce(0) { $0 + $1.amountML }
+                .reduce(0) { $0 + $1.hydratedML }
         }
         let snapshot = ScheduleSnapshot(
             remindersEnabled: settings.remindersEnabled,

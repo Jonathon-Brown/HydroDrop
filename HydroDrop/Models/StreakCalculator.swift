@@ -1,14 +1,18 @@
 import Foundation
 
 enum StreakCalculator {
-    /// Total mL logged, grouped by calendar day.
+    /// Hydrating mL logged, grouped by calendar day.
+    ///
+    /// Built from `hydratedML`, not the poured volume, so a day of coffee counts for
+    /// what it actually contributes. Water is a multiplier of exactly 1, which is what
+    /// every entry logged before drink types existed reads as.
     ///
     /// Keyed by `DayKey` rather than by a `startOfDay` instant so that a total, a
     /// frozen day and a history bar all refer to the same day after the user changes
     /// timezone.
     static func totalsByDay(_ entries: [WaterEntry], calendar: Calendar = .current) -> [String: Int] {
         Dictionary(grouping: entries) { DayKey.key(for: $0.timestamp, calendar: calendar) }
-            .mapValues { $0.reduce(0) { $0 + $1.amountML } }
+            .mapValues { $0.reduce(0) { $0 + $1.hydratedML } }
     }
 
     /// Consecutive days (ending today or yesterday) where intake met the goal.
