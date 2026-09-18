@@ -2,29 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- CloudKit wakes the app with silent pushes to pull other devices' changes;
-	     Info.plist declares the remote-notification background mode for the same
-	     reason. Automatic signing rewrites 'development' to 'production' on export. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<key>com.apple.developer.healthkit.recalibrate-estimates</key>
+	<true/>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.com.jonathonbrown.HydroDrop</string>
 	</array>
-	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
-	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 	<key>com.apple.developer.icloud-services</key>
 	<array>
 		<string>CloudKit</string>
 	</array>
-	<!-- The SwiftData store lives in this group container so the widget and the
-	     App Intents can read and write the same data the app does. -->
-	<!-- HydroDrop writes dietary water, and deletes the samples it wrote. It never
-	     reads anything from Health. -->
-	<key>com.apple.developer.healthkit</key>
-	<true/>
-	<!-- Hot-day suggestions ask Apple's weather service for the current conditions
-	     at the device's location. Nothing is stored and nothing is sent to us. -->
+	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
+	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 	<key>com.apple.developer.weatherkit</key>
 	<true/>
 	<key>com.apple.security.application-groups</key>
