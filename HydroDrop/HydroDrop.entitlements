@@ -17,5 +17,11 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<!-- The SwiftData store lives in this group container so the widget and the
+	     App Intents can read and write the same data the app does. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.jonathonbrown.HydroDrop</string>
+	</array>
 </dict>
 </plist>
