@@ -38,6 +38,12 @@ final class AppSettings: ObservableObject {
         static let hasSeededMilestones = "hasSeededMilestones"
         static let healthKitSyncEnabled = "healthKitSyncEnabled"
         static let healthSyncStartDate = "healthSyncStartDate"
+        static let weeklyRecapEnabled = "weeklyRecapEnabled"
+        static let weatherGoalEnabled = "weatherGoalEnabled"
+        static let liveActivityEnabled = "liveActivityEnabled"
+        static let weatherBumpDayKey = "weatherBumpDayKey"
+        static let weatherBumpML = "weatherBumpML"
+        static let weatherBumpDismissedDayKey = "weatherBumpDismissedDayKey"
     }
 
     static let reminderIntervalRange = 20...120
@@ -312,6 +318,88 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    // MARK: - HydroDrop+ smart features
+    //
+    // All three follow the pattern `smartRemindersEnabled` established: the stored
+    // preference is what the user set, and the `...Active` computed property is the
+    // preference *and* a live entitlement. Gate behaviour on the latter, never the
+    // former, so a lapsed subscription stops the feature without erasing the choice.
+
+    /// Sunday evening recap of the week just gone.
+    @Published var weeklyRecapEnabled: Bool {
+        didSet {
+            defaults.set(weeklyRecapEnabled, forKey: Keys.weeklyRecapEnabled)
+            WeeklyRecapNotifier.shared.refresh()
+        }
+    }
+
+    var weeklyRecapActive: Bool { weeklyRecapEnabled && EntitlementCache.isPlusActive }
+
+    /// Suggesting extra water on a hot day. Off until asked for, because it is the one
+    /// feature here that wants the user's location.
+    @Published var weatherGoalEnabled: Bool {
+        didSet {
+            defaults.set(weatherGoalEnabled, forKey: Keys.weatherGoalEnabled)
+            if !weatherGoalEnabled { clearWeatherBump() }
+        }
+    }
+
+    var weatherGoalActive: Bool { weatherGoalEnabled && EntitlementCache.isPlusActive }
+
+    /// Today's progress on the Lock Screen while the day is in progress.
+    @Published var liveActivityEnabled: Bool {
+        didSet {
+            defaults.set(liveActivityEnabled, forKey: Keys.liveActivityEnabled)
+        }
+    }
+
+    var liveActivityActive: Bool { liveActivityEnabled && EntitlementCache.isPlusActive }
+
+    // MARK: Weather bump
+
+    /// The day an accepted weather bump applies to, and how much it adds.
+    ///
+    /// Device-level and one day long by design. A suggestion accepted on a hot Tuesday
+    /// is about Tuesday, and the saved goal is never touched: `dailyGoalML` is what the
+    /// user chose, and this rides on top of it for the day.
+    @Published private(set) var weatherBumpDayKey: String
+    @Published private(set) var weatherBumpML: Int
+    /// A suggestion the user waved away, so it is not offered again the same day.
+    @Published private(set) var weatherBumpDismissedDayKey: String
+
+    /// Today's target: the saved goal plus an accepted bump, if there is one for today.
+    ///
+    /// Used for what is on screen and for pacing the day's reminders. Streaks
+    /// deliberately still count at `dailyGoalML`: the bump is advice for one hot day,
+    /// and accepting advice should never be what breaks a streak.
+    func todayGoalML(now: Date = Date()) -> Int {
+        guard weatherBumpDayKey == DayKey.key(for: now), weatherBumpML > 0 else { return dailyGoalML }
+        return min(dailyGoalML + weatherBumpML, MeasurementSystem.storedGoalRangeML.upperBound)
+    }
+
+    func acceptWeatherBump(_ amountML: Int, now: Date = Date()) {
+        weatherBumpDayKey = DayKey.key(for: now)
+        weatherBumpML = max(0, amountML)
+        defaults.set(weatherBumpDayKey, forKey: Keys.weatherBumpDayKey)
+        defaults.set(weatherBumpML, forKey: Keys.weatherBumpML)
+    }
+
+    func dismissWeatherBump(now: Date = Date()) {
+        weatherBumpDismissedDayKey = DayKey.key(for: now)
+        defaults.set(weatherBumpDismissedDayKey, forKey: Keys.weatherBumpDismissedDayKey)
+    }
+
+    func hasDismissedWeatherBump(now: Date = Date()) -> Bool {
+        weatherBumpDismissedDayKey == DayKey.key(for: now)
+    }
+
+    private func clearWeatherBump() {
+        weatherBumpDayKey = ""
+        weatherBumpML = 0
+        defaults.removeObject(forKey: Keys.weatherBumpDayKey)
+        defaults.removeObject(forKey: Keys.weatherBumpML)
+    }
+
     /// Whether pace-aware scheduling should actually be used: the preference *and* a
     /// live entitlement. `EntitlementCache` is a plain `UserDefaults` read, so this is
     /// safe to evaluate wherever the schedule is being built.
@@ -414,6 +502,14 @@ final class AppSettings: ObservableObject {
         self.smartRemindersEnabled = d.object(forKey: Keys.smartRemindersEnabled) as? Bool ?? false
         self.healthKitSyncEnabled = d.object(forKey: Keys.healthKitSyncEnabled) as? Bool ?? false
         self.healthSyncStartDate = d.object(forKey: Keys.healthSyncStartDate) as? Date ?? Date()
+        // On for subscribers who have not said otherwise; the weather one stays off
+        // until asked for, because it is the one that wants a location.
+        self.weeklyRecapEnabled = d.object(forKey: Keys.weeklyRecapEnabled) as? Bool ?? true
+        self.weatherGoalEnabled = d.object(forKey: Keys.weatherGoalEnabled) as? Bool ?? false
+        self.liveActivityEnabled = d.object(forKey: Keys.liveActivityEnabled) as? Bool ?? true
+        self.weatherBumpDayKey = d.string(forKey: Keys.weatherBumpDayKey) ?? ""
+        self.weatherBumpML = d.object(forKey: Keys.weatherBumpML) as? Int ?? 0
+        self.weatherBumpDismissedDayKey = d.string(forKey: Keys.weatherBumpDismissedDayKey) ?? ""
         self.hasCompletedOnboarding = (screenshotMode || Self.isSkippingOnboardingForUITests) ? true : storedOnboarding
         // Screenshot automation taps buttons by their "200 mL" labels, so it has to
         // start from the suggested sizes rather than whatever a previous run stored.

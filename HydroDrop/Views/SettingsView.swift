@@ -17,6 +17,8 @@ struct SettingsView: View {
     @State private var healthAuthorizationMessage: String?
     @State private var showingBackfillConfirmation = false
     @State private var isSyncingHealth = false
+    @State private var showingWeeklyRecap = false
+    @State private var locationMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -215,6 +217,8 @@ struct SettingsView: View {
                     }
                 }
 
+                smartSection
+
                 if HealthKitManager.isAvailable {
                     healthSection
                 }
@@ -289,6 +293,21 @@ struct SettingsView: View {
             } message: {
                 Text("Every drink you have logged in HydroDrop will be added to Health as dietary water. You can remove them again in the Health app at any time.")
             }
+            .alert(
+                "Location",
+                isPresented: Binding(
+                    get: { locationMessage != nil },
+                    set: { if !$0 { locationMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { locationMessage = nil }
+            } message: {
+                Text(locationMessage ?? "")
+            }
+            .sheet(isPresented: $showingWeeklyRecap) {
+                WeeklyRecapView()
+                    .environmentObject(settings)
+            }
             .sheet(item: $editingPreset) { slot in
                 QuickAddPresetSheet(slot: slot) { amountML in
                     settings.setQuickAddPreset(amountML, at: slot.index)
@@ -318,6 +337,87 @@ struct SettingsView: View {
                 Text(store.lastErrorMessage ?? "")
             }
         }
+    }
+
+    // MARK: - HydroDrop+ smart features
+
+    /// The three Plus features, each following the pattern the smart-reminders row
+    /// already set: a real control for subscribers, and a locked row that opens the
+    /// paywall for everyone else.
+    @ViewBuilder
+    private var smartSection: some View {
+        Section {
+            if store.isSubscribed {
+                Toggle("Weekly recap", isOn: $settings.weeklyRecapEnabled)
+                Button {
+                    showingWeeklyRecap = true
+                } label: {
+                    Label("See this week's recap", systemImage: "calendar")
+                }
+
+                Toggle("Hot day suggestions", isOn: weatherToggleBinding)
+
+                Toggle("Live Activity", isOn: $settings.liveActivityEnabled)
+            } else {
+                lockedRow("Weekly recap")
+                lockedRow("Hot day suggestions")
+                lockedRow("Live Activity")
+            }
+        } header: {
+            Text("Smart features")
+        } footer: {
+            Text(smartFooter)
+        }
+    }
+
+    private var smartFooter: String {
+        guard store.isSubscribed else {
+            return "HydroDrop+ adds a Sunday recap of your week, a suggestion to drink more on hot days, and today's progress on your Lock Screen."
+        }
+        return "The recap arrives on Sunday evening. Hot day suggestions use your location to check the weather, and only ever offer extra water for that day; your saved goal and your streak never change on their own. The Live Activity starts with your first drink and ends when you reach your goal."
+    }
+
+    private func lockedRow(_ title: String) -> some View {
+        Button {
+            paywallSource = .settingsLockedSmartFeature
+        } label: {
+            HStack {
+                Text(title)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "lock.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Turning hot day suggestions on asks for location first and only commits once
+    /// permission is granted, for the same reason the Health toggle does.
+    private var weatherToggleBinding: Binding<Bool> {
+        Binding(
+            get: { settings.weatherGoalEnabled },
+            set: { wantsOn in
+                guard wantsOn else {
+                    settings.weatherGoalEnabled = false
+                    return
+                }
+                Task { @MainActor in
+                    switch await WeatherGoalAdvisor.shared.requestLocationAccess() {
+                    case .granted:
+                        settings.weatherGoalEnabled = true
+                    case .denied:
+                        settings.weatherGoalEnabled = false
+                        locationMessage = "HydroDrop needs your location to check the weather where you are. You can allow it in iOS Settings, under Privacy and Security, Location Services, HydroDrop."
+                    case .failed(let reason):
+                        settings.weatherGoalEnabled = false
+                        locationMessage = reason
+                    }
+                }
+            }
+        )
     }
 
     // MARK: - Apple Health

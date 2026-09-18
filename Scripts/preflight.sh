@@ -109,9 +109,22 @@ echo "Paywall honesty (2.3.1)"
 #
 # Alternate app icons shipped in 1.1: one AppIcon-<Skin>.appiconset per paid
 # skin, registered via ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES and switched
-# by AppIconManager. Nothing on the paywall is unshipped at the moment; add a
-# quoted phrase here the day a claim gets ahead of the code again.
-UNSHIPPED=()
+# by AppIconManager.
+#
+# The three below are written and wired up, but every one of them depends on
+# something that cannot be exercised without a device and a real account: a
+# notification that only fires on a Sunday, a WeatherKit service that needs the
+# capability enabled on the App ID, and a Live Activity that needs the system
+# permission. Until each has been seen working on hardware, the paywall must not
+# promise it. Remove a line here in the same change that adds it to
+# PaywallView.PlusFeature.all, and not before.
+UNSHIPPED=(
+  "weekly recap"
+  "hot day"
+  "weather"
+  "Live Activity"
+  "Lock Screen"
+)
 FOUND_UNSHIPPED=0
 if [[ -f "$PAYWALL" ]]; then
   # Strip comment-only lines first. A comment explaining why a feature was

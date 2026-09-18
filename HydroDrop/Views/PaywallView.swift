@@ -24,6 +24,7 @@ enum PaywallSource: String, CaseIterable, Identifiable {
     case settingsRow = "settings-row"
     case settingsLockedReminder = "settings-locked-reminder"
     case settingsLockedSkin = "settings-locked-skin"
+    case settingsLockedSmartFeature = "settings-locked-smart-feature"
     case historyBanner = "history-banner"
     case todayEntryPoint = "today-entry-point"
     case streakBreakMessage = "streak-break-message"

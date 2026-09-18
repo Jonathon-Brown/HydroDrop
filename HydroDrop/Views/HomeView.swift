@@ -15,6 +15,8 @@ struct HomeView: View {
     @State private var editingEntry: WaterEntry?
     /// The milestone whose celebration is on screen.
     @State private var celebration: StreakMilestone?
+    /// A weather suggestion fetched for today but not yet answered.
+    @State private var pendingWeatherBumpML: Int?
     /// The drink that can still be taken back, and the task that retires the offer.
     @State private var pendingUndo: PendingUndo?
     @State private var undoDismissal: Task<Void, Never>?
@@ -38,9 +40,18 @@ struct HomeView: View {
         todayEntries.reduce(0) { $0 + $1.hydratedML }
     }
 
+    /// What today is measured against on screen: the saved goal plus an accepted
+    /// weather bump. Streaks deliberately keep using `dailyGoalML`, so taking the
+    /// suggestion on a hot day can never be the thing that breaks one.
+    private var todayGoal: Int { settings.todayGoalML() }
+
     private var progress: Double {
-        guard settings.dailyGoalML > 0 else { return 0 }
-        return Double(todayTotal) / Double(settings.dailyGoalML)
+        guard todayGoal > 0 else { return 0 }
+        return Double(todayTotal) / Double(todayGoal)
+    }
+
+    private var acceptedWeatherBumpML: Int {
+        max(0, todayGoal - settings.dailyGoalML)
     }
 
     private var streak: Int {
@@ -85,6 +96,21 @@ struct HomeView: View {
                             .transition(.opacity)
                     }
 
+                    if let bump = pendingWeatherBumpML {
+                        WeatherBumpCard(
+                            bumpML: bump,
+                            system: settings.measurementSystem
+                        ) {
+                            settings.acceptWeatherBump(bump)
+                            withAnimation { pendingWeatherBumpML = nil }
+                            afterGoalChange()
+                        } onDismiss: {
+                            settings.dismissWeatherBump()
+                            withAnimation { pendingWeatherBumpML = nil }
+                        }
+                        .transition(.opacity)
+                    }
+
                     VStack(spacing: 2) {
                         MascotView(progress: progress, size: 150, skin: settings.activeMascotSkin)
                         // The face carries the mood; naming it makes sure the signal
@@ -102,9 +128,15 @@ struct HomeView: View {
                     VStack(spacing: 6) {
                         Text(settings.measurementSystem.format(mL: todayTotal))
                             .font(.system(size: 34, weight: .bold, design: .rounded))
-                        Text("of \(settings.measurementSystem.format(mL: settings.dailyGoalML)) goal")
+                        Text("of \(settings.measurementSystem.format(mL: todayGoal)) goal")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        if acceptedWeatherBumpML > 0 {
+                            WeatherBumpBadge(
+                                bumpML: acceptedWeatherBumpML,
+                                system: settings.measurementSystem
+                            )
+                        }
                     }
 
                     progressBar
@@ -183,7 +215,11 @@ struct HomeView: View {
         // yesterday, so a check that ran too early has to be re-run rather than skipped.
         .onChange(of: store.isSubscribed) { _, _ in
             applyStreakFreezeIfNeeded()
-            ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
+            // The three Plus features all come and go with the entitlement.
+            WeeklyRecapNotifier.shared.refresh()
+            mirrorToCompanions()
+            checkWeather()
+            ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
         }
         .onChange(of: todayTotal) { _, _ in
             mirrorToCompanions()
@@ -499,7 +535,7 @@ struct HomeView: View {
             isShared: SharedModelContainer.isShared(modelContext.container)
         )
         // Logging changes today's pace, so the rest of the day's nudges are now stale.
-        ReminderManager.shared.refreshSchedule(entries: allEntries + [entry], goalML: settings.dailyGoalML)
+        ReminderManager.shared.refreshSchedule(entries: allEntries + [entry], goalML: todayGoal)
     }
 
     /// Shows the undo bar for a few seconds. A second drink replaces the offer rather
@@ -546,7 +582,7 @@ struct HomeView: View {
     private func afterLogChange() {
         mirrorToCompanions()
         syncHealth()
-        ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
+        ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
     }
 
     /// Writes anything Health is missing. Cheap and a no-op when sync is off, so it can
@@ -572,15 +608,27 @@ struct HomeView: View {
     private func mirrorToCompanions() {
         WatchSessionManager.shared.pushContext(
             totalML: todayTotal,
-            goalML: settings.dailyGoalML,
+            goalML: todayGoal,
             measurementSystem: settings.measurementSystem,
             quickAddPresetsML: settings.quickAddPresets
         )
         WidgetPublisher.publish(
             entries: allEntries,
             settings: settings,
-            isShared: SharedModelContainer.isShared(modelContext.container)
+            isShared: SharedModelContainer.isShared(modelContext.container),
+            goalMLOverride: todayGoal
         )
+        let total = todayTotal
+        let goal = todayGoal
+        let currentStreak = streak
+        Task { @MainActor in
+            await HydrationLiveActivityController.refresh(
+                todayTotalML: total,
+                goalML: goal,
+                settings: settings,
+                streak: currentStreak
+            )
+        }
     }
 
     /// SwiftData autosaves, but an edit the user just confirmed should not wait for it:
@@ -601,7 +649,30 @@ struct HomeView: View {
         mirrorToCompanions()
         syncHealth()
         applyStreakFreezeIfNeeded()
-        ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: settings.dailyGoalML)
+        checkWeather()
+        ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
+    }
+
+    /// Asks the forecast whether today is worth a suggestion.
+    ///
+    /// Once a day at most, never when the user has already answered for today, and
+    /// silently when the answer is no. Everything downstream of it fails quietly too:
+    /// a goal suggestion is not worth an error message.
+    private func checkWeather() {
+        guard settings.weatherGoalActive else { return }
+        guard acceptedWeatherBumpML == 0, !settings.hasDismissedWeatherBump() else { return }
+        guard pendingWeatherBumpML == nil else { return }
+        Task { @MainActor in
+            guard let bump = await WeatherGoalAdvisor.shared.suggestedBumpML(baseGoalML: settings.dailyGoalML) else { return }
+            guard settings.weatherGoalActive, !settings.hasDismissedWeatherBump() else { return }
+            withAnimation { pendingWeatherBumpML = bump }
+        }
+    }
+
+    /// Today's target moved, so everything measured against it is stale.
+    private func afterGoalChange() {
+        mirrorToCompanions()
+        ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
     }
 
     /// Spends a HydroDrop+ freeze on yesterday if it was missed and a streak is at stake.

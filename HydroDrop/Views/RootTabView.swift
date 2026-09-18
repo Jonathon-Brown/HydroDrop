@@ -3,6 +3,7 @@ import SwiftUI
 struct RootTabView: View {
     @StateObject private var settings = AppSettings.shared
     @ObservedObject private var store = StoreManager.shared
+    @ObservedObject private var router = AppRouter.shared
 
     /// Re-evaluated whenever the chosen skin or the entitlement changes. `activeMascotSkin`
     /// reads `EntitlementCache`, which `StoreManager` writes in the same call that flips
@@ -32,6 +33,10 @@ struct RootTabView: View {
             guard settings.hasCompletedOnboarding else { return }
             try? await Task.sleep(for: .seconds(2))
             AdManager.requestTrackingAuthorizationIfNeeded()
+        }
+        .sheet(isPresented: $router.showingWeeklyRecap) {
+            WeeklyRecapView()
+                .environmentObject(settings)
         }
         .fullScreenCover(isPresented: onboardingIsPresented) {
             OnboardingView(mode: .firstLaunch) {

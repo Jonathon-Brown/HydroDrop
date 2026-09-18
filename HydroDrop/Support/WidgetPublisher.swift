@@ -14,16 +14,21 @@ enum WidgetPublisher {
         context: ModelContext,
         settings: AppSettings = .shared,
         isShared: Bool,
+        goalMLOverride: Int? = nil,
         now: Date = Date()
     ) {
         let entries = (try? context.fetch(FetchDescriptor<WaterEntry>())) ?? []
-        publish(entries: entries, settings: settings, isShared: isShared, now: now)
+        publish(entries: entries, settings: settings, isShared: isShared, goalMLOverride: goalMLOverride, now: now)
     }
 
+    /// `goalMLOverride` is today's target where that differs from the saved goal, which
+    /// is what an accepted hot-day bump produces. The streak below is deliberately
+    /// still counted against the saved goal.
     static func publish(
         entries: [WaterEntry],
         settings: AppSettings = .shared,
         isShared: Bool,
+        goalMLOverride: Int? = nil,
         now: Date = Date()
     ) {
         let calendar = Calendar.current
@@ -41,7 +46,7 @@ enum WidgetPublisher {
             HydrationSnapshot(
                 dayKey: DayKey.key(for: now, calendar: calendar),
                 todayTotalML: todayTotal,
-                dailyGoalML: settings.dailyGoalML,
+                dailyGoalML: goalMLOverride ?? settings.todayGoalML(now: now),
                 measurementSystemRawValue: settings.measurementSystem.rawValue,
                 quickAddPresetsML: settings.quickAddPresets,
                 streak: streak,

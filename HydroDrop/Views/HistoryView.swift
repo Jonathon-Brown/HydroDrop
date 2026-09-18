@@ -13,6 +13,7 @@ struct HistoryView: View {
     @ObservedObject private var store = StoreManager.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @State private var showingPaywall = false
+    @State private var showingWeeklyRecap = false
 
     private let freeDayCount = 7
     private let plusDayCount = 30
@@ -98,6 +99,30 @@ struct HistoryView: View {
                         BannerAdView(adUnitID: AdManager.bannerAdUnitID)
                     }
 
+                    if store.isSubscribed {
+                        Button {
+                            showingWeeklyRecap = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "calendar")
+                                    .foregroundStyle(.blue)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Your week in water")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Averages, your best day, and when you tend to fall behind.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding()
+                            .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
                     BadgeShelf(
                         earnedDays: Set(settings.celebratedMilestones),
                         currentStreak: streak
@@ -127,6 +152,10 @@ struct HistoryView: View {
             }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView(source: .historyBanner)
+            }
+            .sheet(isPresented: $showingWeeklyRecap) {
+                WeeklyRecapView()
+                    .environmentObject(settings)
             }
         }
     }

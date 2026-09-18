@@ -29,6 +29,13 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        // A tap on the weekly recap opens it, wherever the app happens to be.
+        if response.notification.request.content.categoryIdentifier == WeeklyRecapNotifier.categoryIdentifier,
+           response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            await MainActor.run { AppRouter.shared.showingWeeklyRecap = true }
+            return
+        }
+
         switch response.actionIdentifier {
         case ReminderManager.logGlassActionIdentifier:
             await MainActor.run { logGlass() }
