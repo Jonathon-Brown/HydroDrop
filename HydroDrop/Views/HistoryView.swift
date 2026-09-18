@@ -58,18 +58,21 @@ struct HistoryView: View {
                         Text("Last \(dayCount) days")
                             .font(.headline)
 
+                        // Plotted in the display unit so the axis reads in the same
+                        // unit as everything else on the screen.
                         Chart(displayedDays) { day in
                             BarMark(
                                 x: .value("Day", day.date, unit: .day),
-                                y: .value("mL", day.totalML)
+                                y: .value(settings.measurementSystem.unitLabel, settings.measurementSystem.displayVolume(fromML: day.totalML))
                             )
                             .foregroundStyle(day.totalML >= settings.dailyGoalML ? Color.blue : Color.blue.opacity(0.45))
                             .cornerRadius(dayCount > freeDayCount ? 2 : 6)
 
-                            RuleMark(y: .value("Goal", settings.dailyGoalML))
+                            RuleMark(y: .value("Goal", settings.measurementSystem.displayVolume(fromML: settings.dailyGoalML)))
                                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                                 .foregroundStyle(.secondary)
                         }
+                        .chartYAxisLabel(settings.measurementSystem.unitLabel)
                         .frame(height: 220)
                         .chartXAxis {
                             if dayCount > freeDayCount {

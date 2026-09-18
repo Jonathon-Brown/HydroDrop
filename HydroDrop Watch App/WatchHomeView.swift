@@ -4,7 +4,11 @@ struct WatchHomeView: View {
     @StateObject private var session = WatchSessionManager.shared
     @ObservedObject private var store = StoreManager.shared
 
-    private let quickAddPresets = [200, 330, 500]
+    /// Same defaults the phone uses for this unit system, so an imperial user sees
+    /// 8, 12 and 16 oz on the wrist rather than 6.8, 11.2 and 16.9.
+    private var quickAddPresets: [Int] {
+        session.measurementSystem.defaultQuickAddPresetsML
+    }
 
     private var progress: Double {
         guard session.dailyGoalML > 0 else { return 0 }

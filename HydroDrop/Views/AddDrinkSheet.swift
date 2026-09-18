@@ -1,52 +1,66 @@
 import SwiftUI
 
+/// Picks a custom amount in the user's display unit and hands back mL.
+///
+/// The slider, stepper and shortcut buttons all move in whole display units (25 mL
+/// or 1 fl oz), so an imperial user sees "12 fl oz", not "11.8". The value only
+/// becomes mL once, in `onAdd`.
 struct AddDrinkSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var settings: AppSettings
-    @State private var amount: Int = 250
+    @State private var displayAmount: Int
     let onAdd: (Int) -> Void
 
-    private let step = 25
-    private let range = 25...2000
+    init(onAdd: @escaping (Int) -> Void) {
+        self.onAdd = onAdd
+        let system = AppSettings.shared.measurementSystem
+        _displayAmount = State(initialValue: system.customDrinkPresets[1])
+    }
+
+    private var system: MeasurementSystem { settings.measurementSystem }
+    private var step: Int { system.customDrinkStep }
+    private var range: ClosedRange<Int> { system.customDrinkRange }
+    private var amountML: Int { system.mL(fromDisplayVolume: Double(displayAmount)) }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 28) {
                 Spacer()
 
-                Text(settings.measurementSystem.format(mL: amount))
+                Text(system.format(mL: amountML))
                     .font(.system(size: 48, weight: .bold, design: .rounded))
                     .contentTransition(.numericText())
-                    .animation(.snappy, value: amount)
+                    .animation(.snappy, value: displayAmount)
 
                 HStack(spacing: 24) {
                     stepperButton(systemImage: "minus.circle.fill") {
-                        amount = max(range.lowerBound, amount - step)
+                        displayAmount = max(range.lowerBound, displayAmount - step)
                     }
                     Slider(
                         value: Binding(
-                            get: { Double(amount) },
-                            set: { amount = Int($0 / Double(step)) * step }
+                            get: { Double(displayAmount) },
+                            set: { displayAmount = Int($0 / Double(step)) * step }
                         ),
                         in: Double(range.lowerBound)...Double(range.upperBound)
                     )
                     stepperButton(systemImage: "plus.circle.fill") {
-                        amount = min(range.upperBound, amount + step)
+                        displayAmount = min(range.upperBound, displayAmount + step)
                     }
                 }
                 .padding(.horizontal)
 
                 HStack(spacing: 12) {
-                    ForEach([100, 250, 500, 750], id: \.self) { preset in
-                        Button(settings.measurementSystem.formattedNumber(mL: preset)) { amount = preset }
+                    ForEach(system.customDrinkPresets, id: \.self) { preset in
+                        Button("\(preset)") { displayAmount = preset }
                             .buttonStyle(.bordered)
+                            .accessibilityLabel("\(preset) \(system.unitLabel)")
                     }
                 }
 
                 Spacer()
 
                 Button {
-                    onAdd(amount)
+                    onAdd(amountML)
                     dismiss()
                 } label: {
                     Text("Add Drink")
