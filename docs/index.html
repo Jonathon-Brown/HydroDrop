@@ -3,459 +3,487 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HydroDrop — Water tracker with a droplet mascot</title>
-<meta name="description" content="Track your water with a droplet that goes from parched to overjoyed as you reach your daily goal. One-tap logging, streaks, reminders, and an Apple Watch companion. No account, no ads.">
+<title>HydroDrop: a water tracker with a droplet you keep happy</title>
+<meta name="description" content="Track your water with a droplet that goes from parched to overjoyed as you reach your daily goal. One-tap logging, streaks, reminders on your schedule, Apple Health and Siri. No account needed.">
 
 <!-- Shows Apple's Smart App Banner at the top of the page in Safari on iOS -->
 <meta name="apple-itunes-app" content="app-id=6793399317">
-
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-<link rel="canonical" href="https://jonathon-brown.github.io/HydroDrop/">
+<meta name="theme-color" content="#07121F">
+<link rel="canonical" href="https://hydrodrop.us/">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="HydroDrop">
-<meta property="og:title" content="HydroDrop — Water tracker with a droplet mascot">
-<meta property="og:description" content="Track your water with a droplet that goes from parched to overjoyed as you reach your daily goal. No account, no ads.">
-<meta property="og:url" content="https://jonathon-brown.github.io/HydroDrop/">
+<meta property="og:title" content="HydroDrop: keep your droplet happy">
+<meta property="og:description" content="A water tracker with a droplet that goes from parched to overjoyed as you reach your daily goal. No account needed.">
+<meta property="og:url" content="https://hydrodrop.us/">
 <!-- og:image intentionally omitted. Once you have a real image in docs/, add:
-     <meta property="og:image" content="https://jonathon-brown.github.io/HydroDrop/YOUR-FILE.png"> -->
+     <meta property="og:image" content="https://hydrodrop.us/YOUR-FILE.png"> -->
 
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 120'%3E%3Cpath fill='%232E8FED' d='M50 6C56 34 96 44 96 72A46 46 0 0 1 4 72C4 44 44 34 50 6Z'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 134'%3E%3Cpath fill='%232E8FED' d='M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z'/%3E%3C/svg%3E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap">
 
 <style>
   :root {
-    color-scheme: light dark;
-    --text: #1c1c1e;
-    --muted: #3a3a3c;
-    --faint: #6e6e73;
-    --bg: #ffffff;
-    --surface: #f2f2f7;
-    --line: #d1d1d6;
-    --link: #0a7cff;
-    --link-pressed: #006ae6;
+    color-scheme: dark;
+    --ground: #07121F; --card: #0C1B2D; --line: #16304A; --hair: #12263B; --well: #12263B;
+    --text: #EEF4FA; --soft: #B7C7D8; --muted: #9DB2C8; --link: #7CC0FF;
+    --blue: #2E8FED; --blue-lift: #4DA3FF; --ink: #04101D; --flame: #FF9F45;
+    --paper: #E6F1FB; --paper-text: #0B1B2E; --paper-muted: #3F5871; --paper-accent: #1259B0;
+    --display: 'Unbounded', 'Arial Rounded MT Bold', system-ui, sans-serif;
+    --body: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --pad: clamp(24px, 8.3vw, 120px);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--body); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { color: #B5DBFF; }
+  :focus-visible { outline: 3px solid var(--blue-lift); outline-offset: 3px; border-radius: 8px; }
+  h1, h2, h3, p { margin: 0; }
+  h1, h2, .h3-display { font-family: var(--display); letter-spacing: -0.03em; text-wrap: balance; }
+  p { text-wrap: pretty; }
+  img { max-width: 100%; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding-left: var(--pad); padding-right: var(--pad); }
+  .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--blue-lift); }
+  .drop { display: block; }
 
-    /* Mascot mood colors, from MascotMood in MascotView.swift */
-    --parched: #bfc7cc;
-    --thirsty: #99c7eb;
-    --content: #59adeb;
-    --happy: #2e8fed;
-    --overjoyed: #1a73f2;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --text: #f2f2f7;
-      --muted: #c7c7cc;
-      --faint: #8e8e93;
-      --bg: #000000;
-      --surface: #1c1c1e;
-      --line: #38383a;
-    }
-  }
+  /* Header */
+  .site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; }
+  .logo { display: flex; align-items: center; gap: 12px; color: var(--text); padding: 10px 0; font-family: var(--display); font-weight: 700; font-size: 18px; }
+  .logo:hover { color: var(--text); }
+  .site-nav { display: flex; align-items: center; gap: 36px; }
+  .site-nav a { color: #C5D5E6; font-size: 15px; font-weight: 500; padding: 13px 0; }
+  .site-nav a:hover, .site-nav a[aria-current] { color: var(--text); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; background: var(--blue); color: var(--ink); font-weight: 700; border-radius: 999px; transition: background .2s, transform .2s; }
+  .btn:hover { background: var(--blue-lift); color: var(--ink); transform: translateY(-1px); }
+  .btn-sm { font-size: 15px; padding: 13px 22px; }
+  .btn-lg { font-size: 17px; padding: 18px 30px; }
+  .btn-dark { background: var(--paper-text); color: #fff; }
+  .btn-dark:hover { background: #16304A; color: #fff; }
 
-  *, *::before, *::after { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
+  /* Hero */
+  .hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: center; gap: 64px; padding-top: 56px; padding-bottom: 96px; background: radial-gradient(620px 520px at 79% 46%, #0E2A47 0%, rgba(7,18,31,0) 72%); }
+  .hero-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 28px; }
+  .chip { border: 1px solid #1E3550; border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .hero h1 { font-weight: 800; font-size: clamp(42px, 5.6vw, 80px); line-height: 1; letter-spacing: -0.035em; }
+  .hero h1 span { color: var(--blue-lift); }
+  .hero .lede { max-width: 540px; font-size: clamp(17px, 1.4vw, 20px); line-height: 1.55; color: var(--soft); }
+  .cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; margin-top: 8px; }
+  .cta-row small { font-size: 15px; color: var(--muted); }
 
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    max-width: 640px;
-    margin: 0 auto;
-    padding: 48px 24px 96px;
-    line-height: 1.6;
-    color: var(--text);
-    background: var(--bg);
-  }
+  .demo { position: relative; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .demo > * { position: relative; }
+  .demo .rings { position: absolute; left: 50%; top: 10px; width: 560px; height: 560px; margin-left: -280px; pointer-events: none; }
+  .rings circle { fill: none; stroke-width: 1.5; animation: ring 6s ease-in-out infinite; }
+  .streak-chip { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 9px 16px; font-size: 14px; font-weight: 600; }
+  .mascot { width: clamp(200px, 18vw, 260px); height: auto; animation: bob 5s ease-in-out infinite; filter: drop-shadow(0 28px 44px rgba(46,143,237,0.38)); }
+  .mascot .body { transition: fill .5s ease; }
+  .mood { font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .total { font-family: var(--display); font-weight: 700; font-size: clamp(32px, 2.8vw, 40px); letter-spacing: -0.02em; text-align: center; line-height: 1.2; }
+  .total + small { display: block; text-align: center; font-size: 15px; color: var(--muted); }
+  .bar { width: min(380px, 100%); height: 14px; border-radius: 999px; background: var(--well); overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 999px; background: var(--blue); transition: width .45s ease; }
+  .sips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 6px; }
+  .sips button { min-height: 48px; padding: 0 18px; border-radius: 16px; border: 1px solid #1E3550; background: var(--card); color: var(--text); font: 600 15px var(--body); cursor: pointer; transition: border-color .2s, transform .1s; }
+  .sips button:hover { border-color: var(--blue); }
+  .sips button:active { transform: scale(0.96); }
+  .sips .reset { width: 48px; padding: 0; background: transparent; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+  .demo .hint { font-size: 14px; color: var(--muted); }
 
-  a { color: var(--link); }
-  a:focus-visible {
-    outline: 3px solid var(--link);
-    outline-offset: 3px;
-    border-radius: 4px;
-  }
+  /* Sections */
+  .band { border-top: 1px solid var(--hair); padding-top: clamp(56px, 6.7vw, 96px); padding-bottom: clamp(56px, 6.7vw, 96px); }
+  .band h2 { font-weight: 700; font-size: clamp(28px, 3.1vw, 44px); line-height: 1.12; }
+  .split-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 80px; margin-bottom: clamp(32px, 4vw, 56px); }
+  .split-head p { max-width: 480px; font-size: 18px; color: var(--soft); }
 
-  h1, h2 { line-height: 1.15; }
-  h2 {
-    font-size: 1.4rem;
-    letter-spacing: -0.01em;
-    margin: 0 0 0.5rem;
-  }
-  p { margin: 0 0 1rem; }
+  .moods { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px; list-style: none; margin: 0; padding: 0; }
+  .moods li { background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 32px 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+  .moods li:last-child { border-color: var(--blue); }
+  .moods svg { width: 96px; height: auto; margin-bottom: 12px; }
+  .moods strong { font-family: var(--display); font-weight: 500; font-size: 15px; }
+  .moods span { font-size: 14px; color: var(--muted); }
 
-  main > section { margin-top: 80px; }
+  .features-head { display: flex; flex-direction: column; gap: 24px; margin-bottom: 56px; }
+  .features-head h2 { max-width: 860px; }
+  .bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 40px; display: flex; flex-direction: column; gap: 14px; min-height: 340px; }
+  .card.wide { grid-column: span 2; flex-direction: row; align-items: center; gap: 48px; }
+  .card.wide > div:first-child { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+  .card h3 { font-family: var(--display); font-weight: 700; font-size: clamp(19px, 1.7vw, 24px); line-height: 1.2; letter-spacing: -0.02em; }
+  .card p { font-size: 17px; color: var(--soft); }
+  .cups { width: 300px; flex-shrink: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .cups div { height: 104px; border-radius: 20px; background: var(--well); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-size: 15px; font-weight: 600; }
+  .cups div:last-child { background: var(--blue); color: var(--ink); font-weight: 700; }
+  .week { display: flex; gap: 8px; margin-bottom: 10px; }
+  .week i { width: 30px; height: 30px; border-radius: 999px; background: var(--flame); }
+  .week i:last-child { background: none; border: 2px dashed var(--flame); }
+  .timeline { margin-bottom: 10px; }
+  .timeline > div { display: flex; align-items: center; justify-content: space-between; height: 14px; padding: 0 2px; border-radius: 999px; background: var(--well); }
+  .timeline i { width: 10px; height: 10px; border-radius: 999px; background: var(--blue-lift); }
+  .timeline p { display: flex; justify-content: space-between; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .chart { position: relative; width: 320px; height: 220px; flex-shrink: 0; display: flex; align-items: flex-end; gap: 12px; }
+  .chart::before { content: ""; position: absolute; left: 0; right: 0; top: 24%; border-top: 2px dashed #46607A; }
+  .chart i { flex: 1; border-radius: 8px; background: rgba(46,143,237,0.45); }
+  .chart i.hit { background: var(--blue); }
+  .minis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; margin-top: 24px; }
+  .mini { background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 28px; display: flex; flex-direction: column; gap: 10px; }
+  .mini h3 { font-size: 18px; font-weight: 700; margin-top: 6px; }
+  .mini p { font-size: 15px; line-height: 1.55; color: var(--soft); }
+  .mini .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .tag { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--blue-lift); border: 1px solid #1E4E80; border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
 
-  /* ---------- Hero ---------- */
-  .hero { text-align: center; }
+  .shots { display: flex; justify-content: center; gap: clamp(16px, 3vw, 48px); }
+  .shots img { width: min(300px, 44%); height: auto; border-radius: clamp(20px, 2.6vw, 36px); border: 1px solid var(--line); box-shadow: 0 30px 60px rgba(0,0,0,0.45); }
+  .shots img:last-child { margin-top: clamp(24px, 4vw, 64px); }
 
-  .hero-drop {
-    display: block;
-    width: 132px;
-    height: auto;
-    margin: 0 auto 28px;
-    overflow: visible;
-    color: var(--overjoyed);
-    filter: drop-shadow(0 10px 14px rgba(26, 115, 242, 0.3));
-  }
-  .hero-drop .mouth { opacity: 0; }
-  .hero-drop .m5 { opacity: 1; }
+  .plus { background: var(--paper); color: var(--paper-text); }
+  .plus-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: center; gap: 80px; padding-top: clamp(56px, 7.2vw, 104px); padding-bottom: clamp(56px, 7.2vw, 104px); }
+  .plus .eyebrow { color: var(--paper-accent); }
+  .plus h2 { font-weight: 700; font-size: clamp(28px, 2.8vw, 40px); line-height: 1.12; margin: 20px 0; }
+  .plus .lede { font-size: 18px; color: var(--paper-muted); }
+  .ticks { list-style: none; margin: 28px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; font-size: 16px; font-weight: 500; line-height: 1.35; }
+  .ticks li { display: flex; align-items: flex-start; gap: 12px; }
+  .ticks svg { flex-shrink: 0; }
+  .skins { display: flex; gap: 28px; margin-top: 36px; }
+  .skins figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--paper-muted); }
+  .plans { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+  .plan { background: #fff; border: 2px solid #C9DCEE; border-radius: 28px; padding: 32px; display: flex; flex-direction: column; gap: 6px; min-height: 240px; }
+  .plan.best { border-color: var(--paper-text); }
+  .plan .flag { align-self: flex-start; min-height: 26px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; border-radius: 999px; }
+  .plan.best .flag { background: #B4500B; color: #fff; padding: 5px 12px; }
+  .plan .name { margin-top: 14px; font-size: 18px; font-weight: 700; }
+  .plan .price { font-family: var(--display); font-weight: 700; font-size: clamp(30px, 3vw, 44px); letter-spacing: -0.03em; line-height: 1.2; }
+  .plan .per { font-size: 15px; color: var(--paper-muted); }
+  .plus-side { display: flex; flex-direction: column; gap: 24px; }
+  .plus-side .btn { width: 100%; text-align: center; }
+  .fine { font-size: 13px; color: var(--paper-muted); }
 
-  .hero h1 {
-    font-size: 2.75rem;
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    margin: 0 0 0.6rem;
-  }
-  .pitch {
-    font-size: 1.25rem;
-    line-height: 1.45;
-    color: var(--muted);
-    max-width: 26ch;
-    margin: 0 auto 32px;
-  }
-  .hero-note {
-    font-size: 0.9rem;
-    color: var(--faint);
-    margin: 16px 0 0;
-  }
+  .privacy { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px 80px; border-top: 0; }
+  .privacy h2 { flex: 1 1 420px; max-width: 640px; font-size: clamp(28px, 2.8vw, 40px); line-height: 1.14; }
+  .privacy div { flex: 1 1 360px; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+  .privacy p { font-size: 18px; color: var(--soft); }
+  .arrow { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; padding: 12px 0; }
 
-  .cta {
-    display: inline-block;
-    padding: 15px 30px;
-    border-radius: 14px;
-    background: var(--link);
-    color: #fff;
-    font-size: 1.2rem;
-    font-weight: 700;
-    line-height: 1.2;
-    text-decoration: none;
-    text-wrap: balance; /* if it ever wraps on very narrow screens, split evenly */
-  }
-  .cta:hover { background: var(--link-pressed); }
-  .cta:active { transform: scale(0.98); }
-  .cta:focus-visible {
-    outline: 3px solid var(--link);
-    outline-offset: 4px;
-    border-radius: 14px;
-  }
+  .final { display: flex; flex-direction: column; align-items: center; gap: 36px; text-align: center; padding-top: clamp(72px, 7.8vw, 112px); padding-bottom: clamp(72px, 8.3vw, 120px); background: radial-gradient(560px 380px at 50% 28%, #0E2A47 0%, rgba(7,18,31,0) 72%); }
+  .final svg.mascot { width: clamp(140px, 12.5vw, 180px); filter: drop-shadow(0 24px 40px rgba(15,107,245,0.4)); }
+  .final h2 { font-weight: 800; font-size: clamp(36px, 4.5vw, 64px); line-height: 1.05; letter-spacing: -0.035em; max-width: 1000px; }
 
-  /* ---------- Droplet mouths ---------- */
-  .mouth {
-    fill: none;
-    stroke: #fff;
-    stroke-width: 3.4;
-    stroke-linecap: round;
-  }
+  .site-footer { border-top: 1px solid var(--hair); padding-top: 36px; padding-bottom: 48px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 40px; font-size: 14px; color: var(--muted); }
+  .site-footer nav { display: flex; flex-wrap: wrap; gap: 0 32px; }
+  .site-footer nav a { color: #C5D5E6; padding: 12px 0; }
+  .site-footer .legal { max-width: 560px; margin-top: 10px; }
 
-  /* One load-time moment: the hero droplet walks through all five moods,
-     then settles on overjoyed. Skipped entirely for reduced motion. */
-  @media (prefers-reduced-motion: no-preference) {
-    .hero-drop { animation: mood-color 3.2s ease-in-out 0.6s both; }
-    .hero-drop .mouth { animation-duration: 3.2s; animation-delay: 0.6s; animation-fill-mode: both; animation-timing-function: linear; }
-    .hero-drop .m1 { animation-name: m1; }
-    .hero-drop .m2 { animation-name: m2; }
-    .hero-drop .m3 { animation-name: m3; }
-    .hero-drop .m4 { animation-name: m4; }
-    .hero-drop .m5 { animation-name: m5; }
-  }
-  @keyframes mood-color {
-    0%, 18%   { color: #bfc7cc; }
-    22%, 43%  { color: #99c7eb; }
-    47%, 68%  { color: #59adeb; }
-    72%, 93%  { color: #2e8fed; }
-    97%, 100% { color: #1a73f2; }
-  }
-  @keyframes m1 { 0%, 18% { opacity: 1; } 22%, 100% { opacity: 0; } }
-  @keyframes m2 { 0%, 18% { opacity: 0; } 22%, 43% { opacity: 1; } 47%, 100% { opacity: 0; } }
-  @keyframes m3 { 0%, 43% { opacity: 0; } 47%, 68% { opacity: 1; } 72%, 100% { opacity: 0; } }
-  @keyframes m4 { 0%, 68% { opacity: 0; } 72%, 93% { opacity: 1; } 97%, 100% { opacity: 0; } }
-  @keyframes m5 { 0%, 93% { opacity: 0; } 97%, 100% { opacity: 1; } }
+  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
+  @keyframes ring { 0%, 100% { opacity: .35; } 50% { opacity: .9; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
 
-  /* ---------- Moods ---------- */
-  .moods {
-    list-style: none;
-    margin: 28px 0 0;
-    padding: 0;
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 4px;
-    text-align: center;
-    font-size: clamp(0.68rem, 3.2vw, 0.85rem);
-    font-weight: 600;
-    color: var(--muted);
+  @media (max-width: 1080px) {
+    .hero { grid-template-columns: 1fr; gap: 56px; padding-top: 28px; padding-bottom: 64px; background: radial-gradient(340px 380px at 50% 78%, #0E2A47 0%, rgba(7,18,31,0) 72%); }
+    .moods { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card { min-height: 0; }
+    .minis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .plus-grid { grid-template-columns: 1fr; gap: 40px; }
   }
-  .moods svg {
-    display: block;
-    width: 100%;
-    max-width: 60px;
-    height: auto;
-    margin: 0 auto 8px;
-    overflow: visible;
+  @media (max-width: 720px) {
+    .site-header { min-height: 64px; }
+    .site-nav { display: none; }
+    .logo { font-size: 16px; }
+    .hero .btn-lg { width: 100%; }
+    .cta-row { width: 100%; justify-content: center; }
+    .demo .rings { display: none; }
+    .sips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+    .sips button { padding: 0 6px; min-height: 52px; }
+    .sips .reset { grid-column: 1 / -1; width: 100%; min-height: 44px; border: 0; gap: 8px; font-size: 14px; }
+    .sips .reset::after { content: "Empty the droplet"; }
+    .moods { grid-template-columns: 1fr; gap: 12px; }
+    .moods li { flex-direction: row; text-align: left; gap: 18px; padding: 14px 20px; border-radius: 22px; }
+    .moods svg { width: 44px; margin: 0; }
+    .moods li div { display: flex; flex-direction: column; gap: 4px; }
+    .moods br { display: none; }
+    .btn-lg { padding: 18px 20px; font-size: 16px; white-space: nowrap; }
+    .btn-dark { white-space: normal; }
+    .features-head { margin-bottom: 32px; gap: 12px; }
+    .bento { grid-template-columns: 1fr; gap: 12px; }
+    .card, .card.wide { grid-column: auto; flex-direction: column; align-items: stretch; gap: 12px; padding: 28px 24px; border-radius: 24px; }
+    .card.wide > div:first-child { order: 2; gap: 12px; }
+    .card p { font-size: 15px; }
+    .cups { width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .cups div { height: 56px; border-radius: 14px; font-size: 13px; }
+    .cups svg { display: none; }
+    .chart { width: 100%; height: 120px; gap: 10px; }
+    .week i { width: 26px; height: 26px; }
+    .minis { gap: 12px; margin-top: 12px; }
+    .mini { padding: 22px 18px; border-radius: 24px; }
+    .mini h3 { font-size: 16px; }
+    .mini p { font-size: 14px; }
+    .mini .top { flex-direction: column; align-items: flex-start; }
+    .ticks { grid-template-columns: 1fr; gap: 14px; }
+    .skins { gap: 20px; }
+    .plans { gap: 12px; }
+    .plan { padding: 20px 18px; border-radius: 22px; min-height: 0; }
+    .plan .name { font-size: 16px; margin-top: 10px; }
+    .privacy p, .split-head p, .plus .lede { font-size: 16px; }
+    .final .btn-lg { width: 100%; }
+    .site-footer nav { flex-direction: column; }
   }
-  .mood-track {
-    height: 6px;
-    margin: 14px 10% 0;
-    border-radius: 3px;
-    background: linear-gradient(90deg, var(--parched), var(--thirsty), var(--content), var(--happy), var(--overjoyed));
-  }
-  .mood-ends {
-    display: flex;
-    justify-content: space-between;
-    margin: 6px 10% 0;
-    font-size: 0.75rem;
-    color: var(--faint);
-  }
-
-  /* ---------- Screenshots ---------- */
-  .shots {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: 58%;
-    gap: 12px;
-    margin: 24px -24px 0;
-    padding: 0 24px 8px;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    scroll-padding-inline: 24px;
-    scrollbar-width: none;
-  }
-  .shots::-webkit-scrollbar { display: none; }
-
-  .shot {
-    display: block;
-    width: 100%;
-    height: auto;
-    aspect-ratio: 1290 / 2796;
-    border-radius: 24px;
-    border: 1px solid var(--line);
-    background: var(--surface);
-    object-fit: cover;
-    object-position: top;
-    scroll-snap-align: start;
-  }
-  @media (min-width: 600px) {
-    .shots {
-      grid-auto-flow: row;
-      grid-template-columns: repeat(3, 1fr);
-      margin: 24px 0 0;
-      padding: 0;
-      overflow: visible;
-    }
-  }
-
-  /* ---------- Feature lists ---------- */
-  .features {
-    display: grid;
-    gap: 0 28px;
-    margin: 20px 0 0;
-  }
-  .features > div {
-    padding: 14px 0 16px;
-    border-top: 1px solid var(--line);
-  }
-  .features dt { font-weight: 600; }
-  .features dd {
-    margin: 2px 0 0;
-    color: var(--muted);
-  }
-  @media (min-width: 560px) {
-    .features { grid-template-columns: 1fr 1fr; }
-  }
-
-  /* ---------- HydroDrop+ ---------- */
-  .plus {
-    padding: 32px 24px 24px;
-    border-radius: 22px;
-    background: var(--surface);
-  }
-  .plus h2 { font-size: 1.6rem; }
-  .price {
-    font-size: 1.1rem;
-    font-weight: 600;
-    margin: 0;
-  }
-  .plus .features > div { border-top-color: var(--line); }
-  .fine {
-    margin: 12px 0 0;
-    font-size: 0.8rem;
-    line-height: 1.5;
-    color: var(--faint);
-  }
-
-  /* ---------- Closing ---------- */
-  .closing { text-align: center; }
-  .closing h2 {
-    font-size: 1.75rem;
-    margin-bottom: 20px;
-  }
-
-  /* ---------- Footer ---------- */
-  .site-footer {
-    margin-top: 80px;
-    padding-top: 24px;
-    border-top: 1px solid var(--line);
-    font-size: 0.85rem;
-    color: var(--faint);
-  }
-  .site-footer nav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 24px;
-    margin-bottom: 12px;
-    font-size: 0.95rem;
-  }
-  .site-footer p { margin: 0 0 6px; }
 </style>
 </head>
-<body>
+<body id="top">
 
-<!-- Shared droplet body (shape, highlight, eyes). Fill follows CSS `color`. -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
-  <defs>
-    <symbol id="drop-body" viewBox="0 0 100 120">
-      <path d="M50 6C56 34 96 44 96 72A46 46 0 0 1 4 72C4 44 44 34 50 6Z" fill="currentColor"/>
-      <ellipse cx="32" cy="58" rx="6.5" ry="10" fill="#fff" fill-opacity=".35"/>
-      <circle cx="37.5" cy="80" r="5" fill="#fff"/>
-      <circle cx="62.5" cy="80" r="5" fill="#fff"/>
-      <circle cx="37.5" cy="80" r="2.6" fill="#000" fill-opacity=".85"/>
-      <circle cx="62.5" cy="80" r="2.6" fill="#000" fill-opacity=".85"/>
-    </symbol>
-  </defs>
-</svg>
-
-<header class="hero">
-  <svg class="hero-drop" viewBox="0 0 100 120" role="img" aria-label="The HydroDrop droplet mascot">
-    <use href="#drop-body"/>
-    <path class="mouth m1" d="M34 95Q50 87 66 95"/>
-    <path class="mouth m2" d="M34 95Q50 92 66 95"/>
-    <path class="mouth m3" d="M34 95Q50 98 66 95"/>
-    <path class="mouth m4" d="M34 95Q50 103 66 95"/>
-    <path class="mouth m5" d="M34 95Q50 107 66 95"/>
-  </svg>
-
-  <h1>HydroDrop</h1>
-  <p class="pitch">A water tracker with a droplet that gets happier as you drink.</p>
-
-  <a class="cta" href="https://apps.apple.com/app/id6793399317">Download on the App Store</a>
-  <p class="hero-note">No account. No ads. Your data stays on your device.</p>
+<header class="wrap site-header">
+  <a class="logo" href="#top">
+    <svg class="drop" viewBox="0 0 100 134" width="22" height="30" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#2E8FED"/></svg>
+    HydroDrop
+  </a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="#features">Features</a>
+    <a href="#plus">HydroDrop+</a>
+    <a href="support.html">Support</a>
+    <a href="privacy.html">Privacy</a>
+  </nav>
+  <a class="btn btn-sm" href="https://apps.apple.com/app/id6793399317">Get the app</a>
 </header>
 
 <main>
-
-  <section aria-labelledby="moods-title">
-    <h2 id="moods-title">Your droplet shows how you're doing</h2>
-    <p>It starts the day parched. Every drink you log moves it along, and once you reach your daily goal it's overjoyed.</p>
-
-    <ol class="moods">
-      <li>
-        <svg viewBox="0 0 100 120" style="color:#bfc7cc" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 87 66 95"/></svg>
-        Parched
-      </li>
-      <li>
-        <svg viewBox="0 0 100 120" style="color:#99c7eb" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 92 66 95"/></svg>
-        Thirsty
-      </li>
-      <li>
-        <svg viewBox="0 0 100 120" style="color:#59adeb" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 98 66 95"/></svg>
-        Content
-      </li>
-      <li>
-        <svg viewBox="0 0 100 120" style="color:#2e8fed" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 103 66 95"/></svg>
-        Happy
-      </li>
-      <li>
-        <svg viewBox="0 0 100 120" style="color:#1a73f2" aria-hidden="true" focusable="false"><use href="#drop-body"/><path class="mouth" d="M34 95Q50 107 66 95"/></svg>
-        Overjoyed
-      </li>
-    </ol>
-    <div class="mood-track" aria-hidden="true"></div>
-    <div class="mood-ends" aria-hidden="true"><span>Nothing logged</span><span>Goal reached</span></div>
-  </section>
-
-  <!-- Screenshot files live in docs/screenshots/ (600px-wide JPEGs).
-       If you swap in different screens, update the file name and alt text together. -->
-  <section aria-labelledby="shots-title">
-    <h2 id="shots-title">A look inside</h2>
-    <div class="shots">
-      <img class="shot" src="screenshots/today.jpg" alt="HydroDrop's Today screen, with the droplet mascot and today's progress toward the goal" loading="lazy" decoding="async">
-      <img class="shot" src="screenshots/history.jpg" alt="HydroDrop's History screen, showing daily water totals" loading="lazy" decoding="async">
-      <img class="shot" src="screenshots/skins.jpg" alt="Choosing a mascot skin in HydroDrop+" loading="lazy" decoding="async">
+<section class="wrap hero">
+  <div class="hero-copy">
+    <div class="chip">For iPhone and Apple Watch</div>
+    <h1>Keep your droplet <span>happy.</span></h1>
+    <p class="lede">HydroDrop turns drinking water into a streak you won't want to break. Log a glass in one tap and watch your droplet go from parched to overjoyed.</p>
+    <div class="cta-row">
+      <a class="btn btn-lg" href="https://apps.apple.com/app/id6793399317">Download on the App Store
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+      </a>
+      <small>Free. iOS 17 or later.</small>
     </div>
-  </section>
+  </div>
 
-  <section aria-labelledby="features-title">
-    <h2 id="features-title">What's in the app</h2>
-    <dl class="features">
-      <div>
-        <dt>One-tap logging</dt>
-        <dd>Log a drink in a single tap with quick-add presets.</dd>
-      </div>
-      <div>
-        <dt>Streaks</dt>
-        <dd>Reach your goal day after day and keep your streak going.</dd>
-      </div>
-      <div>
-        <dt>7-day history</dt>
-        <dd>See how your past week went.</dd>
-      </div>
-      <div>
-        <dt>Reminders on your schedule</dt>
-        <dd>Nudges at the interval you choose, only during your waking hours.</dd>
-      </div>
-      <div>
-        <dt>Apple Watch companion</dt>
-        <dd>Keep HydroDrop on your wrist with the Apple Watch app.</dd>
-      </div>
-      <div>
-        <dt>Private by default</dt>
-        <dd>No account and no ads. Your data stays on your device.</dd>
-      </div>
-    </dl>
-  </section>
+  <div class="demo" id="demo">
+    <svg class="rings" viewBox="0 0 560 560" aria-hidden="true">
+      <circle cx="280" cy="270" r="150" stroke="#173553"/>
+      <circle cx="280" cy="270" r="212" stroke="#12304C" style="animation-delay: 1s"/>
+      <circle cx="280" cy="270" r="274" stroke="#0E2740" style="animation-delay: 2s"/>
+    </svg>
+    <div class="streak-chip">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="#FF9F45" aria-hidden="true"><path d="M12 2c1 3.5 5 6 5 11a5 5 0 0 1-10 0c0-2 .8-3.4 2-4.6.2 2 1 3.1 2 3.1.6-3-.4-6 1-9.5z"/></svg>
+      <span id="demo-streak">Start your streak today</span>
+    </div>
+    <svg class="mascot" viewBox="0 0 100 134" role="img" aria-label="The HydroDrop mascot">
+      <path class="body" id="demo-body" d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#298AF0"/>
+      <ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/>
+      <circle cx="38" cy="70" r="5.2" fill="#fff"/><circle cx="62" cy="70" r="5.2" fill="#fff"/>
+      <circle cx="38" cy="70" r="2.7" fill="#0B1B2E"/><circle cx="62" cy="70" r="2.7" fill="#0B1B2E"/>
+      <path id="demo-mouth" d="M36 83Q50 94 64 83" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+    </svg>
+    <div class="mood" id="demo-mood" aria-live="polite">Feeling great</div>
+    <div>
+      <div class="total"><span id="demo-total">1,500</span> mL</div>
+      <small>of 2,000 mL goal</small>
+    </div>
+    <div class="bar" role="progressbar" aria-label="Progress toward the daily goal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="75" id="demo-bar"><div style="width: 75%"></div></div>
+    <div class="sips">
+      <button type="button" data-add="200">+200 mL</button>
+      <button type="button" data-add="330">+330 mL</button>
+      <button type="button" data-add="500">+500 mL</button>
+      <button type="button" class="reset" data-reset aria-label="Empty the droplet and start over">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v5h5"/></svg>
+      </button>
+    </div>
+    <div class="hint">Go on, give it a drink.</div>
+  </div>
+</section>
 
-  <section class="plus" aria-labelledby="plus-title">
-    <h2 id="plus-title">HydroDrop+</h2>
-    <p class="price">$1.99 a month or $14.99 a year</p>
-    <dl class="features">
-      <div>
-        <dt>Full history and trends</dt>
-        <dd>Look back over 30 days instead of 7.</dd>
-      </div>
-      <div>
-        <dt>Streak freeze</dt>
-        <dd>Protect your streak when you miss a day.</dd>
-      </div>
-      <div>
-        <dt>Pace-aware reminders</dt>
-        <dd>Nudges that account for how you're pacing toward today's goal.</dd>
-      </div>
-      <!-- CHECK BEFORE PUBLISHING: keep "matching Home Screen icon" only if
-           alternate app icons are in a build that's live on the App Store. -->
-      <div>
-        <dt>Mascot skins</dt>
-        <dd>Dress your droplet in Sunrise, Forest, Grape, or Midnight, each with a matching Home Screen icon.</dd>
-      </div>
-      <div>
-        <dt>iCloud sync</dt>
-        <dd>Keep your log in sync across your devices through your own iCloud account.</dd>
-      </div>
-    </dl>
-    <p class="fine">Prices shown in US dollars and may vary by country or region. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple ID settings.</p>
-  </section>
+<section class="wrap band">
+  <div class="split-head">
+    <h2>One droplet.<br>Five moods.</h2>
+    <p>Your droplet's mood follows how close you are to today's goal. It is the fastest progress bar you will ever read.</p>
+  </div>
+  <ul class="moods">
+    <li><svg viewBox="0 0 100 134" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#B8C2C9"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/><circle cx="38" cy="70" r="5.2" fill="#fff"/><circle cx="62" cy="70" r="5.2" fill="#fff"/><circle cx="38" cy="70" r="2.7" fill="#0B1B2E"/><circle cx="62" cy="70" r="2.7" fill="#0B1B2E"/><path d="M37 88Q50 79 63 88" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg><div><strong>Parched</strong><br><span>Under 15% of goal</span></div></li>
+    <li><svg viewBox="0 0 100 134" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#8CBFE6"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/><circle cx="38" cy="70" r="5.2" fill="#fff"/><circle cx="62" cy="70" r="5.2" fill="#fff"/><circle cx="38" cy="70" r="2.7" fill="#0B1B2E"/><circle cx="62" cy="70" r="2.7" fill="#0B1B2E"/><path d="M37 86Q50 82 63 86" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg><div><strong>Thirsty</strong><br><span>15 to 40%</span></div></li>
+    <li><svg viewBox="0 0 100 134" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#54A8ED"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/><circle cx="38" cy="70" r="5.2" fill="#fff"/><circle cx="62" cy="70" r="5.2" fill="#fff"/><circle cx="38" cy="70" r="2.7" fill="#0B1B2E"/><circle cx="62" cy="70" r="2.7" fill="#0B1B2E"/><path d="M37 84Q50 89 63 84" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg><div><strong>Doing okay</strong><br><span>40 to 75%</span></div></li>
+    <li><svg viewBox="0 0 100 134" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#298AF0"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/><circle cx="38" cy="70" r="5.2" fill="#fff"/><circle cx="62" cy="70" r="5.2" fill="#fff"/><circle cx="38" cy="70" r="2.7" fill="#0B1B2E"/><circle cx="62" cy="70" r="2.7" fill="#0B1B2E"/><path d="M36 83Q50 94 64 83" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg><div><strong>Feeling great</strong><br><span>75 to 100%</span></div></li>
+    <li><svg viewBox="0 0 100 134" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#0F6BF5"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/><circle cx="38" cy="70" r="5.2" fill="#fff"/><circle cx="62" cy="70" r="5.2" fill="#fff"/><circle cx="38" cy="70" r="2.7" fill="#0B1B2E"/><circle cx="62" cy="70" r="2.7" fill="#0B1B2E"/><path d="M35 82Q50 99 65 82" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg><div><strong>Fully hydrated!</strong><br><span>Goal met</span></div></li>
+  </ul>
+</section>
 
-  <section class="closing" aria-labelledby="closing-title">
-    <h2 id="closing-title">Start your streak today</h2>
-    <a class="cta" href="https://apps.apple.com/app/id6793399317">Download on the App Store</a>
-  </section>
+<section class="wrap band" id="features">
+  <div class="features-head">
+    <div class="eyebrow">What's inside</div>
+    <h2>Built around the way you actually drink water.</h2>
+  </div>
+  <div class="bento">
+    <article class="card wide">
+      <div>
+        <h3>Log a glass in one tap</h3>
+        <p>Quick add buttons for your usual cups sit right on the Today screen, and you can set them to the sizes you actually use. Need something else? Dial in any amount.</p>
+      </div>
+      <div class="cups" aria-hidden="true">
+        <div><svg viewBox="0 0 100 134" width="16" height="22"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#4DA3FF"/></svg>200 mL</div>
+        <div><svg viewBox="0 0 100 134" width="16" height="22"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#4DA3FF"/></svg>330 mL</div>
+        <div><svg viewBox="0 0 100 134" width="16" height="22"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#4DA3FF"/></svg>500 mL</div>
+        <div>Custom</div>
+      </div>
+    </article>
+    <article class="card">
+      <div class="week" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <h3>Streaks that play fair</h3>
+      <p>Meet your goal and the streak grows. A day that is still in progress never resets it.</p>
+    </article>
+    <article class="card">
+      <div class="timeline" aria-hidden="true"><div><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><p><span>8 AM</span><span>10 PM</span></p></div>
+      <h3>Reminders on your schedule</h3>
+      <p>Pick how often you want a nudge and set your waking window. Nothing fires outside it.</p>
+    </article>
+    <article class="card wide">
+      <div>
+        <h3>See your week, or your month</h3>
+        <p>A 7-day chart with your average and goal-hit count comes free. HydroDrop+ stretches it into 30-day trends.</p>
+      </div>
+      <div class="chart" aria-hidden="true"><i style="height:55%"></i><i class="hit" style="height:80%"></i><i class="hit" style="height:86%"></i><i style="height:44%"></i><i class="hit" style="height:78%"></i><i class="hit" style="height:93%"></i><i style="height:64%"></i></div>
+    </article>
+  </div>
+  <div class="minis">
+    <article class="mini">
+      <div class="top"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#4DA3FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2.5"/><rect x="13" y="3" width="8" height="8" rx="2.5"/><rect x="3" y="13" width="18" height="8" rx="2.5"/></svg><span class="tag">HYDRODROP+</span></div>
+      <h3>Widgets</h3>
+      <p>Log a drink from your Home Screen and check progress on your Lock Screen.</p>
+    </article>
+    <article class="mini">
+      <div class="top"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#4DA3FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="6" width="11" height="12" rx="3.5"/><path d="M9 6l.6-3h4.8l.6 3"/><path d="M9 18l.6 3h4.8l.6-3"/></svg><span class="tag">HYDRODROP+</span></div>
+      <h3>Apple Watch</h3>
+      <p>Log straight from your wrist with the Apple Watch app.</p>
+    </article>
+    <article class="mini">
+      <div class="top"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#4DA3FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-8-4.8-8-10.6A4.4 4.4 0 0 1 12 7.4a4.4 4.4 0 0 1 8 2.5c0 5.8-8 10.6-8 10.6z"/></svg></div>
+      <h3>Apple Health</h3>
+      <p>Optional, write-only sync with Apple Health. Off until you turn it on.</p>
+    </article>
+    <article class="mini">
+      <div class="top"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#4DA3FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></div>
+      <h3>Siri and Shortcuts</h3>
+      <p>Log with your voice, a Shortcut or the Action Button.</p>
+    </article>
+  </div>
+</section>
 
+<section class="wrap band">
+  <div class="split-head">
+    <h2>A look inside</h2>
+    <p>The real app, no mockups. Your droplet up top, your day underneath.</p>
+  </div>
+  <div class="shots">
+    <img src="screenshots/today.jpg" width="600" height="1303" alt="HydroDrop's Today screen, with the droplet mascot and today's progress toward the goal" loading="lazy" decoding="async">
+    <img src="screenshots/history.jpg" width="600" height="1303" alt="HydroDrop's History screen, showing daily water totals" loading="lazy" decoding="async">
+  </div>
+</section>
+
+<section class="plus" id="plus">
+  <div class="wrap plus-grid">
+    <div>
+      <div class="eyebrow">HydroDrop+</div>
+      <h2>Deeper insights. More ways to stay on track.</h2>
+      <p class="lede">HydroDrop is free to download and supported by a small banner ad. HydroDrop+ removes the ads and adds:</p>
+      <ul class="ticks">
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>No ads, ever</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>30-day history and trends</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Apple Watch app</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Home Screen and Lock Screen widgets</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Streak freeze for a missed day</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Smart, pace-aware reminders</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>A weekly recap every Sunday</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Hot-day nudges from the weather</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Live Activity on your Lock Screen</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Four more mascots with matching app icons</li>
+      </ul>
+      <div class="skins">
+        <figure><svg viewBox="0 0 100 134" width="40" height="54" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#F57552"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/></svg><figcaption>Sunrise</figcaption></figure>
+        <figure><svg viewBox="0 0 100 134" width="40" height="54" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#339E5C"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/></svg><figcaption>Forest</figcaption></figure>
+        <figure><svg viewBox="0 0 100 134" width="40" height="54" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#7D54DB"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/></svg><figcaption>Grape</figcaption></figure>
+        <figure><svg viewBox="0 0 100 134" width="40" height="54" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#364796"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/></svg><figcaption>Midnight</figcaption></figure>
+      </div>
+    </div>
+    <div class="plus-side">
+      <div class="plans">
+        <div class="plan best"><div class="flag">BEST VALUE</div><div class="name">Yearly</div><div class="price">$14.99</div><div class="per">per year</div></div>
+        <div class="plan"><div class="flag"></div><div class="name">Monthly</div><div class="price">$1.99</div><div class="per">per month</div></div>
+      </div>
+      <a class="btn btn-lg btn-dark" href="https://apps.apple.com/app/id6793399317">Download free, upgrade inside the app</a>
+      <p class="fine">Prices shown in US dollars and may vary by country or region. Payment is charged to your Apple Account. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple Account settings.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap band privacy">
+  <h2>No account. No sign&#8209;up. Your log stays yours.</h2>
+  <div>
+    <p>Your water log lives on your device and, when you are signed in to iCloud, in your own private iCloud account, so it follows you to a new phone. HydroDrop runs no servers and never asks who you are.</p>
+    <a class="arrow" href="privacy.html">Read the privacy policy
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+    </a>
+  </div>
+</section>
+
+<section class="band final">
+  <svg class="mascot" viewBox="0 0 100 134" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#0F6BF5"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/><circle cx="38" cy="70" r="5.2" fill="#fff"/><circle cx="62" cy="70" r="5.2" fill="#fff"/><circle cx="38" cy="70" r="2.7" fill="#0B1B2E"/><circle cx="62" cy="70" r="2.7" fill="#0B1B2E"/><path d="M35 82Q50 99 65 82" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>
+  <h2 class="wrap">Start your streak today.</h2>
+  <div class="wrap"><a class="btn btn-lg" href="https://apps.apple.com/app/id6793399317">Download on the App Store
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+  </a></div>
+</section>
 </main>
 
-<footer class="site-footer">
-  <nav aria-label="Support and legal">
+<footer class="wrap site-footer">
+  <div>
+    <a class="logo" href="#top" style="font-size: 15px; padding: 0;">
+      <svg class="drop" viewBox="0 0 100 134" width="16" height="22" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#2E8FED"/></svg>
+      HydroDrop
+    </a>
+    <p class="legal">© 2026 Jonathon Brown. Apple, iPhone, Apple Watch, iCloud and App Store are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
+  </div>
+  <nav aria-label="Footer">
     <a href="support.html">Support</a>
-    <a href="privacy.html">Privacy Policy</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="mailto:support@hydrodrop.us">support@hydrodrop.us</a>
   </nav>
-  <p>© 2026 Jonathon Brown</p>
-  <p>Apple Watch, iCloud, and App Store are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
 </footer>
 
+<script>
+(function () {
+  var GOAL = 2000, total = 1500;
+  var MOODS = [
+    { below: 0.15, label: 'Parched', color: '#B8C2C9', mouth: 'M37 88Q50 79 63 88' },
+    { below: 0.4, label: 'Thirsty', color: '#8CBFE6', mouth: 'M37 86Q50 82 63 86' },
+    { below: 0.75, label: 'Doing okay', color: '#54A8ED', mouth: 'M37 84Q50 89 63 84' },
+    { below: 1, label: 'Feeling great', color: '#298AF0', mouth: 'M36 83Q50 94 64 83' },
+    { below: Infinity, label: 'Fully hydrated!', color: '#0F6BF5', mouth: 'M35 82Q50 99 65 82' }
+  ];
+  var el = function (id) { return document.getElementById(id); };
+  function render() {
+    var frac = total / GOAL, mood = MOODS[0];
+    for (var i = 0; i < MOODS.length; i++) { if (frac < MOODS[i].below) { mood = MOODS[i]; break; } }
+    var pct = Math.round(Math.min(frac, 1) * 100);
+    el('demo-body').setAttribute('fill', mood.color);
+    el('demo-mouth').setAttribute('d', mood.mouth);
+    el('demo-mood').textContent = mood.label;
+    el('demo-total').textContent = total.toLocaleString('en-US');
+    el('demo-streak').textContent = frac >= 1 ? '1 day streak' : 'Start your streak today';
+    el('demo-bar').setAttribute('aria-valuenow', pct);
+    el('demo-bar').firstElementChild.style.width = pct + '%';
+  }
+  el('demo').addEventListener('click', function (event) {
+    var button = event.target.closest('button');
+    if (!button) return;
+    if (button.hasAttribute('data-reset')) total = 0;
+    else total = Math.min(total + Number(button.getAttribute('data-add')), 9975);
+    render();
+  });
+  render();
+})();
+</script>
 </body>
 </html>

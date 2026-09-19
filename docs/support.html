@@ -3,46 +3,132 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HydroDrop — Support</title>
+<title>HydroDrop Support</title>
+<meta name="description" content="Get help with HydroDrop: report a bug from the app, email support, and answers to common questions about HydroDrop+, widgets, reminders and your data.">
+<meta name="theme-color" content="#07121F">
+<link rel="canonical" href="https://hydrodrop.us/support.html">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 134'%3E%3Cpath fill='%232E8FED' d='M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap">
 <style>
-  :root { color-scheme: light dark; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    max-width: 640px;
-    margin: 0 auto;
-    padding: 48px 24px 96px;
-    line-height: 1.6;
-    color: #1c1c1e;
+  :root {
+    color-scheme: dark;
+    --ground: #07121F; --card: #0C1B2D; --line: #16304A; --hair: #12263B;
+    --text: #EEF4FA; --soft: #B7C7D8; --muted: #9DB2C8; --link: #7CC0FF;
+    --blue: #2E8FED; --blue-lift: #4DA3FF; --ink: #04101D;
+    --display: 'Unbounded', 'Arial Rounded MT Bold', system-ui, sans-serif;
+    --body: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --pad: clamp(24px, 8.3vw, 120px);
   }
-  @media (prefers-color-scheme: dark) {
-    body { color: #f2f2f7; background: #000; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--body); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { color: #B5DBFF; }
+  main a { text-decoration: underline; text-underline-offset: 3px; }
+  :focus-visible { outline: 3px solid var(--blue-lift); outline-offset: 3px; border-radius: 8px; }
+  h1, h2, h3, p { margin: 0; }
+  p { text-wrap: pretty; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding-left: var(--pad); padding-right: var(--pad); }
+  .site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; }
+  .logo { display: flex; align-items: center; gap: 12px; color: var(--text); padding: 10px 0; font-family: var(--display); font-weight: 700; font-size: 18px; }
+  .logo:hover { color: var(--text); }
+  .site-nav { display: flex; align-items: center; gap: 36px; }
+  .site-nav a { color: #C5D5E6; font-size: 15px; font-weight: 500; padding: 13px 0; }
+  .site-nav a:hover { color: var(--text); }
+  .site-nav a[aria-current] { color: var(--text); font-weight: 700; }
+  .btn { display: inline-flex; align-items: center; background: var(--blue); color: var(--ink); font-weight: 700; font-size: 15px; padding: 13px 22px; border-radius: 999px; transition: background .2s; }
+  .btn:hover { background: var(--blue-lift); color: var(--ink); }
+  main { padding-top: clamp(32px, 5vw, 72px); padding-bottom: clamp(64px, 7.8vw, 112px); }
+  h1 { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 4.5vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }
+  .site-footer { border-top: 1px solid var(--hair); padding-top: 36px; padding-bottom: 48px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 40px; font-size: 14px; color: var(--muted); }
+  .site-footer p { max-width: 560px; }
+  .site-footer nav { display: flex; flex-wrap: wrap; gap: 0 32px; }
+  .site-footer nav a { color: #C5D5E6; padding: 12px 0; }
+  .intro { display: flex; align-items: center; justify-content: space-between; gap: 64px; }
+  .intro > div { display: flex; flex-direction: column; gap: 20px; }
+  .intro p { max-width: 620px; font-size: clamp(17px, 1.3vw, 19px); color: var(--soft); }
+  .intro svg { flex-shrink: 0; width: 150px; height: auto; margin-right: 60px; filter: drop-shadow(0 22px 36px rgba(84,168,237,0.3)); }
+  .ways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 48px; }
+  .way { background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 36px; display: flex; flex-direction: column; gap: 12px; }
+  .way h2 { font-family: var(--display); font-weight: 700; font-size: clamp(19px, 1.6vw, 22px); letter-spacing: -0.02em; margin-top: 4px; }
+  .way p { font-size: 17px; color: var(--soft); }
+  .way strong { color: var(--text); }
+  .faq-title { font-family: var(--display); font-weight: 700; font-size: clamp(24px, 2.3vw, 32px); letter-spacing: -0.03em; margin: clamp(48px, 6vw, 88px) 0 32px; }
+  .faq { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 48px; margin: 0; }
+  .faq div { border-top: 1px solid #1E3550; padding: 24px 0 8px; }
+  .faq dt { font-size: 19px; font-weight: 700; margin-bottom: 10px; }
+  .faq dd { margin: 0; font-size: 16px; color: var(--soft); }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  @media (max-width: 720px) {
+    .site-header { min-height: 64px; }
+    .site-nav { gap: 20px; }
+    .site-nav a { font-size: 14px; }
+    .site-header .btn { display: none; }
+    .logo span { display: none; }
+    .intro svg { display: none; }
+    .ways, .faq { grid-template-columns: 1fr; }
+    .ways { gap: 12px; margin-top: 32px; }
+    .way { padding: 28px 24px; border-radius: 24px; }
+    .faq { gap: 8px; }
   }
-  h1 { font-size: 1.75rem; margin-bottom: 1.5rem; }
-  h2 { font-size: 1.1rem; margin-top: 2rem; }
-  a { color: #0a7cff; }
-  dt { font-weight: 600; margin-top: 1rem; }
-  dd { margin-left: 0; color: #3a3a3c; }
-  @media (prefers-color-scheme: dark) { dd { color: #c7c7cc; } }
 </style>
 </head>
-<body>
-  <h1>HydroDrop Support</h1>
-
-  <p>Need help with HydroDrop? The fastest way is directly from the app: open <strong>Settings → Report a Bug</strong> and send us the details. You can also email <a href="mailto:support@hydrodrop.us">support@hydrodrop.us</a>.</p>
-
-  <h2>Frequently asked questions</h2>
-  <dl>
-    <dt>Do I need an account?</dt>
-    <dd>No — HydroDrop works entirely on your device, no sign-up required.</dd>
-
-    <dt>Is my data backed up?</dt>
-    <dd>Your log lives on your device and, when you are signed in to iCloud, in your private iCloud account. That keeps it in sync between your iPhone and Apple Watch and restores it on a new device. HydroDrop has no servers of its own and never sees your data.</dd>
-
-    <dt>What does HydroDrop+ include?</dt>
-    <dd>HydroDrop+ extends your History chart from the last 7 days to the last 30, adds the Apple Watch app, protects your streak with one automatic freeze a month, makes reminders pace-aware so they stay quiet when you are already ahead, and unlocks four more mascot skins, each with a matching Home Screen icon. Subscribing also supports continued development of the app.</dd>
-
-    <dt>How do I cancel my HydroDrop+ subscription?</dt>
-    <dd>Open <strong>Settings → HydroDrop+ → Manage Subscription</strong> in the app, or manage it directly under your Apple Account → Subscriptions in the iOS Settings app.</dd>
+<body id="top">
+<header class="wrap site-header">
+  <a class="logo" href="./" aria-label="HydroDrop home">
+    <svg viewBox="0 0 100 134" width="22" height="30" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#2E8FED"/></svg>
+    <span>HydroDrop</span>
+  </a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="./">Home</a>
+    <a href="support.html" aria-current="page">Support</a>
+    <a href="privacy.html">Privacy</a>
+  </nav>
+  <a class="btn" href="https://apps.apple.com/app/id6793399317">Get the app</a>
+</header>
+<main class="wrap">
+  <div class="intro">
+    <div>
+      <h1>How can we help?</h1>
+      <p>The fastest route is from inside the app. Your report arrives with your app version, iOS version and device model already attached.</p>
+    </div>
+    <svg viewBox="0 0 100 134" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#54A8ED"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/><circle cx="38" cy="70" r="5.2" fill="#fff"/><circle cx="62" cy="70" r="5.2" fill="#fff"/><circle cx="39.4" cy="68.8" r="2.7" fill="#0B1B2E"/><circle cx="63.4" cy="68.8" r="2.7" fill="#0B1B2E"/><path d="M37 84Q50 89 63 84" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>
+  </div>
+  <div class="ways">
+    <section class="way">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#4DA3FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.8"/><path d="M11 18.5h2"/></svg>
+      <h2>Report a bug from the app</h2>
+      <p>Open <strong>Settings</strong>, then <strong>Report a Bug</strong>, and tell us what went wrong.</p>
+    </section>
+    <section class="way">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#4DA3FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3.5 7.5l8.5 6 8.5-6"/></svg>
+      <h2>Email us</h2>
+      <p>Write to <a href="mailto:support@hydrodrop.us">support@hydrodrop.us</a> and a real person will get back to you.</p>
+    </section>
+  </div>
+  <h2 class="faq-title">Frequently asked questions</h2>
+  <dl class="faq">
+    <div><dt>Do I need an account?</dt><dd>No. HydroDrop works entirely on your device, with no sign-up required.</dd></div>
+    <div><dt>Is my data backed up?</dt><dd>Yes. Your log lives on your device and, when you are signed in to iCloud, in your private iCloud account. That keeps it in sync between your iPhone and Apple Watch and restores it on a new device. HydroDrop has no servers of its own and never sees your data.</dd></div>
+    <div><dt>What does HydroDrop+ include?</dt><dd>HydroDrop+ removes ads, extends your History chart from the last 7 days to the last 30, and adds the Apple Watch app and the Home Screen and Lock Screen widgets. It protects your streak with one automatic freeze a month, makes reminders pace-aware so they stay quiet when you are already ahead, and adds a weekly recap, hot-day suggestions and a Live Activity. It also unlocks four more mascot skins, each with a matching Home Screen icon. Subscribing supports continued development of the app.</dd></div>
+    <div><dt>My widget shows a lock</dt><dd>Widgets are part of HydroDrop+. If you are subscribed and still see the lock, open HydroDrop once so it can refresh the widget. If that does not help, open the HydroDrop+ screen and tap Restore Purchases.</dd></div>
+    <div><dt>I subscribed but my features are missing</dt><dd>Open the HydroDrop+ screen and tap Restore Purchases. Make sure you are signed in with the Apple Account you subscribed with.</dd></div>
+    <div><dt>How do I cancel my HydroDrop+ subscription?</dt><dd>Open Settings, then HydroDrop+, then Manage Subscription in the app. Or manage it under your Apple Account, then Subscriptions, in the iOS Settings app.</dd></div>
+    <div><dt>How do I remove the ads?</dt><dd>The free version shows a small banner ad. HydroDrop+ removes ads completely.</dd></div>
+    <div><dt>I am not getting reminders</dt><dd>Check that notifications are allowed for HydroDrop in iOS Settings, that Reminders is on in the app, and that the current time falls inside your reminder window.</dd></div>
   </dl>
+</main>
+
+<footer class="wrap site-footer">
+  <p>© 2026 Jonathon Brown. Apple, iPhone, Apple Watch, iCloud and App Store are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
+  <nav aria-label="Footer">
+    <a href="./">Home</a>
+    <a href="support.html">Support</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="mailto:support@hydrodrop.us">support@hydrodrop.us</a>
+  </nav>
+</footer>
 </body>
 </html>
