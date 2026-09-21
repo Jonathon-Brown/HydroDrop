@@ -11,6 +11,11 @@ struct HomeView: View {
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
 
     @State private var showingAddSheet = false
+    @State private var showingSayIt = false
+    /// Whether the on-device language model can answer right now. Say it is simply not
+    /// there when it cannot, and this is re-read on every foreground because a model
+    /// that was still downloading this morning may be ready this afternoon.
+    @State private var sayItIsAvailable = false
     @State private var paywallSource: PaywallSource?
     @State private var editingEntry: WaterEntry?
     /// The milestone whose celebration is on screen.
@@ -157,6 +162,11 @@ struct HomeView: View {
                     addEntry(amount: amount, drinkType: drinkType, timestamp: timestamp)
                 }
             }
+            .sheet(isPresented: $showingSayIt) {
+                SayItSheet(defaultML: settings.quickAddPresets.first ?? 250) { drafts in
+                    addEntries(drafts)
+                }
+            }
             .sheet(item: $editingEntry) { entry in
                 EditEntrySheet(entry: entry) { orphanedSampleUUID in
                     // The edit may have moved the drink to another day or changed what
@@ -190,7 +200,7 @@ struct HomeView: View {
             .overlay(alignment: .bottom) {
                 if let pendingUndo {
                     UndoToast(message: pendingUndo.message) {
-                        undo(pendingUndo.entry)
+                        undo(pendingUndo.entries)
                     }
                     .padding(.bottom, 8)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -412,6 +422,18 @@ struct HomeView: View {
                 Text("Quick add")
                     .font(.headline)
                 Spacer()
+                if sayItIsAvailable {
+                    Button {
+                        showingSayIt = true
+                    } label: {
+                        Label("Say it", systemImage: "text.bubble.fill")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .accessibilityHint("Describe what you drank and log it all at once")
+                }
             }
             HStack(spacing: 12) {
                 ForEach(Array(settings.quickAddPresets.enumerated()), id: \.offset) { _, amount in
@@ -524,30 +546,75 @@ struct HomeView: View {
     }
 
     private func addEntry(amount: Int, drinkType: DrinkType = .water, timestamp: Date = Date()) {
-        let entry = WaterEntry(amountML: amount, timestamp: timestamp, drinkType: drinkType)
-        modelContext.insert(entry)
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(.success)
-        offerUndo(of: entry)
-        WidgetPublisher.publish(
-            entries: allEntries + [entry],
-            settings: settings,
-            isShared: SharedModelContainer.isShared(modelContext.container)
-        )
-        // Logging changes today's pace, so the rest of the day's nudges are now stale.
-        ReminderManager.shared.refreshSchedule(entries: allEntries + [entry], goalML: todayGoal)
+        // Nothing to catch: a quick add leaves the write to SwiftData's autosave, the
+        // way it always has, and only an immediate save can fail.
+        guard let logged = try? DrinkLogger.logInApp(
+            amountML: amount,
+            drinkType: drinkType,
+            timestamp: timestamp,
+            in: modelContext,
+            savesImmediately: false,
+            loggedBy: "the Today screen",
+            followUp: .init(reminderGoalML: todayGoal, playsHaptic: true),
+            settings: settings
+        ) else { return }
+        offerUndo(of: [logged.entry])
+    }
+
+    /// Logs everything confirmed on the Say it sheet, as one action with one undo.
+    ///
+    /// Every drink goes through `DrinkLogger`, one entry each. Only the last uses
+    /// `logInApp`: its follow-up reads the whole log back out of the store, so it
+    /// republishes the widget and re-paces the reminders for all of them at once
+    /// rather than once per drink.
+    private func addEntries(_ drafts: [SayItDraft]) {
+        guard !drafts.isEmpty else { return }
+        let timestamps = SayItMapper.timestamps(count: drafts.count, endingAt: Date())
+        var entries: [WaterEntry] = []
+        for (index, draft) in drafts.enumerated() {
+            let isLast = index == drafts.count - 1
+            // Nothing to catch, for the same reason as a quick add: the write is left
+            // to SwiftData's autosave, and only an immediate save can fail.
+            let logged: DrinkLogger.Logged?
+            if isLast {
+                logged = try? DrinkLogger.logInApp(
+                    amountML: draft.amountML,
+                    drinkType: draft.drinkType,
+                    timestamp: timestamps[index],
+                    in: modelContext,
+                    savesImmediately: false,
+                    loggedBy: "Say it",
+                    followUp: .init(reminderGoalML: todayGoal, playsHaptic: true),
+                    settings: settings
+                )
+            } else {
+                logged = try? DrinkLogger.log(
+                    amountML: draft.amountML,
+                    drinkType: draft.drinkType,
+                    timestamp: timestamps[index],
+                    in: modelContext,
+                    savesImmediately: false,
+                    loggedBy: "Say it"
+                )
+            }
+            if let logged { entries.append(logged.entry) }
+        }
+        offerUndo(of: entries)
     }
 
     /// Shows the undo bar for a few seconds. A second drink replaces the offer rather
     /// than stacking: only the most recent one can be taken back, which is the one the
     /// user is looking at.
-    private func offerUndo(of entry: WaterEntry) {
+    private func offerUndo(of entries: [WaterEntry]) {
+        guard let first = entries.first else { return }
         undoDismissal?.cancel()
         // The message is built now rather than read back off the model: the entry can
         // be gone before the toast is, and the bar should describe what was logged.
         let pending = PendingUndo(
-            entry: entry,
-            message: "Logged \(settings.measurementSystem.format(mL: entry.amountML))"
+            entries: entries,
+            message: entries.count == 1
+                ? "Logged \(settings.measurementSystem.format(mL: first.amountML))"
+                : "Logged \(entries.count) drinks"
         )
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             pendingUndo = pending
@@ -565,17 +632,19 @@ struct HomeView: View {
         withAnimation(.easeOut(duration: 0.2)) { pendingUndo = nil }
     }
 
-    /// Takes back the drink the toast is offering. A no-op if it has already gone,
-    /// which is what a delete from the context menu in the same few seconds leaves.
-    private func undo(_ entry: WaterEntry) {
+    /// Takes back what the toast is offering: one drink, or everything a Say it
+    /// logged together. A drink that has already gone is skipped, which is what a
+    /// delete from the context menu in the same few seconds leaves.
+    private func undo(_ entries: [WaterEntry]) {
         clearUndo()
-        guard entry.modelContext != nil else { return }
-        // Read before the delete: once the entry is gone, so is the only record of
+        let remaining = entries.filter { $0.modelContext != nil }
+        guard !remaining.isEmpty else { return }
+        // Read before the delete: once an entry is gone, so is the only record of
         // which Health sample belonged to it.
-        let sampleUUID = entry.healthKitSampleUUID
-        modelContext.delete(entry)
+        let sampleUUIDs = remaining.map(\.healthKitSampleUUID)
+        remaining.forEach(modelContext.delete)
         afterLogChange()
-        retireHealthSample(sampleUUID)
+        sampleUUIDs.forEach(retireHealthSample)
     }
 
     /// Everything that has to catch up after the log changes in any way.
@@ -646,6 +715,7 @@ struct HomeView: View {
     /// the first appearance: the day may have rolled over, and the reminder horizon may
     /// have run out, while the app was away.
     private func syncOnForeground() {
+        sayItIsAvailable = SayIt.isAvailable
         mirrorToCompanions()
         syncHealth()
         applyStreakFreezeIfNeeded()
@@ -687,16 +757,21 @@ struct HomeView: View {
     }
 
     private func delete(_ entry: WaterEntry) {
-        if pendingUndo?.entry.persistentModelID == entry.persistentModelID { clearUndo() }
+        // Deleting any drink the toast is offering withdraws the whole offer, so an
+        // undo can never half-apply.
+        if pendingUndo?.entries.contains(where: { $0.persistentModelID == entry.persistentModelID }) == true {
+            clearUndo()
+        }
         let sampleUUID = entry.healthKitSampleUUID
         modelContext.delete(entry)
         afterLogChange()
         retireHealthSample(sampleUUID)
     }
 
-    /// A drink that can still be taken back, with the words to describe it.
+    /// What can still be taken back, with the words to describe it. One drink for a
+    /// quick add, several for a Say it.
     private struct PendingUndo {
-        let entry: WaterEntry
+        let entries: [WaterEntry]
         let message: String
     }
 

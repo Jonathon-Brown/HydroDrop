@@ -56,26 +56,19 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
         }
         let settings = AppSettings.shared
         let amount = settings.quickAddPresets.first ?? 250
-        let context = modelContainer.mainContext
-        context.insert(WaterEntry(amountML: amount))
-        do {
-            try context.save()
-        } catch {
-            Diagnostics.log("failed to save a notification drink (\(amount) mL): \(error)")
-            context.rollback()
-            return
-        }
-        WatchSessionManager.shared.pushCurrentContext()
-        WidgetPublisher.publish(
-            context: context,
-            settings: settings,
-            isShared: SharedModelContainer.isShared(modelContainer)
+        _ = try? DrinkLogger.logInApp(
+            amountML: amount,
+            in: modelContainer.mainContext,
+            loggedBy: "a notification action",
+            followUp: .init(
+                // TODO: the saved goal, where the Today screen uses today's target and
+                // so re-paces against a hot-day bump that this path ignores. Carried
+                // across unchanged by cb4e64a; settle it once Phase 3 (Night Out) or
+                // Phase 7 (workout) adds more bump sources, so it is settled once.
+                reminderGoalML: settings.dailyGoalML,
+                mirrorsToWatch: true
+            ),
+            settings: settings
         )
-
-        // A logged drink changes today's pace, the same as it would from the Today screen.
-        let startOfDay = Calendar.current.startOfDay(for: Date())
-        let descriptor = FetchDescriptor<WaterEntry>(predicate: #Predicate { $0.timestamp >= startOfDay })
-        let todayEntries = (try? context.fetch(descriptor)) ?? []
-        ReminderManager.shared.refreshSchedule(entries: todayEntries, goalML: settings.dailyGoalML)
     }
 }
