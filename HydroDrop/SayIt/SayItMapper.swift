@@ -139,7 +139,10 @@ enum SayItMapper {
             var needsReview = false
 
             let drinkType: DrinkType
-            if let known = DrinkType(rawValue: normalized(drink.kind)) {
+            // Matched without regard to case: the words are lowercased on the way in, and
+            // some raw values ("greenTea", "energyDrink") are not all lowercase.
+            let said = normalized(drink.kind)
+            if let known = DrinkType.allCases.first(where: { $0.rawValue.lowercased() == said }) {
                 drinkType = known
                 // "Other" is a real drink type, so the model reaches for it rather than
                 // for "unknown" when it cannot place a drink. It is the same admission,

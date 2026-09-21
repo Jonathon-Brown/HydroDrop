@@ -164,14 +164,22 @@ struct LogWaterIntent: AppIntent {
 
 /// The drink types, as something Shortcuts can offer in a menu.
 enum DrinkTypeChoice: String, AppEnum {
-    case water, coffee, tea, sparkling, juice, other
+    // `tea` keeps its name and raw value so a shortcut saved before green tea existed
+    // still means what it meant. It maps to `DrinkType.blackTea`, which is stored as
+    // "tea" for the same reason. Alcoholic drinks are deliberately not offered here:
+    // they can be logged in the app, and nothing should make that a voice command.
+    case water, coffee, espresso, tea, greenTea, sparkling, juice, cola, energyDrink, other
 
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Drink")
 
     static var caseDisplayRepresentations: [DrinkTypeChoice: DisplayRepresentation] = [
         .water: "Water",
         .coffee: "Coffee",
-        .tea: "Tea",
+        .espresso: "Espresso",
+        .tea: "Black tea",
+        .greenTea: "Green tea",
+        .cola: "Cola",
+        .energyDrink: "Energy drink",
         .sparkling: "Sparkling water",
         .juice: "Juice",
         .other: "Other",

@@ -6,7 +6,10 @@ import UserNotifications
 final class ReminderManager {
     static let shared = ReminderManager()
     private let center = UNUserNotificationCenter.current()
-    private let categoryIdentifier = "HYDRO_REMINDER"
+    /// The category that carries "Log a glass" and "Snooze". Shared so Night Out's water
+    /// reminder gets the same buttons as any other reminder.
+    static let reminderCategoryIdentifier = "HYDRO_REMINDER"
+    private let categoryIdentifier = ReminderManager.reminderCategoryIdentifier
     private let identifierPrefix = "hydrodrop.reminder."
     /// Deliberately outside `identifierPrefix`, so a schedule rebuild leaves a pending
     /// snooze alone.

@@ -8,6 +8,7 @@ import SwiftUI
 struct AddDrinkSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var settings: AppSettings
+    @ObservedObject private var nightOut = NightOutCoordinator.shared
 
     @State private var amountML: Int
     @State private var drinkType: DrinkType = .water
@@ -34,6 +35,25 @@ struct AddDrinkSheet: View {
 
                 Form {
                     DrinkTypePicker(drinkType: $drinkType)
+
+                    // Offered where it is relevant rather than on every glass of water:
+                    // when the drink being logged is alcoholic, or one is already running.
+                    if drinkType.isAlcoholic || nightOut.isActive() {
+                        NightOutToggleRow(nightOut: nightOut)
+                    }
+
+                    // A note, not an alert, and only for someone who asked to see their
+                    // caffeine: this drink would land after the cutoff they chose.
+                    if settings.caffeineTrackingActive, drinkType.hasCaffeine,
+                       CaffeineCutoff.isLate(
+                           usesCustomTime ? timestamp : Date(),
+                           cutoffMinutes: settings.caffeineCutoffMinutes,
+                           wakingStartMinutes: settings.quietStartMinutes
+                       ) {
+                        Label("Heads up, this is after your caffeine cutoff.", systemImage: "moon.zzz")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Toggle("Log at another time", isOn: $usesCustomTime.animation())
                     if usesCustomTime {

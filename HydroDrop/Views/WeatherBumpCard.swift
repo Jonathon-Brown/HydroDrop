@@ -8,17 +8,27 @@ import SwiftUI
 struct WeatherBumpCard: View {
     let bumpML: Int
     let system: MeasurementSystem
+    /// Why the extra is being suggested. One card covers every reason there is today,
+    /// so a hot morning after a Night Out is one question rather than two.
+    var sources: [TodayBump.Source] = [.heat]
     let onAccept: () -> Void
     let onDismiss: () -> Void
 
+    private var isOnlyHeat: Bool { sources == [.heat] }
+
+    private var title: String {
+        if isOnlyHeat { return "It is hot out there" }
+        return sources.contains(.heat) ? "A hot day after a late night" : "A little extra today?"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "sun.max.fill")
+            Image(systemName: isOnlyHeat ? "sun.max.fill" : "drop.circle.fill")
                 .font(.title3)
-                .foregroundStyle(.orange)
+                .foregroundStyle(isOnlyHeat ? .orange : .blue)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("It is hot out there")
+                Text(title)
                     .font(.subheadline.weight(.semibold))
                 Text("Add \(system.format(mL: bumpML)) to today's goal? Your usual goal and your streak stay exactly as they are.")
                     .font(.caption)
@@ -45,12 +55,19 @@ struct WeatherBumpCard: View {
 struct WeatherBumpBadge: View {
     let bumpML: Int
     let system: MeasurementSystem
+    /// False once anything other than the heat is part of today's extra.
+    var isOnlyHeat = true
 
     var body: some View {
-        Label("Includes \(system.format(mL: bumpML)) for the heat today", systemImage: "sun.max.fill")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("Today's goal includes \(system.format(mL: bumpML)) extra for the heat")
+        Label(
+            isOnlyHeat
+                ? "Includes \(system.format(mL: bumpML)) for the heat today"
+                : "Includes \(system.format(mL: bumpML)) extra, for today only",
+            systemImage: isOnlyHeat ? "sun.max.fill" : "drop.circle.fill"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("Today's goal includes \(system.format(mL: bumpML)) extra, for today only")
     }
 }
 

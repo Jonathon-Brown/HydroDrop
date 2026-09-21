@@ -120,6 +120,7 @@ echo "Paywall honesty (2.3.1)"
 # PaywallView.PlusFeature.all, and not before.
 UNSHIPPED=(
   "Unlimited bottle tags"
+  "Caffeine"
 )
 FOUND_UNSHIPPED=0
 if [[ -f "$PAYWALL" ]]; then

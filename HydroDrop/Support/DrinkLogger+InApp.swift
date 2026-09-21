@@ -16,16 +16,16 @@ extension DrinkLogger {
         /// The goal today's pace is measured against when the reminder schedule is
         /// rebuilt, or nil to leave the schedule alone entirely.
         ///
-        /// Callers pass exactly what they passed before this type existed, and they do
-        /// not agree. The Today screen uses today's target, which an accepted hot-day
-        /// bump raises; a notification action and onboarding use the saved goal; and a
-        /// drink arriving from the watch does not re-pace the schedule at all. Those
-        /// disagreements are older than this refactor, so they are carried across
-        /// unchanged rather than quietly settled here.
+        /// Every caller that re-paces passes today's target, `AppSettings.todayGoalML()`,
+        /// which is the saved goal plus whatever extra has been accepted for today, for
+        /// any reason. Pace is about the goal the person is working towards today; the
+        /// streak is the thing measured against the saved goal, and it never comes
+        /// through here. The Today screen, a notification action and onboarding used to
+        /// disagree about this, which meant a glass logged from a notification on a
+        /// bumped day re-paced against the wrong number.
         ///
-        /// Settling them is deliberately deferred: Phase 3's Night Out rehydration and
-        /// Phase 7's workout goal both add bump sources, and picking one rule once they
-        /// exist beats picking it twice. The two callers that disagree carry a TODO.
+        /// Nil is still allowed and still means "do not re-pace": a drink arriving from
+        /// the watch has never rebuilt the schedule.
         var reminderGoalML: Int?
 
         /// Whether to hand the watch the new total.
@@ -63,6 +63,10 @@ extension DrinkLogger {
             savesImmediately: savesImmediately,
             loggedBy: source
         )
+
+        // Night Out listens to every drink logged in the app, from any of the ways in,
+        // so a water logged from the reminder's own button still answers the reminder.
+        NightOutCoordinator.shared.didLog(drinkType, settings: settings)
 
         if followUp.playsHaptic {
             UINotificationFeedbackGenerator().notificationOccurred(.success)

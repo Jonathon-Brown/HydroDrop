@@ -27,8 +27,11 @@ final class HealthKitManager {
     /// Whether this device has Health at all. False on iPad and in some regions.
     static var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
 
-    /// The only type HydroDrop touches.
+    /// What every drink is written as.
     private static let waterType = HKQuantityType(.dietaryWater)
+    /// Written only for subscribers who have turned caffeine tracking on, and only once
+    /// Health has said yes to caffeine specifically.
+    private static let caffeineType = HKQuantityType(.dietaryCaffeine)
 
     /// How many samples are written per round trip during a backfill, so a long
     /// history does not become one enormous save.
@@ -53,12 +56,26 @@ final class HealthKitManager {
         return store.authorizationStatus(for: Self.waterType) == .sharingAuthorized
     }
 
-    func requestAuthorization() async -> AuthorizationOutcome {
+    /// Whether HydroDrop may write caffeine. Can be false while water is allowed: they
+    /// are separate switches in Health, and someone who granted water long ago has never
+    /// been asked about caffeine.
+    var isAuthorizedToWriteCaffeine: Bool {
+        guard Self.isAvailable else { return false }
+        return store.authorizationStatus(for: Self.caffeineType) == .sharingAuthorized
+    }
+
+    /// Asks Health for permission. Caffeine is only asked for when the person has
+    /// caffeine tracking on, so nobody is shown a permission for a feature they do not
+    /// use. Health only shows its sheet for types it has not asked about before, so an
+    /// existing water user who turns caffeine on sees a sheet with caffeine alone.
+    func requestAuthorization(includingCaffeine: Bool = false) async -> AuthorizationOutcome {
         guard Self.isAvailable else { return .unavailable }
         do {
             // Nothing to read. Asking for read access we would never use would put a
             // permission in front of the user that buys them nothing.
-            try await store.requestAuthorization(toShare: [Self.waterType], read: [])
+            var toShare: Set<HKSampleType> = [Self.waterType]
+            if includingCaffeine { toShare.insert(Self.caffeineType) }
+            try await store.requestAuthorization(toShare: toShare, read: [])
         } catch {
             Diagnostics.log("Health authorization failed: \(error)")
             return .failed(error.localizedDescription)
@@ -88,11 +105,66 @@ final class HealthKitManager {
         // The fetch narrows; this decides. Keeping the rule in one testable place
         // stops the predicate and the intent drifting apart.
         let pending = (try? context.fetch(descriptor))?.filter { Self.isEligible($0, since: start) } ?? []
-        guard !pending.isEmpty else { return }
-
         for batch in stride(from: 0, to: pending.count, by: Self.batchSize) {
             let slice = Array(pending[batch..<min(batch + Self.batchSize, pending.count)])
             await write(slice, context: context)
+        }
+
+        await reconcileCaffeine(context: context, settings: settings, since: start)
+    }
+
+    /// The same pass, for caffeine. Never asks for permission: a reconcile runs in the
+    /// background of ordinary use, and a Health sheet appearing because a coffee was
+    /// logged would be the wrong moment. Permission is asked for in Settings, when
+    /// caffeine tracking is turned on.
+    private func reconcileCaffeine(context: ModelContext, settings: AppSettings, since start: Date) async {
+        guard settings.caffeineTrackingActive, isAuthorizedToWriteCaffeine else { return }
+        let descriptor = FetchDescriptor<WaterEntry>(
+            predicate: #Predicate { $0.caffeineSampleUUID == nil && $0.timestamp >= start },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        let pending = (try? context.fetch(descriptor))?.filter { Self.isCaffeineEligible($0, since: start) } ?? []
+        for batch in stride(from: 0, to: pending.count, by: Self.batchSize) {
+            let slice = Array(pending[batch..<min(batch + Self.batchSize, pending.count)])
+            await writeCaffeine(slice, context: context)
+        }
+    }
+
+    /// Whether a drink's caffeine belongs in Health and is not there yet.
+    static func isCaffeineEligible(_ entry: WaterEntry, since start: Date) -> Bool {
+        entry.caffeineSampleUUID == nil
+            && entry.timestamp >= start
+            && entry.drinkType.caffeineMg(in: entry.amountML) > 0
+    }
+
+    private func writeCaffeine(_ entries: [WaterEntry], context: ModelContext) async {
+        var samplesByEntry: [(entry: WaterEntry, sample: HKQuantitySample)] = []
+        for entry in entries {
+            let milligrams = entry.drinkType.caffeineMg(in: entry.amountML)
+            let quantity = HKQuantity(unit: .gramUnit(with: .milli), doubleValue: milligrams)
+            let sample = HKQuantitySample(
+                type: Self.caffeineType,
+                quantity: quantity,
+                start: entry.timestamp,
+                end: entry.timestamp
+            )
+            samplesByEntry.append((entry, sample))
+        }
+        guard !samplesByEntry.isEmpty else { return }
+
+        do {
+            try await store.save(samplesByEntry.map(\.sample))
+        } catch {
+            Diagnostics.log("could not write caffeine for \(samplesByEntry.count) drinks to Health: \(error)")
+            return
+        }
+        for pair in samplesByEntry {
+            pair.entry.caffeineSampleUUID = pair.sample.uuid.uuidString
+        }
+        do {
+            try context.save()
+        } catch {
+            Diagnostics.log("could not record Health caffeine sample identifiers: \(error)")
         }
     }
 
@@ -152,6 +224,22 @@ final class HealthKitManager {
     /// Only ever deletes by the identifier of a sample this app saved, so nothing
     /// another app or the user put in Health can be touched by it. A sample that is not
     /// there any more, on a device that never had it, simply deletes nothing.
+    /// The same, for a caffeine sample. A drink that is deleted takes its caffeine out of
+    /// Health with it.
+    func deleteCaffeineSample(uuidString: String?) async {
+        guard let uuidString, let uuid = UUID(uuidString: uuidString) else { return }
+        guard Self.isAvailable, isAuthorizedToWriteCaffeine else { return }
+        let predicate = HKQuery.predicateForObjects(with: [uuid])
+        await withCheckedContinuation { continuation in
+            store.deleteObjects(of: Self.caffeineType, predicate: predicate) { _, _, error in
+                if let error {
+                    Diagnostics.log("could not delete a Health caffeine sample: \(error)")
+                }
+                continuation.resume()
+            }
+        }
+    }
+
     func deleteSample(uuidString: String?) async {
         guard let uuidString, let uuid = UUID(uuidString: uuidString) else { return }
         guard Self.isAvailable, isAuthorizedToWrite else { return }

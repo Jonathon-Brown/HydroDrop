@@ -61,11 +61,10 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
             in: modelContainer.mainContext,
             loggedBy: "a notification action",
             followUp: .init(
-                // TODO: the saved goal, where the Today screen uses today's target and
-                // so re-paces against a hot-day bump that this path ignores. Carried
-                // across unchanged by cb4e64a; settle it once Phase 3 (Night Out) or
-                // Phase 7 (workout) adds more bump sources, so it is settled once.
-                reminderGoalML: settings.dailyGoalML,
+                // Today's target, the same as the Today screen: a glass logged from a
+                // notification on a day with an accepted bump re-paces against the
+                // goal the person is actually working towards.
+                reminderGoalML: settings.todayGoalML(),
                 mirrorsToWatch: true
             ),
             settings: settings
