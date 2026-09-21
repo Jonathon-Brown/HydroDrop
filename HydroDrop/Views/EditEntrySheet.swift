@@ -102,6 +102,14 @@ struct EditEntrySheet: View {
             // Cleared so the next reconcile writes the corrected drink. The old sample
             // is deleted by the caller.
             entry.healthKitSampleUUID = nil
+            // The same goes for its caffeine, which depends on the type and the amount.
+            // Retired from here rather than handed to the caller: it is a no-op unless
+            // Health has granted caffeine, and the next reconcile writes the new figure.
+            let staleCaffeineSample = entry.caffeineSampleUUID
+            entry.caffeineSampleUUID = nil
+            Task { @MainActor in
+                await HealthKitManager.shared.deleteCaffeineSample(uuidString: staleCaffeineSample)
+            }
         }
 
         entry.amountML = amountML

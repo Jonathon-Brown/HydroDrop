@@ -16,7 +16,7 @@ final class DrinkTypeTests: XCTestCase {
     func testOtherTypesCountForLess() {
         XCTAssertEqual(DrinkType.coffee.hydratedML(from: 200), 180)
         XCTAssertEqual(DrinkType.juice.hydratedML(from: 200), 170)
-        XCTAssertEqual(DrinkType.tea.hydratedML(from: 200), 190)
+        XCTAssertEqual(DrinkType.blackTea.hydratedML(from: 200), 190)
         for type in DrinkType.allCases where type != .water && type != .sparkling {
             XCTAssertTrue(type.countsForLess, "\(type.label) should count for less")
         }
@@ -31,7 +31,13 @@ final class DrinkTypeTests: XCTestCase {
     /// drink subtract from the day or count more than it was.
     func testMultipliersAreBetweenZeroAndOne() {
         for type in DrinkType.allCases {
-            XCTAssertGreaterThan(type.hydrationMultiplier, 0)
+            // Alcoholic drinks are the one exception to "everything hydrates a little":
+            // they are in the log and count for exactly nothing, never less than that.
+            if type.isAlcoholic {
+                XCTAssertEqual(type.hydrationMultiplier, 0)
+            } else {
+                XCTAssertGreaterThan(type.hydrationMultiplier, 0)
+            }
             XCTAssertLessThanOrEqual(type.hydrationMultiplier, 1.0)
         }
     }

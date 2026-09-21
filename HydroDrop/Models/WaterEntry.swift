@@ -30,6 +30,11 @@ final class WaterEntry {
     /// exactly right for a drink that predates Health sync.
     var healthKitSampleUUID: String?
 
+    /// The Apple Health caffeine sample written for this drink, if one was. Separate
+    /// from the water sample because they are different Health types and either can
+    /// exist without the other. Optional for the same reason as the fields above.
+    var caffeineSampleUUID: String?
+
     /// How much of this drink counts towards the daily goal. Totals, streaks and the
     /// history chart are all built from this rather than from `amountML`.
     var hydratedML: Int {

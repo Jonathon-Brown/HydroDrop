@@ -9,6 +9,7 @@ struct HomeView: View {
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var router = AppRouter.shared
+    @ObservedObject private var nightOut = NightOutCoordinator.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @Query(sort: \Bottle.createdAt) private var bottles: [Bottle]
 
@@ -66,6 +67,31 @@ struct HomeView: View {
         max(0, todayGoal - settings.dailyGoalML)
     }
 
+    /// One offer made from every reason there is to drink a little more today: the heat,
+    /// the morning after a Night Out, or both. Never more than the daily cap allows on
+    /// top of what has already been accepted.
+    private var bumpSuggestion: TodayBump.Suggestion? {
+        var parts: [TodayBump.Source: Int] = [:]
+        if let heat = pendingWeatherBumpML { parts[.heat] = heat }
+        if nightOut.offerIsDue() { parts[.nightOut] = TodayBump.nightOutML }
+        return TodayBump.suggestion(from: parts, alreadyAcceptedML: acceptedWeatherBumpML)
+    }
+
+    /// Yes or no to the offer, for every reason that was part of it. Either answer
+    /// retires the offer for today. Yes raises today's target only: the streak is still
+    /// measured against the saved goal.
+    private func answer(_ suggestion: TodayBump.Suggestion, accepted: Bool) {
+        if accepted { settings.addToTodayBump(suggestion.addML) }
+        if suggestion.sources.contains(.heat) {
+            if !accepted { settings.dismissWeatherBump() }
+            withAnimation { pendingWeatherBumpML = nil }
+        }
+        if suggestion.sources.contains(.nightOut) {
+            withAnimation { nightOut.answerOffer(accepted: accepted) }
+        }
+        if accepted { afterGoalChange() }
+    }
+
     private var streak: Int {
         StreakCalculator.currentStreak(
             entries: allEntries,
@@ -108,17 +134,15 @@ struct HomeView: View {
                             .transition(.opacity)
                     }
 
-                    if let bump = pendingWeatherBumpML {
+                    if let suggestion = bumpSuggestion {
                         WeatherBumpCard(
-                            bumpML: bump,
-                            system: settings.measurementSystem
+                            bumpML: suggestion.addML,
+                            system: settings.measurementSystem,
+                            sources: suggestion.sources
                         ) {
-                            settings.acceptWeatherBump(bump)
-                            withAnimation { pendingWeatherBumpML = nil }
-                            afterGoalChange()
+                            answer(suggestion, accepted: true)
                         } onDismiss: {
-                            settings.dismissWeatherBump()
-                            withAnimation { pendingWeatherBumpML = nil }
+                            answer(suggestion, accepted: false)
                         }
                         .transition(.opacity)
                     }
@@ -146,7 +170,15 @@ struct HomeView: View {
                         if acceptedWeatherBumpML > 0 {
                             WeatherBumpBadge(
                                 bumpML: acceptedWeatherBumpML,
-                                system: settings.measurementSystem
+                                system: settings.measurementSystem,
+                                isOnlyHeat: nightOut.bumpAcceptedDayKey != DayKey.key(for: Date())
+                            )
+                        }
+                        if settings.caffeineTrackingActive {
+                            CaffeineTodayLine(
+                                entries: todayEntries,
+                                cutoffMinutes: settings.caffeineCutoffMinutes,
+                                wakingStartMinutes: settings.quietStartMinutes
                             )
                         }
                     }
@@ -154,6 +186,8 @@ struct HomeView: View {
                     progressBar
 
                     quickAddSection
+
+                    NightOutSection(nightOut: nightOut, entries: allEntries)
 
                     todayLogSection
 
@@ -771,9 +805,11 @@ struct HomeView: View {
         // Read before the delete: once an entry is gone, so is the only record of
         // which Health sample belonged to it.
         let sampleUUIDs = remaining.map(\.healthKitSampleUUID)
+        let caffeineUUIDs = remaining.map(\.caffeineSampleUUID)
         remaining.forEach(modelContext.delete)
         afterLogChange()
         sampleUUIDs.forEach(retireHealthSample)
+        caffeineUUIDs.forEach(retireCaffeineSample)
     }
 
     /// Everything that has to catch up after the log changes in any way.
@@ -794,6 +830,14 @@ struct HomeView: View {
     }
 
     /// Removes a Health sample whose drink has been deleted or rewritten.
+    /// The same, for the caffeine a deleted drink had put in Health.
+    private func retireCaffeineSample(_ uuid: String?) {
+        guard let uuid, settings.healthKitSyncEnabled else { return }
+        Task { @MainActor in
+            await HealthKitManager.shared.deleteCaffeineSample(uuidString: uuid)
+        }
+    }
+
     private func retireHealthSample(_ uuid: String?) {
         guard let uuid, settings.healthKitSyncEnabled else { return }
         Task { @MainActor in
@@ -845,6 +889,7 @@ struct HomeView: View {
     /// have run out, while the app was away.
     private func syncOnForeground() {
         sayItIsAvailable = SayIt.isAvailable
+        nightOut.expireIfNeeded()
         mirrorToCompanions()
         syncHealth()
         applyStreakFreezeIfNeeded()
@@ -892,9 +937,11 @@ struct HomeView: View {
             clearUndo()
         }
         let sampleUUID = entry.healthKitSampleUUID
+        let caffeineUUID = entry.caffeineSampleUUID
         modelContext.delete(entry)
         afterLogChange()
         retireHealthSample(sampleUUID)
+        retireCaffeineSample(caffeineUUID)
     }
 
     /// What can still be taken back, with the words to describe it. One drink for a

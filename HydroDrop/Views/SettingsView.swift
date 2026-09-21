@@ -231,6 +231,8 @@ struct SettingsView: View {
 
                 smartSection
 
+                caffeineSection
+
                 if HealthKitManager.isAvailable {
                     healthSection
                 }
@@ -374,6 +376,60 @@ struct SettingsView: View {
     /// already set: a real control for subscribers, and a locked row that opens the
     /// paywall for everyone else.
     @ViewBuilder
+    /// Caffeine is HydroDrop+, off until switched on, and shown nowhere until it is.
+    private var caffeineSection: some View {
+        Section {
+            if store.isSubscribed {
+                Toggle("Caffeine tracking", isOn: caffeineToggleBinding)
+                if settings.caffeineTrackingEnabled {
+                    DatePicker(
+                        "No caffeine after",
+                        selection: caffeineCutoffBinding,
+                        displayedComponents: .hourAndMinute
+                    )
+                }
+            } else {
+                lockedRow("Caffeine tracking")
+            }
+        } header: {
+            Text("Caffeine")
+        } footer: {
+            Text("Shows today's caffeine on Today, with a gentle note if a drink lands after the time you pick. The figures are typical ones, not a lab result.")
+        }
+    }
+
+    /// Turning it on is the one moment Health is asked about caffeine, and only if
+    /// Health sync is already on. A no is fine: the total still shows in HydroDrop, and
+    /// nothing is written to Health.
+    private var caffeineToggleBinding: Binding<Bool> {
+        Binding(
+            get: { settings.caffeineTrackingEnabled },
+            set: { isOn in
+                settings.caffeineTrackingEnabled = isOn
+                guard isOn, settings.healthKitSyncEnabled else { return }
+                Task { @MainActor in
+                    _ = await HealthKitManager.shared.requestAuthorization(includingCaffeine: true)
+                    await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
+                }
+            }
+        )
+    }
+
+    private var caffeineCutoffBinding: Binding<Date> {
+        Binding(
+            get: {
+                let minutes = settings.caffeineCutoffMinutes
+                return Calendar.current.date(
+                    bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: Date()
+                ) ?? Date()
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                settings.caffeineCutoffMinutes = (parts.hour ?? 14) * 60 + (parts.minute ?? 0)
+            }
+        )
+    }
+
     private var smartSection: some View {
         Section {
             if store.isSubscribed {
@@ -504,7 +560,7 @@ struct SettingsView: View {
         isSyncingHealth = true
         Task { @MainActor in
             defer { isSyncingHealth = false }
-            switch await HealthKitManager.shared.requestAuthorization() {
+            switch await HealthKitManager.shared.requestAuthorization(includingCaffeine: settings.caffeineTrackingActive) {
             case .granted:
                 // Only from here on. Turning sync on is not a request to hand Health
                 // everything logged before it.

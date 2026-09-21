@@ -64,6 +64,10 @@ extension DrinkLogger {
             loggedBy: source
         )
 
+        // Night Out listens to every drink logged in the app, from any of the ways in,
+        // so a water logged from the reminder's own button still answers the reminder.
+        NightOutCoordinator.shared.didLog(drinkType, settings: settings)
+
         if followUp.playsHaptic {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }

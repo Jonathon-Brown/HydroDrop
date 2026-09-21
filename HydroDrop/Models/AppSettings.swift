@@ -44,6 +44,8 @@ final class AppSettings: ObservableObject {
         static let weatherBumpDayKey = "weatherBumpDayKey"
         static let weatherBumpML = "weatherBumpML"
         static let weatherBumpDismissedDayKey = "weatherBumpDismissedDayKey"
+        static let caffeineTrackingEnabled = "caffeineTrackingEnabled"
+        static let caffeineCutoffMinutes = "caffeineCutoffMinutes"
     }
 
     static let reminderIntervalRange = 20...120
@@ -346,6 +348,23 @@ final class AppSettings: ObservableObject {
 
     var weatherGoalActive: Bool { weatherGoalEnabled && EntitlementCache.isPlusActive }
 
+    // MARK: Caffeine
+
+    /// Whether the person asked to see their caffeine. Off until they turn it on, and
+    /// per device like the other display choices.
+    @Published var caffeineTrackingEnabled: Bool {
+        didSet { defaults.set(caffeineTrackingEnabled, forKey: Keys.caffeineTrackingEnabled) }
+    }
+
+    /// After this time of day a caffeinated drink gets a gentle note. Minutes since
+    /// midnight, 0...1439.
+    @Published var caffeineCutoffMinutes: Int {
+        didSet { defaults.set(caffeineCutoffMinutes, forKey: Keys.caffeineCutoffMinutes) }
+    }
+
+    /// Caffeine is a HydroDrop+ feature, so the switch alone is not enough.
+    var caffeineTrackingActive: Bool { caffeineTrackingEnabled && EntitlementCache.isPlusActive }
+
     /// Today's progress on the Lock Screen while the day is in progress.
     @Published var liveActivityEnabled: Bool {
         didSet {
@@ -382,6 +401,15 @@ final class AppSettings: ObservableObject {
         weatherBumpML = max(0, amountML)
         defaults.set(weatherBumpDayKey, forKey: Keys.weatherBumpDayKey)
         defaults.set(weatherBumpML, forKey: Keys.weatherBumpML)
+    }
+
+    /// Adds to whatever extra has already been accepted today, for any reason, and
+    /// never past the daily cap. The heat, the morning after a Night Out and anything
+    /// later all share this one today-only amount, which is why the streak never has to
+    /// know about any of them.
+    func addToTodayBump(_ amountML: Int, now: Date = Date()) {
+        let accepted = weatherBumpDayKey == DayKey.key(for: now) ? weatherBumpML : 0
+        acceptWeatherBump(TodayBump.total(alreadyAcceptedML: accepted, adding: amountML), now: now)
     }
 
     func dismissWeatherBump(now: Date = Date()) {
@@ -506,6 +534,8 @@ final class AppSettings: ObservableObject {
         // until asked for, because it is the one that wants a location.
         self.weeklyRecapEnabled = d.object(forKey: Keys.weeklyRecapEnabled) as? Bool ?? true
         self.weatherGoalEnabled = d.object(forKey: Keys.weatherGoalEnabled) as? Bool ?? false
+        self.caffeineTrackingEnabled = d.object(forKey: Keys.caffeineTrackingEnabled) as? Bool ?? false
+        self.caffeineCutoffMinutes = d.object(forKey: Keys.caffeineCutoffMinutes) as? Int ?? CaffeineCutoff.defaultMinutes
         self.liveActivityEnabled = d.object(forKey: Keys.liveActivityEnabled) as? Bool ?? true
         self.weatherBumpDayKey = d.string(forKey: Keys.weatherBumpDayKey) ?? ""
         self.weatherBumpML = d.object(forKey: Keys.weatherBumpML) as? Int ?? 0
