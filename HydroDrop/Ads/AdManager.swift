@@ -1,6 +1,5 @@
 import Foundation
 import GoogleMobileAds
-import AppTrackingTransparency
 
 /// Central spot for HydroDrop's ad configuration.
 ///
@@ -29,15 +28,21 @@ enum AdManager {
         MobileAds.shared.start(completionHandler: nil)
     }
 
-    /// Requests App Tracking Transparency authorization if the user hasn't
-    /// been asked yet. iOS only ever shows this system prompt once per
-    /// install, so it's safe to call this on every launch — it's a no-op
-    /// once the user has answered. Call it a couple of seconds after the
-    /// UI appears rather than instantly on launch; Apple's own guidance is
-    /// to let people see the app is legitimate first. Declining doesn't
-    /// block ads — it just means AdMob serves non-personalized ones.
-    static func requestTrackingAuthorizationIfNeeded() {
-        guard ATTrackingManager.trackingAuthorizationStatus == .notDetermined else { return }
-        ATTrackingManager.requestTrackingAuthorization { _ in }
+    /// The only place an ad request is made. Every one asks for non-personalized ads.
+    ///
+    /// `npa=1` tells Google to choose the ad from context, such as the app and a rough
+    /// region, and not from a profile of the person. HydroDrop does not ask for
+    /// permission to track either, so iOS never hands over the advertising identifier.
+    /// That is what makes `NSPrivacyTracking` false in the privacy manifest true, and it
+    /// is why there is no tracking alert on first run. A new ad format has to get its
+    /// request from here too; `Scripts/preflight.sh` fails on a bare `Request()`.
+    static func makeRequest() -> Request {
+        let request = Request()
+        let extras = Extras()
+        extras.additionalParameters = nonPersonalizedParameters
+        request.register(extras)
+        return request
     }
+
+    static let nonPersonalizedParameters = ["npa": "1"]
 }

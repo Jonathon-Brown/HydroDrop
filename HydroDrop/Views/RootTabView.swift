@@ -77,13 +77,6 @@ struct RootTabView: View {
                 isShared: SharedModelContainer.isShared(modelContext.container)
             )
         }
-        // Held back until onboarding is out of the way: the tracking alert landing on
-        // top of the intro would be the first thing a new user sees.
-        .task(id: settings.hasCompletedOnboarding) {
-            guard settings.hasCompletedOnboarding else { return }
-            try? await Task.sleep(for: .seconds(2))
-            AdManager.requestTrackingAuthorizationIfNeeded()
-        }
         .sheet(isPresented: $router.showingWeeklyRecap) {
             WeeklyRecapView()
                 .environmentObject(settings)

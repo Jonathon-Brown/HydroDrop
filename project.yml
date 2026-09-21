@@ -46,7 +46,6 @@ targets:
         NSSupportsLiveActivities: true
         # Lets iOS hand an opened duo invite to the app. See DuoSceneDelegate.
         CKSharingSupported: true
-        NSUserTrackingUsageDescription: "This identifier is used to show you more relevant ads, which helps keep HydroDrop's free tier free."
         GADApplicationIdentifier: "ca-app-pub-5814718978331211~3407720909" # HydroDrop's AdMob App ID
         SKAdNetworkItems:
           - SKAdNetworkIdentifier: cstr6suwn9.skadnetwork
