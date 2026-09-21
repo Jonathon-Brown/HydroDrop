@@ -4,6 +4,9 @@ import XCTest
 /// HealthKit itself cannot be exercised without a device and a granted permission, so
 /// these cover the rule that decides what is offered to it, which is where the
 /// judgement calls live.
+/// `HealthKitManager` is main-actor isolated, and so is the rule these exercise, so
+/// the tests have to run there too.
+@MainActor
 final class HealthEligibilityTests: XCTestCase {
     private let syncStart = Date(timeIntervalSince1970: 1_700_000_000)
 
