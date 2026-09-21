@@ -30,7 +30,7 @@ private struct BannerViewRepresentable: UIViewRepresentable {
         banner.adUnitID = adUnitID
         banner.rootViewController = Self.rootViewController()
         banner.delegate = context.coordinator
-        banner.load(Request())
+        banner.load(AdManager.makeRequest())
         return banner
     }
 

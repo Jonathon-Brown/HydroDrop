@@ -34,8 +34,6 @@
 	<true/>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>HydroDrop reminds you to drink water throughout the day.</string>
-	<key>NSUserTrackingUsageDescription</key>
-	<string>This identifier is used to show you more relevant ads, which helps keep HydroDrop's free tier free.</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>

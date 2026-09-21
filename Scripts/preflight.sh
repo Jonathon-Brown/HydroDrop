@@ -138,6 +138,35 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
+# 3b. Ads are non-personalized and the app never asks to track
+#
+# The privacy manifest says NSPrivacyTracking is false and the privacy page says
+# ads are non-personalized. Both stop being true the moment a request is made
+# without npa=1, or App Tracking Transparency comes back.
+# ---------------------------------------------------------------------------
+echo "Ads and tracking"
+BARE_REQUESTS=$(grep -rnE '(^|[^A-Za-z.])Request\(\)' HydroDrop --include='*.swift' 2>/dev/null \
+  | grep -v 'HydroDrop/Ads/AdManager.swift')
+if [[ -n "$BARE_REQUESTS" ]]; then
+  fail "an ad request is made outside AdManager.makeRequest(), so it may be personalized:"
+  echo "$BARE_REQUESTS" | sed 's/^/          /'
+else
+  pass "every ad request goes through AdManager.makeRequest()"
+fi
+if grep -q '"npa": "1"' HydroDrop/Ads/AdManager.swift 2>/dev/null; then
+  pass "ad requests ask for non-personalized ads (npa=1)"
+else
+  fail "AdManager no longer sets npa=1"
+fi
+if grep -rqE 'AppTrackingTransparency|ATTrackingManager|NSUserTrackingUsageDescription' \
+  HydroDrop project.yml --include='*.swift' --include='*.yml' --include='*.plist' 2>/dev/null; then
+  fail "App Tracking Transparency is back; the manifest and privacy page say the app never asks to track"
+else
+  pass "no App Tracking Transparency prompt or usage string"
+fi
+echo
+
+# ---------------------------------------------------------------------------
 # 4. Placeholder / prototype strings anywhere in the app
 # ---------------------------------------------------------------------------
 echo "Placeholder strings"
