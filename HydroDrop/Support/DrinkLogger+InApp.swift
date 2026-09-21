@@ -22,6 +22,10 @@ extension DrinkLogger {
         /// drink arriving from the watch does not re-pace the schedule at all. Those
         /// disagreements are older than this refactor, so they are carried across
         /// unchanged rather than quietly settled here.
+        ///
+        /// Settling them is deliberately deferred: Phase 3's Night Out rehydration and
+        /// Phase 7's workout goal both add bump sources, and picking one rule once they
+        /// exist beats picking it twice. The two callers that disagree carry a TODO.
         var reminderGoalML: Int?
 
         /// Whether to hand the watch the new total.

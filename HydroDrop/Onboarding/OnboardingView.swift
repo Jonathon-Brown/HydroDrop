@@ -464,6 +464,10 @@ struct OnboardingView: View {
             amountML: firstSipAmountML,
             in: modelContext,
             loggedBy: "onboarding",
+            // TODO: the saved goal, where the Today screen uses today's target and so
+            // re-paces against a hot-day bump that this path ignores. Carried across
+            // unchanged by cb4e64a; settle it once Phase 3 (Night Out) or Phase 7
+            // (workout) adds more bump sources, so it is settled once.
             followUp: .init(reminderGoalML: settings.dailyGoalML),
             settings: settings
         )

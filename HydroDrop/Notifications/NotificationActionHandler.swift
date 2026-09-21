@@ -61,8 +61,10 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
             in: modelContainer.mainContext,
             loggedBy: "a notification action",
             followUp: .init(
-                // The saved goal rather than today's target, which is what this path
-                // has always passed. See `FollowUp.reminderGoalML`.
+                // TODO: the saved goal, where the Today screen uses today's target and
+                // so re-paces against a hot-day bump that this path ignores. Carried
+                // across unchanged by cb4e64a; settle it once Phase 3 (Night Out) or
+                // Phase 7 (workout) adds more bump sources, so it is settled once.
                 reminderGoalML: settings.dailyGoalML,
                 mirrorsToWatch: true
             ),
