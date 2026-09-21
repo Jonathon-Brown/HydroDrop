@@ -47,7 +47,7 @@ struct PaywallView: View {
     // Apple's standard EULA. If you supply your own Terms of Use, replace this
     // URL here AND in the App Store Connect metadata field.
     private static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
-    private static let privacyURL = URL(string: "https://jonathon-brown.github.io/HydroDrop/privacy.html")!
+    private static let privacyURL = URL(string: "https://hydrodrop.us/privacy.html")!
 
     private var yearlyProduct: Product? {
         store.products.first { $0.id == StoreManager.PlusProductID.yearly.rawValue }
