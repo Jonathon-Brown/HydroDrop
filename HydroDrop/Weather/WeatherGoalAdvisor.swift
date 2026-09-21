@@ -107,10 +107,29 @@ final class WeatherGoalAdvisor: NSObject {
         do {
             let current = try await weatherService.weather(for: location, including: .current)
             let apparent = current.apparentTemperature.converted(to: .celsius).value
+            // The same answer also says what the sky is doing, which the droplet's world
+            // draws. Kept from this request so the world never has to make one of its own.
+            WorldWeather.remember(Self.sky(for: current.condition))
             return WeatherGoalAdvice.suggestedBumpML(apparentTemperatureC: apparent, baseGoalML: baseGoalML)
         } catch {
             Diagnostics.log("could not fetch the weather: \(error)")
             return nil
+        }
+    }
+
+    /// Apple's forty-odd conditions, as the four skies the world can draw.
+    nonisolated static func sky(for condition: WeatherCondition) -> WorldWeather {
+        switch condition {
+        case .clear, .mostlyClear, .hot, .partlyCloudy, .breezy, .windy:
+            return .clear
+        case .snow, .heavySnow, .flurries, .blizzard, .blowingSnow, .sleet, .wintryMix, .frigid,
+             .freezingDrizzle, .freezingRain, .sunFlurries, .hail:
+            return .snow
+        case .rain, .heavyRain, .drizzle, .sunShowers, .thunderstorms, .isolatedThunderstorms,
+             .scatteredThunderstorms, .strongStorms, .tropicalStorm, .hurricane:
+            return .rain
+        default:
+            return .cloudy
         }
     }
 

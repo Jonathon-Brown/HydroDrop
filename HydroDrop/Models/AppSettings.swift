@@ -36,6 +36,10 @@ final class AppSettings: ObservableObject {
         static let customQuickAddPresets = "customQuickAddPresets"
         static let celebratedMilestones = "celebratedMilestones"
         static let hasSeededMilestones = "hasSeededMilestones"
+        static let worldDecorations = "worldDecorations"
+        static let celebratedWorldStages = "celebratedWorldStages"
+        static let hasSeededWorld = "hasSeededWorld"
+        static let worldGoalDaysRecord = "worldGoalDaysRecord"
         static let healthKitSyncEnabled = "healthKitSyncEnabled"
         static let healthSyncStartDate = "healthSyncStartDate"
         static let weeklyRecapEnabled = "weeklyRecapEnabled"
@@ -257,6 +261,79 @@ final class AppSettings: ObservableObject {
     func recordMilestone(_ milestone: StreakMilestone) {
         guard !celebratedMilestones.contains(milestone.days) else { return }
         celebratedMilestones = (celebratedMilestones + [milestone.days]).sorted()
+    }
+
+    // MARK: The droplet's world
+
+    /// Decorations switched on in the world, as `WorldDecoration` raw values. Kept with
+    /// the mascot skin, and like it, a choice rather than an entitlement: see
+    /// `activeWorldDecorations` for what is actually drawn.
+    @Published var worldDecorations: [String] {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(worldDecorations, forKey: Keys.worldDecorations)
+        }
+    }
+
+    /// The chosen decorations the entitlement covers. Derived at the point of use, so a
+    /// lapse hides the paid ones and a resubscription brings them straight back.
+    var activeWorldDecorations: [WorldDecoration] {
+        #if DEBUG
+        if WorldDebug.showsAllDecorations { return WorldDecoration.allCases }
+        #endif
+        return WorldDecoration.active(from: worldDecorations, isPlusActive: EntitlementCache.isPlusActive)
+    }
+
+    func toggle(_ decoration: WorldDecoration) {
+        if worldDecorations.contains(decoration.rawValue) {
+            worldDecorations.removeAll { $0 == decoration.rawValue }
+        } else {
+            worldDecorations.append(decoration.rawValue)
+        }
+    }
+
+    /// World stages whose arrival has been marked, as goal-day counts. A union across
+    /// devices, like milestones, so the same stage is never announced twice.
+    @Published var celebratedWorldStages: [Int] {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(celebratedWorldStages, forKey: Keys.celebratedWorldStages)
+        }
+    }
+
+    /// Whether the stages already reached by the history that existed before the world
+    /// did have been marked quietly. Without it, everyone updating would be greeted by
+    /// an announcement about days they finished months ago.
+    @Published var hasSeededWorld: Bool {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(hasSeededWorld, forKey: Keys.hasSeededWorld)
+        }
+    }
+
+    /// The most goal days this person has ever had. The world is worked out from the log
+    /// against today's goal, so a raised goal or a deleted drink could shrink the count.
+    /// Growth never decreases, and this is what holds it up.
+    @Published var worldGoalDaysRecord: Int {
+        didSet {
+            guard !isApplyingRemoteChange else { return }
+            synced.set(worldGoalDaysRecord, forKey: Keys.worldGoalDaysRecord)
+        }
+    }
+
+    /// Notes what the world has grown to. Marks every stage already reached the first
+    /// time it runs, silently, and keeps the record of goal days from ever going down.
+    func noteWorld(goalDays: Int) {
+        if goalDays > worldGoalDaysRecord { worldGoalDaysRecord = goalDays }
+        guard !hasSeededWorld else { return }
+        let reached = WorldStage.allCases.filter { $0.goalDays <= goalDays }.map(\.goalDays)
+        celebratedWorldStages = Array(Set(celebratedWorldStages).union(reached)).sorted()
+        hasSeededWorld = true
+    }
+
+    func recordWorldStage(_ stage: WorldStage) {
+        guard !celebratedWorldStages.contains(stage.goalDays) else { return }
+        celebratedWorldStages = (celebratedWorldStages + [stage.goalDays]).sorted()
     }
 
     /// Days a HydroDrop+ streak freeze has been spent on, as `DayKey` strings.
@@ -548,6 +625,14 @@ final class AppSettings: ObservableObject {
         // a previous run happened to earn.
         self.celebratedMilestones = screenshotMode ? [] : (synced.intArray(forKey: Keys.celebratedMilestones) ?? [])
         self.hasSeededMilestones = screenshotMode ? true : (synced.bool(forKey: Keys.hasSeededMilestones) ?? false)
+        // A screenshot run gets a bare, already-announced world: nothing chosen, and no
+        // "your world grew" sheet landing on top of the buttons the run is about to tap.
+        self.worldDecorations = screenshotMode ? [] : (synced.stringArray(forKey: Keys.worldDecorations) ?? [])
+        self.celebratedWorldStages = screenshotMode
+            ? WorldStage.allCases.map(\.goalDays)
+            : (synced.intArray(forKey: Keys.celebratedWorldStages) ?? [])
+        self.hasSeededWorld = screenshotMode ? true : (synced.bool(forKey: Keys.hasSeededWorld) ?? false)
+        self.worldGoalDaysRecord = screenshotMode ? 0 : (synced.int(forKey: Keys.worldGoalDaysRecord) ?? 0)
 
         // Written now rather than left to the observer: a first-launch decision of
         // "not yet" has to survive the cloud seeding that follows, which would otherwise
@@ -599,6 +684,10 @@ final class AppSettings: ObservableObject {
         Keys.customQuickAddPresets,
         Keys.celebratedMilestones,
         Keys.hasSeededMilestones,
+        Keys.worldDecorations,
+        Keys.celebratedWorldStages,
+        Keys.hasSeededWorld,
+        Keys.worldGoalDaysRecord,
     ]
 
     /// Starts mirroring person-level settings through iCloud.
@@ -631,6 +720,10 @@ final class AppSettings: ObservableObject {
             case Keys.customQuickAddPresets: synced.set(customQuickAddPresetsML, forKey: key)
             case Keys.celebratedMilestones: synced.set(celebratedMilestones, forKey: key)
             case Keys.hasSeededMilestones: synced.set(hasSeededMilestones, forKey: key)
+            case Keys.worldDecorations: synced.set(worldDecorations, forKey: key)
+            case Keys.celebratedWorldStages: synced.set(celebratedWorldStages, forKey: key)
+            case Keys.hasSeededWorld: synced.set(hasSeededWorld, forKey: key)
+            case Keys.worldGoalDaysRecord: synced.set(worldGoalDaysRecord, forKey: key)
             default: break
             }
         }
@@ -646,6 +739,8 @@ final class AppSettings: ObservableObject {
         let changed = Set(keys)
         var freezesToPublish: [String]?
         var milestonesToPublish: [Int]?
+        var worldStagesToPublish: [Int]?
+        var worldRecordToPublish: Int?
 
         isApplyingRemoteChange = true
         if changed.contains(Keys.dailyGoalML), let goal = synced.int(forKey: Keys.dailyGoalML) {
@@ -689,6 +784,26 @@ final class AppSettings: ObservableObject {
         if changed.contains(Keys.hasSeededMilestones), synced.bool(forKey: Keys.hasSeededMilestones) == true {
             hasSeededMilestones = true
         }
+        // Decorations are a choice, so the newest choice wins. What has been announced
+        // and how far the world has grown only ever accumulate.
+        if changed.contains(Keys.worldDecorations) {
+            worldDecorations = synced.stringArray(forKey: Keys.worldDecorations) ?? []
+        }
+        if changed.contains(Keys.celebratedWorldStages) {
+            let remote = synced.intArray(forKey: Keys.celebratedWorldStages) ?? []
+            let merged = Array(Set(celebratedWorldStages).union(remote)).sorted()
+            celebratedWorldStages = merged
+            if merged != remote { worldStagesToPublish = merged }
+        }
+        if changed.contains(Keys.hasSeededWorld), synced.bool(forKey: Keys.hasSeededWorld) == true {
+            hasSeededWorld = true
+        }
+        if changed.contains(Keys.worldGoalDaysRecord) {
+            let remote = synced.int(forKey: Keys.worldGoalDaysRecord) ?? 0
+            let larger = max(worldGoalDaysRecord, remote)
+            worldGoalDaysRecord = larger
+            if larger != remote { worldRecordToPublish = larger }
+        }
         if changed.contains(Keys.frozenStreakDayKeys) {
             let remote = synced.stringArray(forKey: Keys.frozenStreakDayKeys) ?? []
             let merged = StreakFreeze.merged(frozenStreakDayKeys, remote)
@@ -704,6 +819,12 @@ final class AppSettings: ObservableObject {
         }
         if let milestonesToPublish {
             synced.set(milestonesToPublish, forKey: Keys.celebratedMilestones)
+        }
+        if let worldStagesToPublish {
+            synced.set(worldStagesToPublish, forKey: Keys.celebratedWorldStages)
+        }
+        if let worldRecordToPublish {
+            synced.set(worldRecordToPublish, forKey: Keys.worldGoalDaysRecord)
         }
         if changed.contains(Keys.dailyGoalML) {
             // Pace-aware scheduling is keyed to the goal that just changed underneath it.

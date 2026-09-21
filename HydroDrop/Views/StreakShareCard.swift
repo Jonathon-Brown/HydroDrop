@@ -6,6 +6,18 @@ import SwiftUI
 /// on screen, so everything is in fixed points and nothing depends on the environment
 /// it is rendered from. It carries the app name and the site, because a card that
 /// travels without saying where it came from is just a picture of a droplet.
+/// What the world version of the card is drawn from. When a card has one, the droplet
+/// stands in its world and the card says how far the world has come.
+struct WorldCardContent: Equatable {
+    var state: WorldState
+    var decorations: [WorldDecoration]
+    var timeOfDay: WorldTimeOfDay
+
+    var key: String {
+        "\(state.goalDays)|\(Int(state.vitality * 100))|\(decorations.map(\.rawValue).joined(separator: ","))|\(timeOfDay.rawValue)"
+    }
+}
+
 struct StreakShareCard: View {
     let streak: Int
     let skin: MascotSkin
@@ -13,6 +25,7 @@ struct StreakShareCard: View {
     let todayTotalML: Int
     let goalML: Int
     let system: MeasurementSystem
+    var world: WorldCardContent?
 
     static let size = CGSize(width: 420, height: 540)
 
@@ -21,6 +34,64 @@ struct StreakShareCard: View {
     }
 
     var body: some View {
+        if let world {
+            worldCard(world)
+        } else {
+            classicCard
+        }
+    }
+
+    /// The droplet at home. The scene is a still: a share card is a picture.
+    private func worldCard(_ world: WorldCardContent) -> some View {
+        ZStack(alignment: .bottom) {
+            WorldSceneView(
+                state: world.state,
+                decorations: world.decorations,
+                timeOfDay: world.timeOfDay,
+                isAnimated: false
+            )
+            MascotView(progress: max(0.2, world.state.vitality), size: 96, skin: skin, isAnimated: false)
+                .padding(.bottom, 92)
+
+            // Shade behind the words, so they read over a bright noon sky and a dark pond alike.
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 170)
+                Spacer()
+                LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 90)
+            }
+
+            VStack(spacing: 6) {
+                Text(world.state.stage.title)
+                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+                Text("\(world.state.goalDays) goal \(world.state.goalDays == 1 ? "day" : "days")" + (streak > 0 ? "  ·  \(headline)" : ""))
+                    .font(.system(size: 17, weight: .medium))
+                    .opacity(0.9)
+                Spacer()
+                brandLine
+            }
+            .foregroundStyle(.white)
+            .padding(.top, 30)
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+    }
+
+    private var brandLine: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "drop.fill")
+                .font(.system(size: 16, weight: .bold))
+            Text("HydroDrop")
+                .font(.system(size: 19, weight: .bold, design: .rounded))
+            Text("hydrodrop.us")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.white.opacity(0.7))
+        }
+        .foregroundStyle(.white)
+        .padding(.bottom, 26)
+    }
+
+    private var classicCard: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 26)
 
@@ -48,17 +119,7 @@ struct StreakShareCard: View {
 
             Spacer(minLength: 26)
 
-            HStack(spacing: 8) {
-                Image(systemName: "drop.fill")
-                    .font(.system(size: 16, weight: .bold))
-                Text("HydroDrop")
-                    .font(.system(size: 19, weight: .bold, design: .rounded))
-                Text("hydrodrop.us")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            .foregroundStyle(.white)
-            .padding(.bottom, 26)
+            brandLine
         }
         .frame(width: Self.size.width, height: Self.size.height)
         .background(
@@ -87,6 +148,8 @@ struct StreakShareButton: View {
     let goalML: Int
     let system: MeasurementSystem
     var label: String = "Share streak"
+    /// Set to share the world version of the card.
+    var world: WorldCardContent?
 
     @State private var rendered: Image?
 
@@ -110,13 +173,14 @@ struct StreakShareButton: View {
     }
 
     private var shareTitle: String {
-        streak == 1 ? "My 1 day HydroDrop streak" : "My \(streak) day HydroDrop streak"
+        if world != nil { return "My HydroDrop world" }
+        return streak == 1 ? "My 1 day HydroDrop streak" : "My \(streak) day HydroDrop streak"
     }
 
     /// Everything the card draws from. A change to any of it means the cached image is
     /// stale and has to be drawn again.
     private var renderKey: String {
-        "\(streak)|\(skin.rawValue)|\(milestone?.days ?? 0)|\(todayTotalML)|\(goalML)|\(system.rawValue)"
+        "\(streak)|\(skin.rawValue)|\(milestone?.days ?? 0)|\(todayTotalML)|\(goalML)|\(system.rawValue)|\(world?.key ?? "")"
     }
 
     @MainActor
@@ -128,7 +192,8 @@ struct StreakShareButton: View {
                 milestone: milestone,
                 todayTotalML: todayTotalML,
                 goalML: goalML,
-                system: system
+                system: system,
+                world: world
             )
         )
         renderer.scale = 3
