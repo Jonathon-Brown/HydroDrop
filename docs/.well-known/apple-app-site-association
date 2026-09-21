@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["YR8YP5788W.com.jonathonbrown.HydroDrop"],
+        "components": [
+          {
+            "/": "/tap*",
+            "comment": "A HydroDrop bottle tag. Opens the app and logs that bottle."
+          }
+        ]
+      }
+    ]
+  }
+}
