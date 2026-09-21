@@ -32,6 +32,16 @@ struct WeeklyRecapView: View {
                     } else {
                         emptyState
                     }
+
+                    // Into Insights, for the longer view: what goal days line up with.
+                    Button {
+                        dismiss()
+                        AppRouter.shared.pendingInsights = true
+                    } label: {
+                        Label("See your insights", systemImage: "chart.bar.xaxis")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                 }
                 .padding()
             }

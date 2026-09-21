@@ -44,6 +44,8 @@ final class AppSettings: ObservableObject {
         static let healthSyncStartDate = "healthSyncStartDate"
         static let weeklyRecapEnabled = "weeklyRecapEnabled"
         static let weatherGoalEnabled = "weatherGoalEnabled"
+        static let workoutGoalEnabled = "workoutGoalEnabled"
+        static let workoutBumpAnsweredDayKey = "workoutBumpAnsweredDayKey"
         static let liveActivityEnabled = "liveActivityEnabled"
         static let weatherBumpDayKey = "weatherBumpDayKey"
         static let weatherBumpML = "weatherBumpML"
@@ -425,6 +427,30 @@ final class AppSettings: ObservableObject {
 
     var weatherGoalActive: Bool { weatherGoalEnabled && EntitlementCache.isPlusActive }
 
+    /// Whether to suggest extra water after a workout. Device-level, like the hot-day
+    /// switch: it rests on Health access, which is granted per device.
+    @Published var workoutGoalEnabled: Bool {
+        didSet { defaults.set(workoutGoalEnabled, forKey: Keys.workoutGoalEnabled) }
+    }
+
+    /// On, entitled, and Health has been connected through Insights, which is the only
+    /// place HydroDrop ever asks to read anything.
+    var workoutGoalActive: Bool {
+        workoutGoalEnabled && EntitlementCache.isPlusActive && HealthInsightsReader.isConnected
+    }
+
+    /// The day the workout suggestion was last answered, yes or no. One a day at most.
+    @Published private(set) var workoutBumpAnsweredDayKey: String
+
+    func markWorkoutBumpAnswered(now: Date = Date()) {
+        workoutBumpAnsweredDayKey = DayKey.key(for: now)
+        defaults.set(workoutBumpAnsweredDayKey, forKey: Keys.workoutBumpAnsweredDayKey)
+    }
+
+    func hasAnsweredWorkoutBump(now: Date = Date()) -> Bool {
+        workoutBumpAnsweredDayKey == DayKey.key(for: now)
+    }
+
     // MARK: Caffeine
 
     /// Whether the person asked to see their caffeine. Off until they turn it on, and
@@ -611,6 +637,9 @@ final class AppSettings: ObservableObject {
         // until asked for, because it is the one that wants a location.
         self.weeklyRecapEnabled = d.object(forKey: Keys.weeklyRecapEnabled) as? Bool ?? true
         self.weatherGoalEnabled = d.object(forKey: Keys.weatherGoalEnabled) as? Bool ?? false
+        // On by default, and still inert until Insights has been connected.
+        self.workoutGoalEnabled = d.object(forKey: Keys.workoutGoalEnabled) as? Bool ?? true
+        self.workoutBumpAnsweredDayKey = d.string(forKey: Keys.workoutBumpAnsweredDayKey) ?? ""
         self.caffeineTrackingEnabled = d.object(forKey: Keys.caffeineTrackingEnabled) as? Bool ?? false
         self.caffeineCutoffMinutes = d.object(forKey: Keys.caffeineCutoffMinutes) as? Int ?? CaffeineCutoff.defaultMinutes
         self.liveActivityEnabled = d.object(forKey: Keys.liveActivityEnabled) as? Bool ?? true

@@ -31,7 +31,7 @@
 	<key>NFCReaderUsageDescription</key>
 	<string>HydroDrop reads the NFC sticker on your bottle so one tap logs a full bottle, and writes to a sticker when you set one up.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>HydroDrop does not read anything from Apple Health. It only adds the drinks you log.</string>
+	<string>HydroDrop reads your sleep, resting heart rate, workouts, and active energy, only when you turn on Insights, to show you patterns in your own data.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>HydroDrop adds the drinks you log to Apple Health as dietary water, and removes them again if you delete them. This is off until you turn it on.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

@@ -97,8 +97,8 @@ enum NightOut {
 
 /// The extra that can be added to today's target, and today's only.
 ///
-/// One mechanism for every reason: a hot day, the morning after a Night Out, and later
-/// a workout. Accepting any of them raises today's target and nothing else. The streak
+/// One mechanism for every reason: a hot day, the morning after a Night Out, and a
+/// workout. Accepting any of them raises today's target and nothing else. The streak
 /// is still measured against the saved goal, so saying yes can never break one.
 enum TodayBump {
     /// However many reasons there are in one day, the extra never passes this.
@@ -109,6 +109,7 @@ enum TodayBump {
     enum Source: String, CaseIterable {
         case heat
         case nightOut
+        case workout
     }
 
     /// One suggestion made from every reason that has one today.
