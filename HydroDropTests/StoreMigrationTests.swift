@@ -326,6 +326,43 @@ final class HydrationSnapshotTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(HydrationSnapshot.self, from: data), snapshot)
     }
 
+    /// A snapshot written by a build from before widgets were gated has no
+    /// `isPlusActive` key at all. It has to decode as unlocked: the alternative is that
+    /// updating locks a paying subscriber out of their own widgets until the next time
+    /// they happen to open the app.
+    func testASnapshotWrittenBeforeGatingDecodesAsUnlocked() throws {
+        let encoded = try JSONEncoder().encode(HydrationSnapshot.placeholder)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "isPlusActive")
+        XCTAssertNil(object["isPlusActive"], "the fixture has to be missing the new field")
+
+        let decoded = try JSONDecoder().decode(
+            HydrationSnapshot.self,
+            from: try JSONSerialization.data(withJSONObject: object)
+        )
+
+        XCTAssertTrue(decoded.isPlusActive, "an older snapshot must never read as locked")
+        // The rest of the snapshot has to survive the custom decoder too.
+        XCTAssertEqual(decoded.todayTotalML, HydrationSnapshot.placeholder.todayTotalML)
+        XCTAssertEqual(decoded.dailyGoalML, HydrationSnapshot.placeholder.dailyGoalML)
+        XCTAssertEqual(decoded.streak, HydrationSnapshot.placeholder.streak)
+        XCTAssertEqual(decoded.quickAddPresetsML, HydrationSnapshot.placeholder.quickAddPresetsML)
+        XCTAssertEqual(decoded.canLogFromExtensions, HydrationSnapshot.placeholder.canLogFromExtensions)
+    }
+
+    /// The lock only ever appears once the app has positively published "not
+    /// subscribed", so that value has to survive the round trip.
+    func testAnExplicitlyLockedSnapshotStaysLocked() throws {
+        var snapshot = HydrationSnapshot.empty
+        snapshot.isPlusActive = false
+        let decoded = try JSONDecoder().decode(
+            HydrationSnapshot.self,
+            from: try JSONEncoder().encode(snapshot)
+        )
+        XCTAssertFalse(decoded.isPlusActive)
+        XCTAssertEqual(decoded, snapshot)
+    }
+
     func testUnknownStoredValuesFallBackRatherThanFailing() {
         var snapshot = HydrationSnapshot.empty
         snapshot.measurementSystemRawValue = "furlongs"
