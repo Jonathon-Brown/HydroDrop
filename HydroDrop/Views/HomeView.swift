@@ -17,6 +17,8 @@ struct HomeView: View {
     /// A tag that was tapped but means no bottle on this device, waiting on an answer.
     @State private var unknownTagID: UUID?
     @State private var linkingTagID: UUID?
+    /// The bottle a tag was just linked to, so the link can be confirmed by name.
+    @State private var linkedBottleName: String?
     /// Whether the on-device language model can answer right now. Say it is simply not
     /// there when it cannot, and this is re-read on every foreground because a model
     /// that was still downloading this morning may be ready this afternoon.
@@ -182,7 +184,18 @@ struct HomeView: View {
             } message: { _ in
                 Text(bottles.isEmpty
                      ? "Add a bottle in Settings, under My Bottles, then write this tag from there."
-                     : "Link it to one of your bottles and it will log that bottle from now on.")
+                     : "Link it to one of your bottles. After that, tapping it logs that bottle.")
+            }
+            .alert(
+                "Linked to \(linkedBottleName ?? "your bottle")",
+                isPresented: Binding(
+                    get: { linkedBottleName != nil },
+                    set: { if !$0 { linkedBottleName = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Nothing was logged. Tap the tag again whenever you drink from it.")
             }
             .confirmationDialog(
                 "Which bottle is this tag on?",
@@ -656,16 +669,17 @@ struct HomeView: View {
         )
     }
 
-    /// Makes an unfamiliar tag mean one of the person's own bottles, then logs it,
-    /// because logging is what they tapped it for.
+    /// Makes an unfamiliar tag mean one of the person's own bottles, and nothing more.
+    ///
+    /// Deliberately does not log. Linking a tag is setting it up, not drinking from the
+    /// bottle, and a drink that appears because of a settings choice is a drink nobody
+    /// asked for. The tap that found the tag was never counted by the repeat-tap guard
+    /// either, so tapping again straight after linking logs at once.
     private func link(_ tagID: UUID, to bottle: Bottle) {
         bottle.link(tagID: tagID)
         saveContext()
         linkingTagID = nil
-        var debouncer = BottleTapDebouncer.load()
-        guard debouncer.shouldAccept(bottle.id, at: Date()) else { return }
-        debouncer.save()
-        log(bottle)
+        linkedBottleName = bottle.name
     }
 
     /// Logs everything confirmed on the Say it sheet, as one action with one undo.
