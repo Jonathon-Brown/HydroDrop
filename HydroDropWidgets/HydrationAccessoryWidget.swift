@@ -16,7 +16,7 @@ struct HydrationAccessoryWidget: Widget {
                 .containerBackground(.clear, for: .widget)
         }
         .configurationDisplayName("Hydration Progress")
-        .description("Today's progress towards your goal, on the Lock Screen.")
+        .description("Today's progress towards your goal, on the Lock Screen. Included with HydroDrop+.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }
@@ -30,9 +30,39 @@ struct HydrationAccessoryView: View {
     private var percentLabel: String { "\(Int((clampedProgress * 100).rounded()))%" }
 
     var body: some View {
-        switch family {
-        case .accessoryRectangular: rectangular
-        default: circular
+        if snapshot.isPlusActive {
+            switch family {
+            case .accessoryRectangular: rectangular
+            default: circular
+            }
+        } else {
+            locked
+        }
+    }
+
+    /// What a non-subscriber sees: a lock in place of the numbers. Tapping opens the app.
+    @ViewBuilder
+    private var locked: some View {
+        if family == .accessoryRectangular {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("HydroDrop+", systemImage: "lock.fill")
+                    .font(.headline)
+                    .lineLimit(1)
+                Text("Open the app to unlock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("HydroDrop widgets are part of HydroDrop+. Open the app to upgrade.")
+        } else {
+            ZStack {
+                AccessoryWidgetBackground()
+                Image(systemName: "lock.fill")
+                    .font(.title3)
+            }
+            .accessibilityLabel("HydroDrop widgets are part of HydroDrop+. Open the app to upgrade.")
         }
     }
 

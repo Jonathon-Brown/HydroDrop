@@ -22,6 +22,12 @@ struct HydrationSnapshot: Codable, Equatable {
     /// into the App Group has not happened or did not work, and an extension must not
     /// try to log anything.
     var canLogFromExtensions: Bool
+    /// Whether HydroDrop+ was active when the app last published. Widgets are a
+    /// HydroDrop+ feature, and the widget process cannot ask StoreKit on every render,
+    /// so the app's cached answer travels with the snapshot. Anything that cannot say
+    /// reads as true: the lock only ever appears once the app has positively published
+    /// "not subscribed", so a paying user is never locked out by a missing value.
+    var isPlusActive: Bool = true
 
     static let placeholder = HydrationSnapshot(
         dayKey: DayKey.key(for: Date()),
@@ -31,7 +37,8 @@ struct HydrationSnapshot: Codable, Equatable {
         quickAddPresetsML: MeasurementSystem.deviceDefault.defaultQuickAddPresetsML,
         streak: 4,
         mascotSkinRawValue: MascotSkin.classic.rawValue,
-        canLogFromExtensions: true
+        canLogFromExtensions: true,
+        isPlusActive: true
     )
 
     /// What a widget should show before the app has ever published anything.
@@ -43,7 +50,8 @@ struct HydrationSnapshot: Codable, Equatable {
         quickAddPresetsML: MeasurementSystem.deviceDefault.defaultQuickAddPresetsML,
         streak: 0,
         mascotSkinRawValue: MascotSkin.classic.rawValue,
-        canLogFromExtensions: false
+        canLogFromExtensions: false,
+        isPlusActive: true
     )
 
     var measurementSystem: MeasurementSystem {
@@ -69,6 +77,25 @@ struct HydrationSnapshot: Codable, Equatable {
         rolled.dayKey = DayKey.key(for: now)
         rolled.todayTotalML = 0
         return rolled
+    }
+}
+
+extension HydrationSnapshot {
+    /// Decodes snapshots written before `isPlusActive` existed. Without this, the first
+    /// render after updating would fail to decode the stored value and fall back to the
+    /// empty view until the app was next opened. Lives in an extension so the struct
+    /// keeps its memberwise initialiser.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        dayKey = try container.decode(String.self, forKey: .dayKey)
+        todayTotalML = try container.decode(Int.self, forKey: .todayTotalML)
+        dailyGoalML = try container.decode(Int.self, forKey: .dailyGoalML)
+        measurementSystemRawValue = try container.decode(String.self, forKey: .measurementSystemRawValue)
+        quickAddPresetsML = try container.decode([Int].self, forKey: .quickAddPresetsML)
+        streak = try container.decode(Int.self, forKey: .streak)
+        mascotSkinRawValue = try container.decode(String.self, forKey: .mascotSkinRawValue)
+        canLogFromExtensions = try container.decode(Bool.self, forKey: .canLogFromExtensions)
+        isPlusActive = try container.decodeIfPresent(Bool.self, forKey: .isPlusActive) ?? true
     }
 }
 

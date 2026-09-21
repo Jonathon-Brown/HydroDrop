@@ -51,7 +51,8 @@ enum WidgetPublisher {
                 quickAddPresetsML: settings.quickAddPresets,
                 streak: streak,
                 mascotSkinRawValue: settings.activeMascotSkin.rawValue,
-                canLogFromExtensions: isShared
+                canLogFromExtensions: isShared,
+                isPlusActive: EntitlementCache.isPlusActive
             )
         )
     }

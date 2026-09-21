@@ -13,7 +13,7 @@ struct HydrationWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Hydration")
-        .description("Your droplet, today's progress, and one tap to log a drink.")
+        .description("Your droplet, today's progress, and one tap to log a drink. Included with HydroDrop+.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
@@ -25,10 +25,45 @@ struct HydrationWidgetView: View {
     private var system: MeasurementSystem { snapshot.measurementSystem }
 
     var body: some View {
-        switch family {
-        case .systemMedium: medium
-        default: small
+        if snapshot.isPlusActive {
+            switch family {
+            case .systemMedium: medium
+            default: small
+            }
+        } else {
+            locked
         }
+    }
+
+    // MARK: Locked
+
+    /// What a non-subscriber sees. No progress and no log button: the whole widget is
+    /// the HydroDrop+ feature, not just the button. Tapping it opens the app, which is
+    /// where the upgrade lives.
+    private var locked: some View {
+        VStack(spacing: 6) {
+            MascotView(
+                progress: 0.5,
+                size: family == .systemMedium ? 50 : 46,
+                skin: .classic,
+                isAnimated: false
+            )
+            .frame(height: family == .systemMedium ? 68 : 62)
+
+            Label("HydroDrop+", systemImage: "lock.fill")
+                .font(.caption.weight(.bold))
+                .lineLimit(1)
+
+            Text(family == .systemMedium
+                 ? "Widgets are part of HydroDrop+. Open the app to upgrade."
+                 : "Open the app to unlock widgets.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.8)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("HydroDrop widgets are part of HydroDrop+. Open the app to upgrade.")
     }
 
     // MARK: Small

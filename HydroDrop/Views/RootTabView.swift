@@ -1,6 +1,8 @@
+import SwiftData
 import SwiftUI
 
 struct RootTabView: View {
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var settings = AppSettings.shared
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var router = AppRouter.shared
@@ -27,6 +29,16 @@ struct RootTabView: View {
         .tint(Color(red: 0.18, green: 0.56, blue: 0.93))
         // Same rule as the mascot on screen: the icon follows what the user is entitled to.
         .task(id: iconSyncKey) { AppIconManager.sync(to: settings.activeMascotSkin) }
+        // Widgets are a HydroDrop+ feature and draw from the published snapshot, so a
+        // purchase, a restore or a lapse has to reach them. Runs on appear as well, which
+        // covers an entitlement that changed between launches. `WidgetBridge` drops the
+        // publish when nothing differs, so this costs no reload in the common case.
+        .task(id: store.isSubscribed) {
+            WidgetPublisher.publish(
+                context: modelContext,
+                isShared: SharedModelContainer.isShared(modelContext.container)
+            )
+        }
         // Held back until onboarding is out of the way: the tracking alert landing on
         // top of the intro would be the first thing a new user sees.
         .task(id: settings.hasCompletedOnboarding) {
