@@ -388,6 +388,10 @@ struct HomeView: View {
     /// same milestone is a bug the user cannot un-see.
     private func checkMilestones() {
         guard settings.hasCompletedOnboarding else { return }
+        // The seeded history is a three day streak, and the sheet that celebrates it
+        // covers the quick-add buttons the capture test taps. Nothing is recorded
+        // either, so a run leaves no badge behind. Always false in Release.
+        guard !AppSettings.isScreenshotMode else { return }
 
         // Everyone who was already keeping a streak before milestones existed starts
         // with the badges they had earned, awarded quietly and only once.

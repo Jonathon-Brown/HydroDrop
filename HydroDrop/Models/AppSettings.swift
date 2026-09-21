@@ -55,7 +55,7 @@ final class AppSettings: ObservableObject {
     /// mascot skin both persist between runs, and the capture test — which taps
     /// buttons by their "200 mL" labels — silently taps nothing once a run has
     /// switched the app to imperial. Compiled out of Release, matching `StoreManager`.
-    private static var isScreenshotMode: Bool {
+    static var isScreenshotMode: Bool {
         #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory")
         #else
