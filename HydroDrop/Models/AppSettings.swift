@@ -637,8 +637,9 @@ final class AppSettings: ObservableObject {
         // until asked for, because it is the one that wants a location.
         self.weeklyRecapEnabled = d.object(forKey: Keys.weeklyRecapEnabled) as? Bool ?? true
         self.weatherGoalEnabled = d.object(forKey: Keys.weatherGoalEnabled) as? Bool ?? false
-        // On by default, and still inert until Insights has been connected.
-        self.workoutGoalEnabled = d.object(forKey: Keys.workoutGoalEnabled) as? Bool ?? true
+        // Off until it is turned on. Connecting Insights is a yes to seeing patterns, and
+        // a card appearing on Today after a run is a separate thing to say yes to.
+        self.workoutGoalEnabled = d.object(forKey: Keys.workoutGoalEnabled) as? Bool ?? false
         self.workoutBumpAnsweredDayKey = d.string(forKey: Keys.workoutBumpAnsweredDayKey) ?? ""
         self.caffeineTrackingEnabled = d.object(forKey: Keys.caffeineTrackingEnabled) as? Bool ?? false
         self.caffeineCutoffMinutes = d.object(forKey: Keys.caffeineCutoffMinutes) as? Int ?? CaffeineCutoff.defaultMinutes

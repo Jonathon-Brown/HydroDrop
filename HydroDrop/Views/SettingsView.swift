@@ -475,7 +475,7 @@ struct SettingsView: View {
             return "HydroDrop+ adds a Sunday recap of your week, a suggestion to drink more on hot days, and today's progress on your Lock Screen."
         }
         let workouts = HealthInsightsReader.isConnected
-            ? "Workout suggestions offer extra water on a day you exercised for 20 minutes or more."
+            ? "Workout suggestions, off until you turn them on, offer extra water on a day you exercised for 20 minutes or more."
             : "Workout suggestions need Apple Health, which you connect from Insights, in History."
         return "The recap arrives on Sunday evening. Hot day suggestions use your location to check the weather. \(workouts) Both only ever offer extra water for that day; your saved goal and your streak never change on their own. The Live Activity starts with your first drink and ends when you reach your goal."
     }

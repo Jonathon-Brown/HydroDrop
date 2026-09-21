@@ -309,7 +309,7 @@ enum WorkoutBump {
 enum InsightsCopy {
     static let cardTitle = "See what your goal days line up with"
     static let lockedBody = "Your sleep, resting heart rate and active energy on the days you hit your goal, next to the days you did not. Part of HydroDrop+."
-    static let connectBody = "Connect Apple Health to compare your sleep, resting heart rate and active energy on the days you hit your goal with the days you did not. It also reads your workouts, to suggest extra water on the day."
+    static let connectBody = "Connect Apple Health to compare your sleep, resting heart rate and active energy on the days you hit your goal with the days you did not. It also reads your workouts, so it can suggest extra water on the day if you turn that on in Settings."
     static let unavailable = "Apple Health is not available on this device, so there is nothing to compare with."
 
     static let primerIntro = "Insights compares the days you hit your goal with the days you did not, using four things from Apple Health."
@@ -317,7 +317,7 @@ enum InsightsCopy {
         "Sleep",
         "Resting heart rate",
         "Active energy",
-        "Workouts, to suggest extra water on the day",
+        "Workouts, to suggest extra water on the day if you turn that on",
     ]
     static let primerPromises = [
         "Worked out on this iPhone. None of your sleep, heart rate, energy or workout readings are saved, synced, shared with a duo or shown in a widget.",
