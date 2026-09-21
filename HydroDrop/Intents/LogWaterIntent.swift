@@ -7,6 +7,14 @@ import SwiftData
 /// Without this the number in a shortcut would be read in whichever units HydroDrop
 /// happens to be set to, and "log 16" would quietly change from 16 oz to 16 mL the day
 /// the user switched. The unit travels with the shortcut instead.
+///
+/// Testing note: `AppEnum` parameters cannot be trusted on a simulator whose runtime is
+/// older than the Xcode that built the app. With Xcode 27 (27A266a) on the iOS 26.5
+/// runtime, every `AppEnum` `@Parameter` arrives in `perform()` as nil — from a widget
+/// button and from the Shortcuts app, in this app and in a brand-new one-file project
+/// alike — alongside a Console warning about an AppEnum case named "to-0.0". A real
+/// device running the same build decodes them correctly. Anything that depends on
+/// `unit` or `drink` has to be checked on a device or a matching runtime, never there.
 enum VolumeUnitChoice: String, AppEnum {
     case milliliters
     case fluidOunces
@@ -52,6 +60,19 @@ struct LogWaterIntent: AppIntent {
     @Parameter(title: "Drink")
     var drink: DrinkTypeChoice?
 
+    /// An exact millilitre amount, for callers that already know one. Takes precedence
+    /// over `amount` and `unit`, and needs no unit of its own.
+    ///
+    /// The widget's quick-add button uses this so that what it logs can never depend on
+    /// `unit` arriving intact. When `unit` reaches `perform()` as nil, `resolvedAmountML`
+    /// reads the number in the user's display units, and an imperial user's 237 mL
+    /// preset becomes 237 fluid ounces: 7009 mL, outside the plausible range, thrown
+    /// away before anything is written. That is what happens on a simulator that drops
+    /// `AppEnum` parameters (see the testing note on `VolumeUnitChoice`); devices do not
+    /// do it, but a quick-add should not be able to fail that way anywhere.
+    @Parameter(title: "Exact amount (mL)")
+    var amountMilliliters: Int?
+
     static var parameterSummary: some ParameterSummary {
         Summary("Log \(\.$amount) \(\.$unit) of \(\.$drink)")
     }
@@ -59,10 +80,11 @@ struct LogWaterIntent: AppIntent {
     init() {}
 
     /// Used by the widget's quick-add button, which knows exactly what it is logging.
+    ///
+    /// Sets only `amountMilliliters`: an exact amount needs no unit to be understood,
+    /// and water is what `drink ?? .water` already resolves to.
     init(amountML: Int) {
-        self.amount = Double(amountML)
-        self.unit = .milliliters
-        self.drink = .water
+        self.amountMilliliters = amountML
     }
 
     @MainActor
@@ -107,14 +129,33 @@ struct LogWaterIntent: AppIntent {
         return .result(dialog: dialog)
     }
 
-    private func resolvedAmountML(snapshot: HydrationSnapshot) throws -> Int {
+    /// Internal rather than private so the widget's path can be covered by a test.
+    /// Every rejection here is logged: this whole method used to fail silently, which
+    /// is what made a dead widget button on the simulator expensive to explain.
+    func resolvedAmountML(snapshot: HydrationSnapshot) throws -> Int {
+        // An exact millilitre amount wins, because it cannot be misread. The widget's
+        // quick-add button is the only thing that sets it.
+        if let amountMilliliters {
+            guard MeasurementSystem.plausibleDrinkRangeML.contains(amountMilliliters) else {
+                Diagnostics.log("an intent rejected \(amountMilliliters) mL as implausible")
+                throw LogWaterError.implausibleAmount
+            }
+            return amountMilliliters
+        }
+
         guard let amount else {
             return snapshot.quickAddPresetsML.first ?? 250
         }
-        guard amount.isFinite, amount > 0 else { throw LogWaterError.implausibleAmount }
+        guard amount.isFinite, amount > 0 else {
+            Diagnostics.log("an intent rejected \(amount) as an amount")
+            throw LogWaterError.implausibleAmount
+        }
+        // A shortcut that named no unit is read in whatever the app is set to, which is
+        // the long-standing behaviour for Shortcuts and Siri and stays as it was.
         let system = (unit ?? (snapshot.measurementSystem == .imperial ? .fluidOunces : .milliliters)).measurementSystem
         let amountML = system.mL(fromDisplayVolume: amount)
         guard MeasurementSystem.plausibleDrinkRangeML.contains(amountML) else {
+            Diagnostics.log("an intent rejected \(amount) \(system.rawValue) (\(amountML) mL) as implausible")
             throw LogWaterError.implausibleAmount
         }
         return amountML
