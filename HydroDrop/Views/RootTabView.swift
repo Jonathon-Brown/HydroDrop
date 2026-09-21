@@ -6,6 +6,7 @@ struct RootTabView: View {
     @StateObject private var settings = AppSettings.shared
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var router = AppRouter.shared
+    @ObservedObject private var duoStore = DuoStore.shared
 
     private enum Tab {
         case today, history, settings
@@ -87,6 +88,19 @@ struct RootTabView: View {
             WeeklyRecapView()
                 .environmentObject(settings)
         }
+        // An opened duo invite, from whichever tab was showing. Held back while the intro
+        // is up: the invite keeps, and a sheet cannot sit on top of the cover anyway.
+        .sheet(item: pendingDuoInvite) { invite in
+            DuoJoinSheet(invite: invite)
+        }
+        .alert(
+            "Duo Streaks",
+            isPresented: Binding(get: { duoStore.notice != nil }, set: { if !$0 { duoStore.notice = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(duoStore.notice ?? "")
+        }
         .fullScreenCover(isPresented: onboardingIsPresented) {
             OnboardingView(mode: .firstLaunch) {
                 settings.hasCompletedOnboarding = true
@@ -97,6 +111,13 @@ struct RootTabView: View {
 
     private func open(_ url: URL) {
         router.handle(url)
+    }
+
+    private var pendingDuoInvite: Binding<DuoStore.PendingInvite?> {
+        Binding(
+            get: { settings.hasCompletedOnboarding ? duoStore.pendingInvite : nil },
+            set: { duoStore.pendingInvite = $0 }
+        )
     }
 
     /// Onboarding is on screen exactly while the flag is off. The flag can also flip from

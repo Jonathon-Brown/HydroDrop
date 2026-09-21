@@ -92,6 +92,16 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    NavigationLink {
+                        DuoView()
+                    } label: {
+                        Label("Duo Streaks", systemImage: "person.2.fill")
+                    }
+                } footer: {
+                    Text("Keep one streak with one other person. It grows on the days you both meet your goal.")
+                }
+
                 Section("Units") {
                     Picker("Measurement system", selection: $settings.measurementSystem) {
                         ForEach(MeasurementSystem.allCases) { system in

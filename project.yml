@@ -44,6 +44,8 @@ targets:
         NSLocationWhenInUseUsageDescription: "HydroDrop checks the weather where you are so it can suggest extra water on hot days. Your location is only used for that, and never leaves your device except to ask Apple for the forecast."
         NFCReaderUsageDescription: "HydroDrop reads the NFC sticker on your bottle so one tap logs a full bottle, and writes to a sticker when you set one up."
         NSSupportsLiveActivities: true
+        # Lets iOS hand an opened duo invite to the app. See DuoSceneDelegate.
+        CKSharingSupported: true
         NSUserTrackingUsageDescription: "This identifier is used to show you more relevant ads, which helps keep HydroDrop's free tier free."
         GADApplicationIdentifier: "ca-app-pub-5814718978331211~3407720909" # HydroDrop's AdMob App ID
         SKAdNetworkItems:

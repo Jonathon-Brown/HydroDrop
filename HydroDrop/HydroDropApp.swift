@@ -5,6 +5,9 @@ import SwiftData
 struct HydroDropApp: App {
     let container: ModelContainer
     @Environment(\.scenePhase) private var scenePhase
+    /// Here for one reason: an opened duo invite is handed to a scene delegate, and this
+    /// is how a SwiftUI app gets to name one. See `DuoSceneDelegate`.
+    @UIApplicationDelegateAdaptor(DuoAppDelegate.self) private var appDelegate
 
     /// Collapses the duplicates a store migration leaves behind the moment CloudKit
     /// mirrors the legacy rows back down, rather than waiting for the next launch. Held
