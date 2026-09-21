@@ -9,7 +9,10 @@ import SwiftData
 /// and only then SwiftData's own default location, which is where the app lived before
 /// the App Group existed.
 enum SharedModelContainer {
-    static let schema = Schema([WaterEntry.self])
+    /// Every model the store holds. A store made before `Bottle` existed, including the
+    /// one `StoreMigration` builds with only `WaterEntry` in it, gains the new entity by
+    /// lightweight migration the first time it is opened with this.
+    static let schema = Schema([WaterEntry.self, Bottle.self])
 
     /// Builds the container the app should use, migrating the store into the App Group
     /// on the way if that has not happened yet.

@@ -80,6 +80,18 @@ struct SettingsView: View {
                     Text("The three buttons on the Today screen, and the size the Log a glass reminder button adds.")
                 }
 
+                if BottleTagSession.showsInterface {
+                    Section {
+                        NavigationLink {
+                            BottlesView()
+                        } label: {
+                            Label("My Bottles", systemImage: "waterbottle.fill")
+                        }
+                    } footer: {
+                        Text("Put an NFC sticker on a bottle, tap your iPhone to it, and a full bottle is logged.")
+                    }
+                }
+
                 Section("Units") {
                     Picker("Measurement system", selection: $settings.measurementSystem) {
                         ForEach(MeasurementSystem.allCases) { system in
