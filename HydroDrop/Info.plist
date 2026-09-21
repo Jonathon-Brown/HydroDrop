@@ -22,6 +22,8 @@
 	<string>ca-app-pub-5814718978331211~3407720909</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NFCReaderUsageDescription</key>
+	<string>HydroDrop reads the NFC sticker on your bottle so one tap logs a full bottle, and writes to a sticker when you set one up.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>HydroDrop does not read anything from Apple Health. It only adds the drinks you log.</string>
 	<key>NSHealthUpdateUsageDescription</key>

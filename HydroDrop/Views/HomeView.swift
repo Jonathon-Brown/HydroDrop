@@ -8,10 +8,15 @@ struct HomeView: View {
     @Environment(\.requestReview) private var requestReview
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject private var store = StoreManager.shared
+    @ObservedObject private var router = AppRouter.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
+    @Query(sort: \Bottle.createdAt) private var bottles: [Bottle]
 
     @State private var showingAddSheet = false
     @State private var showingSayIt = false
+    /// A tag that was tapped but means no bottle on this device, waiting on an answer.
+    @State private var unknownTagID: UUID?
+    @State private var linkingTagID: UUID?
     /// Whether the on-device language model can answer right now. Say it is simply not
     /// there when it cannot, and this is re-read on every foreground because a model
     /// that was still downloading this morning may be ready this afternoon.
@@ -162,6 +167,37 @@ struct HomeView: View {
                     addEntry(amount: amount, drinkType: drinkType, timestamp: timestamp)
                 }
             }
+            .alert(
+                "This tag is not linked to a bottle on this device",
+                isPresented: Binding(
+                    get: { unknownTagID != nil },
+                    set: { if !$0 { unknownTagID = nil } }
+                ),
+                presenting: unknownTagID
+            ) { tagID in
+                if !bottles.isEmpty {
+                    Button("Link it to a bottle") { linkingTagID = tagID }
+                }
+                Button("Not now", role: .cancel) {}
+            } message: { _ in
+                Text(bottles.isEmpty
+                     ? "Add a bottle in Settings, under My Bottles, then write this tag from there."
+                     : "Link it to one of your bottles and it will log that bottle from now on.")
+            }
+            .confirmationDialog(
+                "Which bottle is this tag on?",
+                isPresented: Binding(
+                    get: { linkingTagID != nil },
+                    set: { if !$0 { linkingTagID = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: linkingTagID
+            ) { tagID in
+                ForEach(bottles) { bottle in
+                    Button(bottle.name) { link(tagID, to: bottle) }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
             .sheet(isPresented: $showingSayIt) {
                 SayItSheet(defaultML: settings.quickAddPresets.first ?? 250) { drafts in
                     addEntries(drafts)
@@ -211,6 +247,11 @@ struct HomeView: View {
             syncOnForeground()
             checkMilestones()
             considerReviewPrompt()
+            // A tag read with the app closed is already waiting by the time this exists.
+            handlePendingBottleTap()
+        }
+        .onChange(of: router.pendingBottleTagID) { _, _ in
+            handlePendingBottleTap()
         }
         // One-shot pace-aware reminders only cover a few days, so they have to be
         // re-armed when the app is opened. Nothing did that before: the schedule was
@@ -422,6 +463,19 @@ struct HomeView: View {
                 Text("Quick add")
                     .font(.headline)
                 Spacer()
+                if BottleTagSession.showsInterface, !bottles.isEmpty {
+                    Button {
+                        BottleTagSession.shared.scan { router.handle($0) }
+                    } label: {
+                        Label("Scan", systemImage: "wave.3.right")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .accessibilityLabel("Scan bottle")
+                    .accessibilityHint("Reads your bottle's sticker and logs a full bottle")
+                }
                 if sayItIsAvailable {
                     Button {
                         showingSayIt = true
@@ -561,6 +615,59 @@ struct HomeView: View {
         offerUndo(of: [logged.entry])
     }
 
+    // MARK: - Bottle tags
+
+    /// Deals with a tag that was tapped or scanned. Every way a tag can reach the app
+    /// (a background read, a link, the in-app scanner) ends up here.
+    private func handlePendingBottleTap() {
+        guard let tagID = router.pendingBottleTagID else { return }
+        router.pendingBottleTagID = nil
+
+        guard let bottle = BottleTag.bottle(for: tagID, in: bottles) else {
+            unknownTagID = tagID
+            return
+        }
+        var debouncer = BottleTapDebouncer.load()
+        guard debouncer.shouldAccept(bottle.id, at: Date()) else { return }
+        debouncer.save()
+        log(bottle)
+    }
+
+    /// One full bottle, through the same path as every other drink.
+    private func log(_ bottle: Bottle) {
+        guard MeasurementSystem.plausibleDrinkRangeML.contains(bottle.capacityML) else {
+            Diagnostics.log("ignored a tap on a bottle with an implausible capacity: \(bottle.capacityML) mL")
+            return
+        }
+        // Saved straight away, unlike a quick add: a tag read in the background can
+        // have the app suspended again before an autosave would have run.
+        guard let logged = try? DrinkLogger.logInApp(
+            amountML: bottle.capacityML,
+            drinkType: bottle.drinkType,
+            in: modelContext,
+            loggedBy: "a bottle tag",
+            followUp: .init(reminderGoalML: todayGoal, playsHaptic: true),
+            settings: settings
+        ) else { return }
+        offerUndo(
+            of: [logged.entry],
+            message: "Logged \(bottle.name), \(settings.measurementSystem.format(mL: bottle.capacityML))",
+            bottleID: bottle.id
+        )
+    }
+
+    /// Makes an unfamiliar tag mean one of the person's own bottles, then logs it,
+    /// because logging is what they tapped it for.
+    private func link(_ tagID: UUID, to bottle: Bottle) {
+        bottle.link(tagID: tagID)
+        saveContext()
+        linkingTagID = nil
+        var debouncer = BottleTapDebouncer.load()
+        guard debouncer.shouldAccept(bottle.id, at: Date()) else { return }
+        debouncer.save()
+        log(bottle)
+    }
+
     /// Logs everything confirmed on the Say it sheet, as one action with one undo.
     ///
     /// Every drink goes through `DrinkLogger`, one entry each. Only the last uses
@@ -605,16 +712,17 @@ struct HomeView: View {
     /// Shows the undo bar for a few seconds. A second drink replaces the offer rather
     /// than stacking: only the most recent one can be taken back, which is the one the
     /// user is looking at.
-    private func offerUndo(of entries: [WaterEntry]) {
+    private func offerUndo(of entries: [WaterEntry], message: String? = nil, bottleID: UUID? = nil) {
         guard let first = entries.first else { return }
         undoDismissal?.cancel()
         // The message is built now rather than read back off the model: the entry can
         // be gone before the toast is, and the bar should describe what was logged.
         let pending = PendingUndo(
             entries: entries,
-            message: entries.count == 1
+            message: message ?? (entries.count == 1
                 ? "Logged \(settings.measurementSystem.format(mL: first.amountML))"
-                : "Logged \(entries.count) drinks"
+                : "Logged \(entries.count) drinks"),
+            bottleID: bottleID
         )
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             pendingUndo = pending
@@ -636,6 +744,13 @@ struct HomeView: View {
     /// logged together. A drink that has already gone is skipped, which is what a
     /// delete from the context menu in the same few seconds leaves.
     private func undo(_ entries: [WaterEntry]) {
+        // A bottle that was taken back can be tapped again straight away, rather than
+        // being ignored as a repeat of the tap that was just undone.
+        if let bottleID = pendingUndo?.bottleID {
+            var debouncer = BottleTapDebouncer.load()
+            debouncer.forget(bottleID)
+            debouncer.save()
+        }
         clearUndo()
         let remaining = entries.filter { $0.modelContext != nil }
         guard !remaining.isEmpty else { return }
@@ -773,6 +888,9 @@ struct HomeView: View {
     private struct PendingUndo {
         let entries: [WaterEntry]
         let message: String
+        /// Set when the drink came from a bottle tag, so undoing it can lift the
+        /// repeat-tap guard for that bottle.
+        var bottleID: UUID?
     }
 
 

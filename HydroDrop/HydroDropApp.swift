@@ -65,7 +65,7 @@ struct HydroDropApp: App {
             // tests need to start from a known one.
             EntitlementCache.isPlusActive = false
             let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-            guard let container = try? ModelContainer(for: WaterEntry.self, configurations: configuration) else {
+            guard let container = try? ModelContainer(for: SharedModelContainer.schema, configurations: configuration) else {
                 fatalError("Failed to create in-memory ModelContainer for UI tests")
             }
             seedHistory(into: container)

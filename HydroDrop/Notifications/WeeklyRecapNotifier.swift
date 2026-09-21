@@ -72,5 +72,23 @@ final class WeeklyRecapNotifier {
 final class AppRouter: ObservableObject {
     static let shared = AppRouter()
     @Published var showingWeeklyRecap = false
+
+    /// A bottle tag that was tapped or scanned and has not been dealt with yet.
+    ///
+    /// The Today screen owns logging and the undo toast, so it is the one that picks
+    /// this up. It is parked here because the tap can arrive before that screen exists:
+    /// a tag read with the app closed launches it straight into this.
+    @Published var pendingBottleTagID: UUID?
+
     private init() {}
+
+    /// Takes an address the app was opened with, from a tag read in the background, a
+    /// link, or the in-app scanner. Returns false when it is not a bottle tag, so the
+    /// caller knows nothing was done with it.
+    @discardableResult
+    func handle(_ url: URL) -> Bool {
+        guard let tagID = BottleTag.tagID(from: url) else { return false }
+        pendingBottleTagID = tagID
+        return true
+    }
 }
