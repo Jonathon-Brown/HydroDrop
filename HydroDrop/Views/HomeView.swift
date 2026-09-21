@@ -524,18 +524,19 @@ struct HomeView: View {
     }
 
     private func addEntry(amount: Int, drinkType: DrinkType = .water, timestamp: Date = Date()) {
-        let entry = WaterEntry(amountML: amount, timestamp: timestamp, drinkType: drinkType)
-        modelContext.insert(entry)
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(.success)
-        offerUndo(of: entry)
-        WidgetPublisher.publish(
-            entries: allEntries + [entry],
-            settings: settings,
-            isShared: SharedModelContainer.isShared(modelContext.container)
-        )
-        // Logging changes today's pace, so the rest of the day's nudges are now stale.
-        ReminderManager.shared.refreshSchedule(entries: allEntries + [entry], goalML: todayGoal)
+        // Nothing to catch: a quick add leaves the write to SwiftData's autosave, the
+        // way it always has, and only an immediate save can fail.
+        guard let logged = try? DrinkLogger.logInApp(
+            amountML: amount,
+            drinkType: drinkType,
+            timestamp: timestamp,
+            in: modelContext,
+            savesImmediately: false,
+            loggedBy: "the Today screen",
+            followUp: .init(reminderGoalML: todayGoal, playsHaptic: true),
+            settings: settings
+        ) else { return }
+        offerUndo(of: logged.entry)
     }
 
     /// Shows the undo bar for a few seconds. A second drink replaces the offer rather

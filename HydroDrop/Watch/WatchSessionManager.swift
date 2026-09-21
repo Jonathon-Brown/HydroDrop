@@ -77,19 +77,18 @@ final class WatchSessionManager: NSObject {
             return
         }
 
-        modelContext.insert(WaterEntry(amountML: amountML, timestamp: timestamp))
-        do {
-            try modelContext.save()
-        } catch {
-            // This is a drink the user logged on their wrist and watched register there.
-            // Swallowing the failure silently loses it with no trace at all.
-            Diagnostics.log("failed to save a watch drink (\(amountML) mL): \(error)")
-            modelContext.rollback()
-            return
-        }
+        // This is a drink the user logged on their wrist and watched register there.
+        // Swallowing a failure silently loses it with no trace at all, which is why
+        // `DrinkLogger` names the reason in Console before rolling back.
+        guard (try? DrinkLogger.logInApp(
+            amountML: amountML,
+            timestamp: timestamp,
+            in: modelContext,
+            loggedBy: "the watch",
+            // A wrist-logged drink has never re-paced the reminder schedule.
+            followUp: .init(reminderGoalML: nil, mirrorsToWatch: true)
+        )) != nil else { return }
         if let identifier { rememberSaved(identifier) }
-        pushCurrentContext()
-        WidgetPublisher.publish(context: modelContext, isShared: SharedModelContainer.isShared(modelContext.container))
     }
 
     private func hasAlreadySaved(_ identifier: String) -> Bool {

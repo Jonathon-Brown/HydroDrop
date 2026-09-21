@@ -457,28 +457,22 @@ struct OnboardingView: View {
 
     /// A real entry, exactly what a quick-add button on Today would write.
     private func logFirstSip() {
-        let entry = WaterEntry(amountML: firstSipAmountML)
-        modelContext.insert(entry)
-        do {
-            try modelContext.save()
-        } catch {
-            Diagnostics.log("failed to save the onboarding drink: \(error)")
-        }
+        // A save failure has never stopped onboarding: the first sip is a nicety, and
+        // holding up the intro over it would cost more than losing it. `DrinkLogger`
+        // names the reason in Console, so the drink is not lost silently.
+        _ = try? DrinkLogger.logInApp(
+            amountML: firstSipAmountML,
+            in: modelContext,
+            loggedBy: "onboarding",
+            followUp: .init(reminderGoalML: settings.dailyGoalML),
+            settings: settings
+        )
+        // Outside the logger, so the intro still acknowledges the tap even on the rare
+        // occasion the write did not land.
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         withAnimation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.7)) {
             hasLoggedFirstSip = true
         }
-
-        WidgetPublisher.publish(
-            context: modelContext,
-            settings: settings,
-            isShared: SharedModelContainer.isShared(modelContext.container)
-        )
-
-        let startOfDay = Calendar.current.startOfDay(for: Date())
-        let descriptor = FetchDescriptor<WaterEntry>(predicate: #Predicate { $0.timestamp >= startOfDay })
-        let todayEntries = (try? modelContext.fetch(descriptor)) ?? [entry]
-        ReminderManager.shared.refreshSchedule(entries: todayEntries, goalML: settings.dailyGoalML)
     }
 
     // MARK: - Navigation

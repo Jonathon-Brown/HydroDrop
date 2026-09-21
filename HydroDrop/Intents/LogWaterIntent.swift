@@ -75,22 +75,25 @@ struct LogWaterIntent: AppIntent {
             throw LogWaterError.storeUnavailable
         }
         let context = ModelContext(container)
-        context.insert(WaterEntry(amountML: amountML, drinkType: drinkType))
+        // The core rather than `logInApp`: this can be running inside the widget
+        // extension, where the reminder scheduler, the watch session and the app's
+        // settings do not exist. `afterLogInApp` below is what picks the rest up on
+        // the occasions the intent is running in the app instead.
+        let saved: DrinkLogger.Logged
         do {
-            try context.save()
+            saved = try DrinkLogger.log(
+                amountML: amountML,
+                drinkType: drinkType,
+                in: context,
+                loggedBy: "an intent"
+            )
         } catch {
-            Diagnostics.log("an intent could not save a \(amountML) mL drink: \(error)")
-            context.rollback()
             throw LogWaterError.couldNotSave
         }
 
-        // Read back from the store rather than adding to the snapshot, so a drink
+        // Read back from the store rather than added to the snapshot, so a drink
         // logged in the app a moment ago is included rather than overwritten.
-        let entries = (try? context.fetch(FetchDescriptor<WaterEntry>())) ?? []
-        let calendar = Calendar.current
-        let todayTotal = entries
-            .filter { calendar.isDateInToday($0.timestamp) }
-            .reduce(0) { $0 + $1.hydratedML }
+        let todayTotal = saved.todayTotalML
         var updated = snapshot.resolved()
         updated.todayTotalML = todayTotal
         WidgetBridge.publish(updated)

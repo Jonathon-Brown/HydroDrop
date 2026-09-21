@@ -56,26 +56,17 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
         }
         let settings = AppSettings.shared
         let amount = settings.quickAddPresets.first ?? 250
-        let context = modelContainer.mainContext
-        context.insert(WaterEntry(amountML: amount))
-        do {
-            try context.save()
-        } catch {
-            Diagnostics.log("failed to save a notification drink (\(amount) mL): \(error)")
-            context.rollback()
-            return
-        }
-        WatchSessionManager.shared.pushCurrentContext()
-        WidgetPublisher.publish(
-            context: context,
-            settings: settings,
-            isShared: SharedModelContainer.isShared(modelContainer)
+        _ = try? DrinkLogger.logInApp(
+            amountML: amount,
+            in: modelContainer.mainContext,
+            loggedBy: "a notification action",
+            followUp: .init(
+                // The saved goal rather than today's target, which is what this path
+                // has always passed. See `FollowUp.reminderGoalML`.
+                reminderGoalML: settings.dailyGoalML,
+                mirrorsToWatch: true
+            ),
+            settings: settings
         )
-
-        // A logged drink changes today's pace, the same as it would from the Today screen.
-        let startOfDay = Calendar.current.startOfDay(for: Date())
-        let descriptor = FetchDescriptor<WaterEntry>(predicate: #Predicate { $0.timestamp >= startOfDay })
-        let todayEntries = (try? context.fetch(descriptor)) ?? []
-        ReminderManager.shared.refreshSchedule(entries: todayEntries, goalML: settings.dailyGoalML)
     }
 }
