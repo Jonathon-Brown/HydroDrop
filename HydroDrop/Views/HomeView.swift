@@ -197,7 +197,11 @@ struct HomeView: View {
 
                     DuoCardsSection(duoStore: duoStore)
 
-                    if DuoInviteMoment.shouldShow(soloStreak: streak, hasAnyDuo: !duoStore.duos.isEmpty, wasDismissed: duoInviteDismissed) {
+                    // Not under screenshot automation: its seeded history is a three day
+                    // streak, so the card would sit half under the tab bar in every App
+                    // Store capture of Today. Always false in Release.
+                    if !AppSettings.isScreenshotMode,
+                       DuoInviteMoment.shouldShow(soloStreak: streak, hasAnyDuo: !duoStore.duos.isEmpty, wasDismissed: duoInviteDismissed) {
                         DuoInviteCard {
                             duoInviteDismissed = true
                             showingDuoFromInvite = true
