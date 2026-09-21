@@ -107,8 +107,8 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
-        MARKETING_VERSION: "1.4"
-        CURRENT_PROJECT_VERSION: "26"
+        MARKETING_VERSION: "1.7"
+        CURRENT_PROJECT_VERSION: "27"
         CODE_SIGN_ENTITLEMENTS: HydroDrop/HydroDrop.entitlements
         SKIP_INSTALL: "NO"
         INSTALL_PATH: /Applications
@@ -161,8 +161,8 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
-        MARKETING_VERSION: "1.4"
-        CURRENT_PROJECT_VERSION: "26"
+        MARKETING_VERSION: "1.7"
+        CURRENT_PROJECT_VERSION: "27"
         SKIP_INSTALL: "YES"
 
   HydroDrop Watch App:
@@ -192,8 +192,8 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
         ENABLE_PREVIEWS: YES
-        MARKETING_VERSION: "1.4"
-        CURRENT_PROJECT_VERSION: "26"
+        MARKETING_VERSION: "1.7"
+        CURRENT_PROJECT_VERSION: "27"
         SKIP_INSTALL: "YES"
   HydroDropTests:
     type: bundle.unit-test
