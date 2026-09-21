@@ -66,6 +66,8 @@ struct DuoChanges {
     var isEverything: Bool
     var identity: Identity?
     var statuses: [DuoDayStatus] = []
+    var nudges: [DuoNudge] = []
+    /// Names of every record that was deleted, statuses and nudges alike.
     var deletedStatusNames: [String] = []
     var changeToken: Data?
 }
@@ -87,6 +89,16 @@ actor DuoService {
     private enum RecordType {
         static let duo = "Duo"
         static let dayStatus = "DayStatus"
+        static let nudge = "Nudge"
+    }
+
+    /// One subscription per database. A shared database cannot take a query
+    /// subscription, so both are the whole-database kind, and what changed is found out
+    /// by fetching.
+    enum SubscriptionID {
+        static let privateDatabase = "duo-private-changes"
+        static let sharedDatabase = "duo-shared-changes"
+        static let all = [privateDatabase, sharedDatabase]
     }
 
     private enum Field {
@@ -100,6 +112,8 @@ actor DuoService {
         static let goalMet = "goalMet"
         static let progressBucket = "progressBucket"
         static let updatedAt = "updatedAt"
+        static let fromRole = "fromRole"
+        static let presetID = "presetID"
     }
 
     /// The container named in the entitlements, which is also the one SwiftData uses.
@@ -376,6 +390,8 @@ actor DuoService {
                 )
             case RecordType.dayStatus:
                 if let status = Self.status(from: record) { changes.statuses.append(status) }
+            case RecordType.nudge:
+                if let nudge = Self.nudge(from: record) { changes.nudges.append(nudge) }
             default:
                 // The share itself, and anything a newer version of the app keeps here.
                 continue
@@ -403,6 +419,64 @@ actor DuoService {
             progressBucket: goalMet ? 100 : min(bucket, 75),
             updatedAt: record[Field.updatedAt] as? Date ?? record.modificationDate ?? .distantPast
         )
+    }
+
+    /// Reads a nudge. It carries the name of a preset and who sent it, and that is all:
+    /// the words are looked up on this phone, never taken from the record.
+    private static func nudge(from record: CKRecord) -> DuoNudge? {
+        let name = record.recordID.recordName
+        guard DuoNudge.isNudgeRecordName(name),
+              let role = (record[Field.fromRole] as? String).flatMap(DuoRole.init(rawValue:)),
+              let presetID = record[Field.presetID] as? String else { return nil }
+        return DuoNudge(
+            id: name,
+            fromRole: role,
+            // Kept short whatever was written: it is only ever a key into a table.
+            presetID: String(presetID.prefix(40)),
+            createdAt: record[Field.createdAt] as? Date ?? record.creationDate ?? .distantPast
+        )
+    }
+
+    // MARK: - Nudges
+
+    /// Writes one nudge, and clears away any of this person's own that have expired.
+    func send(_ nudge: DuoNudge, clearing expired: [DuoNudge], in duo: DuoState) async throws {
+        let zoneID = try zoneID(for: duo)
+        let record = CKRecord(recordType: RecordType.nudge, recordID: CKRecord.ID(recordName: nudge.id, zoneID: zoneID))
+        record[Field.fromRole] = nudge.fromRole.rawValue
+        record[Field.presetID] = nudge.presetID
+        record[Field.createdAt] = nudge.createdAt
+        _ = try await save([record], in: database(for: duo.myRole))
+
+        guard !expired.isEmpty else { return }
+        let stale = expired.map { CKRecord.ID(recordName: $0.id, zoneID: zoneID) }
+        do {
+            _ = try await database(for: duo.myRole).modifyRecords(saving: [], deleting: stale)
+        } catch {
+            // Tidying up. The nudge itself went, and the next one will try again.
+            Diagnostics.log("could not clear expired nudges: \(error)")
+        }
+    }
+
+    // MARK: - Hearing about changes
+
+    /// Asks iCloud for a silent push whenever anything changes in either database. Asked
+    /// for once and remembered by the caller; saving one that already exists is fine.
+    func ensureSubscriptions() async throws {
+        let pairs: [(CKDatabase, String)] = [
+            (container.privateCloudDatabase, SubscriptionID.privateDatabase),
+            (container.sharedCloudDatabase, SubscriptionID.sharedDatabase),
+        ]
+        for (database, id) in pairs {
+            let subscription = CKDatabaseSubscription(subscriptionID: id)
+            let info = CKSubscription.NotificationInfo()
+            // Silent: no alert, no sound, no badge. What the user is told, if anything,
+            // is decided on this phone after looking at what actually changed.
+            info.shouldSendContentAvailable = true
+            subscription.notificationInfo = info
+            let result = try await database.modifySubscriptions(saving: [subscription], deleting: [])
+            if case .failure(let error)? = result.saveResults[id] { throw error }
+        }
     }
 
     // MARK: - Leaving

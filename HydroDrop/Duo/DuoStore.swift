@@ -1,5 +1,8 @@
+import BackgroundTasks
 import CloudKit
+import SwiftData
 import SwiftUI
+import WidgetKit
 
 /// The duos this device is part of, and the comings and goings between them and iCloud.
 ///
@@ -50,6 +53,9 @@ final class DuoStore: ObservableObject {
     private var owedWrite: Task<Void, Never>?
     private var failedAttempts = 0
     private var isRefreshing = false
+    private var modelContainer: ModelContainer?
+    private var backgroundWork: Task<Bool, Never>?
+    private static let subscriptionsSavedKey = "duo.subscriptionsSaved"
     private var isFlushing = false
     /// Something changed while a flush was under way, so one more is owed after it.
     private var flushIsStale = false
@@ -66,8 +72,16 @@ final class DuoStore: ObservableObject {
         usesCloud = true
         duos = DuoCache.load()
         NotificationCenter.default.addObserver(forName: .CKAccountChanged, object: nil, queue: .main) { [weak self] _ in
+            // Subscriptions belong to an iCloud account, so a new account needs its own.
+            DuoCache.defaults.removeObject(forKey: Self.subscriptionsSavedKey)
             Task { @MainActor in await self?.refresh() }
         }
+    }
+
+    /// Given the store so that a refresh with nobody looking, after a silent push or in
+    /// a background refresh, can still read the log and send what it finds.
+    func activate(modelContainer: ModelContainer) {
+        self.modelContainer = modelContainer
     }
 
     // MARK: - What the views ask
@@ -246,10 +260,26 @@ final class DuoStore: ObservableObject {
 
         account = Self.account(from: await service.accountStatus())
         guard account == .available else { return }
+        await ensureSubscriptions()
+
+        var ledger = DuoCache.loadLedger()
+        var announcements: [DuoAnnouncement] = []
 
         for duo in activeDuos {
             do {
-                apply(try await service.fetchChanges(in: duo), to: duo.id)
+                let changes = try await service.fetchChanges(in: duo)
+                apply(changes, to: duo.id)
+                if let after = duos.first(where: { $0.id == duo.id }) {
+                    let now = Date()
+                    announcements += DuoAnnouncements.plan(
+                        before: duo,
+                        after: after,
+                        isFirstRead: changes.isEverything,
+                        ledger: &ledger,
+                        myToday: DayKey.key(for: now),
+                        now: now
+                    )
+                }
                 guard duo.myRole == .owner else { continue }
                 if try await service.settlePartner(in: duo) {
                     update(duo.id) { $0.partnerHasJoined = true }
@@ -265,13 +295,28 @@ final class DuoStore: ObservableObject {
                 }
             }
         }
+
+        // Shown first and written down second. Anything iOS would not take is taken
+        // back out of the ledger, so it is tried again rather than lost for good.
+        let refused = await DuoNotifier.deliver(announcements)
+        refused.forEach { ledger.forget($0) }
+        DuoCache.save(ledger)
         requestPublish()
     }
 
     private func apply(_ changes: DuoChanges, to id: UUID) {
         let now = Date()
         update(id) { duo in
-            if changes.isEverything { duo.statuses = [] }
+            if changes.isEverything {
+                duo.statuses = []
+                duo.nudges = []
+            }
+            var nudges = duo.allNudges
+            for nudge in changes.nudges where !nudges.contains(where: { $0.id == nudge.id }) {
+                nudges.append(nudge)
+            }
+            nudges.removeAll { changes.deletedStatusNames.contains($0.id) }
+            duo.nudges = DuoNudgeRules.current(nudges, now: now)
             if let identity = changes.identity {
                 duo.createdAt = identity.createdAt ?? duo.createdAt
                 // My own name is mine to say. If iCloud has not heard it yet, what was
@@ -289,6 +334,120 @@ final class DuoStore: ObservableObject {
             duo.statuses.removeAll { changes.deletedStatusNames.contains($0.recordName) }
             duo.statuses = DuoStreak.pruned(duo.statuses, myToday: DayKey.key(for: now), now: now)
             if let token = changes.changeToken { duo.changeToken = token }
+        }
+    }
+
+    // MARK: - Hearing about changes
+
+    /// Asks for silent pushes, once per iCloud account and only once there is a duo to
+    /// hear about. Silent pushes need no permission from the user.
+    private func ensureSubscriptions() async {
+        guard !activeDuos.isEmpty, !DuoCache.defaults.bool(forKey: Self.subscriptionsSavedKey) else { return }
+        do {
+            try await service.ensureSubscriptions()
+            DuoCache.defaults.set(true, forKey: Self.subscriptionsSavedKey)
+        } catch {
+            // Not fatal: the foreground and the background refresh still fetch.
+            Diagnostics.log("could not subscribe to duo changes: \(error)")
+        }
+    }
+
+    /// Run once a duo exists: silent pushes for the news, and permission to show it.
+    /// iOS only asks the permission question if it has never been answered.
+    private func startHearingAboutChanges() async {
+        await ensureSubscriptions()
+        ReminderManager.shared.requestAuthorizationIfNeeded()
+    }
+
+    /// True if `userInfo` is one of the duo subscriptions firing, as opposed to the
+    /// pushes SwiftData's own sync receives through the same door.
+    nonisolated static func isDuoPush(_ userInfo: [AnyHashable: Any]) -> Bool {
+        guard let id = CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID else { return false }
+        return DuoService.SubscriptionID.all.contains(id)
+    }
+
+    /// A refresh with nobody looking: after a silent push, or when iOS grants a
+    /// background refresh. Reads the log first, so drinks logged from a widget while the
+    /// app was closed reach the partner too. Returns whether anything changed.
+    func backgroundRefresh() async -> Bool {
+        guard usesCloud, !activeDuos.isEmpty else { return false }
+        // A push and a granted refresh can land together. Both wait on the one piece of
+        // work and get its answer, so neither tells iOS "nothing new" about news the
+        // other is in the middle of fetching.
+        if let inFlight = backgroundWork { return await inFlight.value }
+        let work = Task { @MainActor [weak self] () -> Bool in
+            guard let self else { return false }
+            let before = self.duos
+            self.readLogFromStore()
+            await self.refresh()
+            await self.flush()
+            return self.duos != before
+        }
+        backgroundWork = work
+        let changed = await work.value
+        backgroundWork = nil
+        return changed
+    }
+
+    private func readLogFromStore(now: Date = Date()) {
+        guard let modelContainer else { return }
+        let horizon = now.addingTimeInterval(-Double(DuoStreak.correctionWindowDays + 2) * 86_400)
+        let descriptor = FetchDescriptor<WaterEntry>(predicate: #Predicate { $0.timestamp >= horizon })
+        do {
+            let entries = try modelContainer.mainContext.fetch(descriptor)
+            logChanged(entries: entries, goalML: AppSettings.shared.dailyGoalML, now: now)
+        } catch {
+            Diagnostics.log("could not read the log for a background duo refresh: \(error)")
+        }
+    }
+
+    /// The identifier iOS knows the background refresh by. Built from the bundle
+    /// identifier, to match `BGTaskSchedulerPermittedIdentifiers` in project.yml.
+    nonisolated static var backgroundRefreshIdentifier: String {
+        "\(Bundle.main.bundleIdentifier ?? "HydroDrop").duo.refresh"
+    }
+
+    /// Asks iOS for a background refresh some time after half an hour from now. Silent
+    /// pushes are throttled, so this is the net underneath them. Only with a duo.
+    func scheduleBackgroundRefresh() {
+        guard usesCloud, !activeDuos.isEmpty else { return }
+        let request = BGAppRefreshTaskRequest(identifier: Self.backgroundRefreshIdentifier)
+        request.earliestBeginDate = Date().addingTimeInterval(30 * 60)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            // Always fails in the simulator, and when Background App Refresh is off.
+            Diagnostics.log("could not schedule a duo background refresh: \(error)")
+        }
+    }
+
+    // MARK: - Nudges
+
+    func nudgeVerdict(for duo: DuoState, now: Date = Date()) -> DuoNudgeRules.Verdict {
+        DuoNudgeRules.verdict(for: duo, partnerStatus: status(of: duo.myRole.other, in: duo, now: now), now: now)
+    }
+
+    /// Sends one of the ready-made lines, if today's rules still allow one.
+    func sendNudge(_ preset: DuoNudgePreset, in stale: DuoState) async {
+        // Judged against the duo as it is now, not as it was when the picker opened, so
+        // two quick taps cannot both be counted as the third nudge of the day.
+        guard usesCloud, let duo = duos.first(where: { $0.id == stale.id }),
+              case .allowed = nudgeVerdict(for: duo) else { return }
+        let now = Date()
+        let nudge = DuoNudge.make(from: duo.myRole, preset: preset, now: now)
+        let expired = DuoNudgeRules.expired(sentBy: duo.myRole, nudges: duo.allNudges, now: now)
+        // Counted before it is sent, so two quick taps cannot both slip under the limit.
+        update(duo.id) { $0.nudges = $0.allNudges + [nudge] }
+        do {
+            try await service.send(nudge, clearing: expired, in: duo)
+        } catch {
+            update(duo.id) { state in state.nudges = state.allNudges.filter { $0.id != nudge.id } }
+            Diagnostics.log("could not send a nudge: \(error)")
+            if DuoRetry.verdict(for: error) == .ended {
+                markEnded(duo.id)
+            } else {
+                notice = Self.message(for: error)
+            }
         }
     }
 
@@ -314,6 +473,7 @@ final class DuoStore: ObservableObject {
             duos.append(created.0)
             save()
             requestPublish()
+            await startHearingAboutChanges()
             return created
         } catch {
             Diagnostics.log("could not start a duo: \(error)")
@@ -410,6 +570,7 @@ final class DuoStore: ObservableObject {
             }
             await refresh()
             requestPublish()
+            await startHearingAboutChanges()
             return true
         } catch {
             Diagnostics.log("could not join a duo: \(error)")
@@ -437,6 +598,7 @@ final class DuoStore: ObservableObject {
             }
             duos.removeAll { $0.id == duo.id }
             save()
+            DuoNotifier.withdrawAll(for: duo.id)
         } catch {
             Diagnostics.log("could not leave a duo: \(error)")
             notice = Self.message(for: error)
@@ -461,6 +623,7 @@ final class DuoStore: ObservableObject {
     private func save() {
         guard usesCloud else { return }
         DuoCache.save(duos)
+        WidgetCenter.shared.reloadTimelines(ofKind: DuoCache.widgetKind)
     }
 
     private static func account(from status: CKAccountStatus) -> Account {
@@ -525,8 +688,10 @@ final class DuoStore: ObservableObject {
                 endedAt: ended ? now : nil
             )
         }
+        var sam = duo("Sam", skin: MascotSkin.forest.rawValue, statuses: statuses, joined: true)
+        sam.nudges = [DuoNudge.make(from: .partner, preset: .sipWithMe, now: now.addingTimeInterval(-40 * 60))]
         return [
-            duo("Sam", skin: MascotSkin.forest.rawValue, statuses: statuses, joined: true),
+            sam,
             duo("", skin: "", statuses: [], joined: false),
             duo("Alex", skin: MascotSkin.grape.rawValue, statuses: [], joined: true, ended: true),
         ]
