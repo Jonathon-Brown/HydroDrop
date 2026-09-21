@@ -18,7 +18,7 @@ struct WeatherBumpCard: View {
 
     private var title: String {
         if isOnlyHeat { return "It is hot out there" }
-        if sources == [.workout] { return "Nice workout" }
+        if sources == [.workout] { return InsightsCopy.workoutCardTitle }
         if sources == [.heat, .nightOut] { return "A hot day after a late night" }
         return "A little extra today?"
     }

@@ -44,7 +44,7 @@ actor HealthInsightsReader {
             Self.isConnected = true
             return true
         } catch {
-            Diagnostics.log("could not ask for Health read access: \(error)")
+            Diagnostics.log("could not ask for Health read access: \(Self.brief(error))")
             return false
         }
     }
@@ -54,8 +54,12 @@ actor HealthInsightsReader {
     /// The last couple of months, a value a day. Anything that cannot be read comes back
     /// empty rather than as an error: declined access and no data look the same from
     /// here, and both mean "nothing to compare yet".
-    func dailyHealth(now: Date = Date(), calendar: Calendar = .current) async -> DailyHealth {
+    ///
+    /// Always in the device's own calendar. Health works its daily figures out in that
+    /// calendar whatever it is handed, and `DayKey` has to name the same days it does.
+    func dailyHealth(now: Date = Date()) async -> DailyHealth {
         guard Self.isAvailable, Self.isConnected else { return DailyHealth() }
+        let calendar = Calendar.current
         let end = now
         let start = calendar.date(byAdding: .day, value: -(InsightsEngine.windowDays + 1), to: calendar.startOfDay(for: now)) ?? now
 
@@ -71,16 +75,25 @@ actor HealthInsightsReader {
     }
 
     /// How long each of today's finished workouts lasted, in minutes.
-    func workoutMinutesEndedToday(now: Date = Date(), calendar: Calendar = .current) async -> [Double] {
+    func workoutMinutesEndedToday(now: Date = Date()) async -> [Double] {
         guard Self.isAvailable, Self.isConnected else { return [] }
-        let startOfDay = calendar.startOfDay(for: now)
+        let startOfDay = Calendar.current.startOfDay(for: now)
         // Ended today. One that started last night and ran past midnight still counts.
         let predicate = HKQuery.predicateForSamples(withStart: startOfDay.addingTimeInterval(-12 * 60 * 60), end: now)
         let samples = await samples(of: Self.workoutType, predicate: predicate)
-        return samples
+        let today = samples
             .compactMap { $0 as? HKWorkout }
             .filter { $0.endDate >= startOfDay && $0.endDate <= now }
-            .map { $0.duration / 60 }
+            .map { DateInterval(start: $0.startDate, end: max($0.startDate, $0.endDate)) }
+        // The same run from a watch and from another app is one run.
+        return WorkoutBump.minutes(of: today)
+    }
+
+    /// Where an error came from and its number, and nothing else. Health's own
+    /// descriptions can name what was being read, which has no business in a log.
+    private static func brief(_ error: Error) -> String {
+        let error = error as NSError
+        return "\(error.domain) \(error.code)"
     }
 
     private func sleepMinutes(from start: Date, to end: Date, calendar: Calendar) async -> [String: Double] {
@@ -97,7 +110,7 @@ actor HealthInsightsReader {
     private func samples(of type: HKSampleType, predicate: NSPredicate) async -> [HKSample] {
         await withCheckedContinuation { continuation in
             let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
-                if let error { Diagnostics.log("a Health read came back empty: \(error.localizedDescription)") }
+                if let error { Diagnostics.log("a Health read came back empty: \(Self.brief(error))") }
                 continuation.resume(returning: samples ?? [])
             }
             store.execute(query)
@@ -123,10 +136,11 @@ actor HealthInsightsReader {
                 intervalComponents: DateComponents(day: 1)
             )
             query.initialResultsHandler = { _, collection, error in
-                if let error { Diagnostics.log("a Health statistic came back empty: \(error.localizedDescription)") }
+                if let error { Diagnostics.log("a Health statistic came back empty: \(Self.brief(error))") }
                 var values: [String: Double] = [:]
                 collection?.enumerateStatistics(from: start, to: end) { statistics, _ in
                     let quantity = options.contains(.cumulativeSum) ? statistics.sumQuantity() : statistics.averageQuantity()
+                    // A zero is a day Health has nothing for, not a reading of nothing.
                     guard let value = quantity?.doubleValue(for: unit), value > 0 else { return }
                     values[DayKey.key(for: statistics.startDate, calendar: calendar)] = value
                 }

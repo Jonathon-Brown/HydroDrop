@@ -143,19 +143,28 @@ final class InsightsEngineTests: XCTestCase {
         XCTAssertFalse(InsightsEngine.clearsThreshold(finding(.activeEnergy, 100, 0)), "nothing to be a percentage of")
     }
 
-    func testEmptyHealthAsksForSevenOfEachForEveryMetric() {
+    /// No watch, no sleep tracking, or access not given. Logging more water will never
+    /// fix that, so the answer must not be "keep logging".
+    func testAMetricHealthHasNothingForSaysSoRatherThanKeepLogging() {
         let results = analyse(met: alternatingMet, first: day(-30), health: DailyHealth())
-        XCTAssertEqual(results.count, InsightMetric.allCases.count)
-        for result in results {
-            guard case .needsMoreData(_, let goalDays, let otherDays) = result else { return XCTFail("expected waiting") }
-            XCTAssertEqual(goalDays, 7)
-            XCTAssertEqual(otherDays, 7)
-        }
+        XCTAssertEqual(results, InsightMetric.allCases.map { .noHealthData(metric: $0) })
+        let message = InsightResult.noHealthData(metric: .sleep).waitingMessage ?? ""
+        XCTAssertTrue(message.hasPrefix("Apple Health has no sleep data for these days."), message)
+        XCTAssertFalse(message.contains("Keep logging"))
+    }
+
+    func testOneMissingMetricDoesNotHideTheOthers() {
+        var energy: [String: Double] = [:]
+        for offset in 1...30 { energy[day(-offset)] = offset % 2 == 0 ? 600 : 500 }
+        let results = analyse(met: alternatingMet, first: day(-30), health: DailyHealth(activeEnergyByDay: energy))
+        XCTAssertEqual(result(.sleep, in: results), .noHealthData(metric: .sleep))
+        if case .finding = result(.activeEnergy, in: results) {} else { XCTFail("energy has data and a clear difference") }
     }
 
     func testSomeoneWhoHasNeverLoggedGetsTheWaitingStateNotACrash() {
         let results = analyse(met: [], first: nil, health: DailyHealth(activeEnergyByDay: [day(-1): 400]))
-        XCTAssertTrue(results.allSatisfy { if case .needsMoreData = $0 { return true } else { return false } })
+        XCTAssertEqual(result(.activeEnergy, in: results), .needsMoreData(metric: .activeEnergy, goalDaysNeeded: 7, otherDaysNeeded: 7))
+        XCTAssertEqual(result(.sleep, in: results), .noHealthData(metric: .sleep))
     }
 
     func testTheWaitingMessageSaysHowManyMoreDays() {
@@ -174,8 +183,14 @@ final class InsightsEngineTests: XCTestCase {
             "cause", "because", "thanks to", "due to", "lead", "led to", "result", "improve", "boost", "help",
             "treat", "prevent", "cure", "heal", "diagnos", "risk", "healthy", "healthier", "should", "better", "worse",
             "water made", "hydration made", "—",
+            // Words that smuggle a claim in without saying "caused".
+            "hydrat", "benefit", "linked", "associated", "correlat", "effect", "impact", "quality", "recovery",
+            "performance", "optimal", "normal", "elevated", "reduce", "increase", "support", "restore", "symptom",
+            "clinical", "doctor",
         ]
-        var sentences: [String] = [InsightsEngine.footer]
+        // Everything fixed that Insights shows, not just what the engine writes: the
+        // primer, the cards and the workout title carry as much risk as a finding does.
+        var sentences: [String] = InsightsCopy.all
         for metric in InsightMetric.allCases {
             sentences.append(metric.alignmentNote)
             for (met, missed) in [(480.0, 420.0), (420.0, 480.0), (61.0, 60.0)] {
@@ -183,9 +198,14 @@ final class InsightsEngineTests: XCTestCase {
             }
             sentences.append(InsightResult.noClearPattern(metric: metric).waitingMessage ?? "")
             sentences.append(InsightResult.needsMoreData(metric: metric, goalDaysNeeded: 2, otherDaysNeeded: 5).waitingMessage ?? "")
+            sentences.append(InsightResult.noHealthData(metric: metric).waitingMessage ?? "")
         }
+        XCTAssertGreaterThan(sentences.count, 30)
         for sentence in sentences {
+            // The product's own name for the Health app is allowed to contain "heal".
             let lowered = sentence.lowercased()
+                .replacingOccurrences(of: "apple health", with: "")
+                .replacingOccurrences(of: "health app", with: "")
             for word in banned {
                 XCTAssertFalse(lowered.contains(word), "\"\(sentence)\" contains \"\(word)\"")
             }
@@ -248,6 +268,28 @@ final class InsightsEngineTests: XCTestCase {
         XCTAssertNil(WorkoutBump.suggestedML(workoutMinutes: [19.9]))
         XCTAssertNil(WorkoutBump.suggestedML(workoutMinutes: [10, 12, 15]), "three short ones do not add up to a long one")
         XCTAssertEqual(WorkoutBump.suggestedML(workoutMinutes: [10, 30]), 350, "only the long one counts")
+    }
+
+    private func workout(_ fromHour: Int, _ fromMinute: Int, minutes: Double) -> DateInterval {
+        let start = calendar.date(from: DateComponents(year: 2026, month: 9, day: 21, hour: fromHour, minute: fromMinute))!
+        return DateInterval(start: start, duration: minutes * 60)
+    }
+
+    func testTheSameWorkoutFromAWatchAndAnotherAppIsCountedOnce() {
+        // One half hour run, written to Health twice.
+        let minutes = WorkoutBump.minutes(of: [workout(7, 0, minutes: 30), workout(7, 0, minutes: 30)])
+        XCTAssertEqual(minutes, [30])
+        XCTAssertEqual(WorkoutBump.suggestedML(workoutMinutes: minutes), 350, "not 700")
+
+        // The second record starts a little late and ends a little late. Still one run.
+        let ragged = WorkoutBump.minutes(of: [workout(7, 0, minutes: 30), workout(7, 2, minutes: 30)])
+        XCTAssertEqual(ragged, [32])
+    }
+
+    func testTwoSeparateWorkoutsStayTwoEvenBackToBack() {
+        let minutes = WorkoutBump.minutes(of: [workout(7, 0, minutes: 30), workout(7, 30, minutes: 15), workout(18, 0, minutes: 25)])
+        XCTAssertEqual(minutes, [30, 15, 25])
+        XCTAssertEqual(WorkoutBump.suggestedML(workoutMinutes: minutes), 650, "the 15 minute one is too short to count: 55 minutes")
     }
 
     func testTwoWorkoutsInADayAreOneSuggestion() {

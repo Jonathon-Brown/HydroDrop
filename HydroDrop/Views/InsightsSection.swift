@@ -14,7 +14,6 @@ struct InsightsSection: View {
     @ObservedObject private var store = StoreManager.shared
     @State private var isConnected = HealthInsightsReader.isConnected
     @State private var results: [InsightResult]?
-    @State private var healthWasEmpty = false
     @State private var showingPrimer = false
     @State private var paywallSource: PaywallSource?
 
@@ -41,15 +40,12 @@ struct InsightsSection: View {
             } else if !store.isSubscribed {
                 locked
             } else if !HealthInsightsReader.isAvailable {
-                note("Apple Health is not available on this device, so there is nothing to compare with.")
+                note(InsightsCopy.unavailable)
             } else if !isConnected {
                 connectCard
             } else if let results {
                 ForEach(results, id: \.metric) { result in
                     InsightCard(result: result)
-                }
-                if healthWasEmpty {
-                    note("Nothing has come back from Apple Health yet. If that does not change, check what HydroDrop can read in the Health app, under Sharing, then Apps.")
                 }
                 Text(InsightsEngine.footer)
                     .font(.caption)
@@ -100,7 +96,6 @@ struct InsightsSection: View {
         guard store.isSubscribed, isConnected, HealthInsightsReader.isAvailable else { return }
         let health = await HealthInsightsReader.shared.dailyHealth()
         let met = Set(totalsByDay.filter { goalML > 0 && $0.value >= goalML }.keys)
-        healthWasEmpty = health.isEmpty
         results = InsightsEngine.analyse(
             metDays: met,
             firstLoggedDay: totalsByDay.keys.min(),
@@ -114,9 +109,9 @@ struct InsightsSection: View {
             paywallSource = .lockedInsights
         } label: {
             card {
-                Label("See what your goal days line up with", systemImage: "chart.bar.xaxis")
+                Label(InsightsCopy.cardTitle, systemImage: "chart.bar.xaxis")
                     .font(.subheadline.weight(.semibold))
-                Text("Your sleep, resting heart rate and active energy on the days you hit your goal, next to the days you did not. Part of HydroDrop+.")
+                Text(InsightsCopy.lockedBody)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -126,9 +121,9 @@ struct InsightsSection: View {
 
     private var connectCard: some View {
         card {
-            Label("See what your goal days line up with", systemImage: "chart.bar.xaxis")
+            Label(InsightsCopy.cardTitle, systemImage: "chart.bar.xaxis")
                 .font(.subheadline.weight(.semibold))
-            Text("Connect Apple Health to compare your sleep, resting heart rate and active energy on the days you hit your goal with the days you did not.")
+            Text(InsightsCopy.connectBody)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button("Connect") { showingPrimer = true }
@@ -186,11 +181,12 @@ private struct InsightCard: View {
 
     /// Two bars from zero. Starting the axis anywhere else would make a small difference
     /// look like a big one, and the numbers are printed on the bars for anyone who wants
-    /// to see exactly how small it is.
+    /// to see exactly how small it is. Two plain colours, neither of them the app's own
+    /// blue: the chart compares two kinds of day and does not mark one as the good one.
     private func chart(_ finding: InsightFinding) -> some View {
         let bars: [(label: String, value: Double, color: Color)] = [
-            ("Goal met", finding.metMean, .blue),
-            ("Goal not met", finding.missedMean, Color(.systemGray3)),
+            ("Goal met", finding.metMean, .teal),
+            ("Goal not met", finding.missedMean, .indigo),
         ]
         return Chart {
             ForEach(bars, id: \.label) { bar in
@@ -229,21 +225,20 @@ struct InsightsPrimerSheet: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 8)
 
-                    Text("Insights compares the days you hit your goal with the days you did not, using four things from Apple Health.")
+                    Text(InsightsCopy.primerIntro)
                         .font(.subheadline)
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Label("Sleep", systemImage: "bed.double.fill")
-                        Label("Resting heart rate", systemImage: "heart.fill")
-                        Label("Active energy", systemImage: "flame.fill")
-                        Label("Workouts, to suggest extra water on the day", systemImage: "figure.run")
+                        ForEach(Array(zip(InsightsCopy.primerReads, ["bed.double.fill", "heart.fill", "flame.fill", "figure.run"])), id: \.0) { line, icon in
+                            Label(line, systemImage: icon)
+                        }
                     }
                     .font(.subheadline)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Label("Worked out on this iPhone. Nothing read from Health is saved, synced, shared with a duo or shown in a widget.", systemImage: "lock.fill")
-                        Label("HydroDrop reads only these four, and only after you say yes on the next screen.", systemImage: "hand.raised.fill")
-                        Label("Saying no changes nothing else. Everything in HydroDrop works the same without it.", systemImage: "checkmark.circle.fill")
+                        ForEach(Array(zip(InsightsCopy.primerPromises, ["lock.fill", "drop.fill", "hand.raised.fill", "checkmark.circle.fill", "nosign"])), id: \.0) { line, icon in
+                            Label(line, systemImage: icon)
+                        }
                     }
                     .font(.footnote)
                     .foregroundStyle(.secondary)

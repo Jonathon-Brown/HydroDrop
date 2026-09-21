@@ -47,7 +47,17 @@ enum InsightMetric: String, CaseIterable, Identifiable {
         switch self {
         case .sleep: return "Sleep on the night after each day"
         case .restingHeartRate: return "Resting heart rate on the day after"
-        case .activeEnergy: return "Active energy on the same day"
+        // Same-day, so said plainly: a busy day tends to have more of both in it.
+        case .activeEnergy: return "Active energy on the same day. The two often rise together on busy days"
+        }
+    }
+
+    /// The name Health files this under, for saying that there is none of it.
+    var healthName: String {
+        switch self {
+        case .sleep: return "sleep"
+        case .restingHeartRate: return "resting heart rate"
+        case .activeEnergy: return "active energy"
         }
     }
 
@@ -119,11 +129,15 @@ enum InsightResult: Equatable {
     case needsMoreData(metric: InsightMetric, goalDaysNeeded: Int, otherDaysNeeded: Int)
     /// Enough days, and the two averages are too close to call anything.
     case noClearPattern(metric: InsightMetric)
+    /// Health has nothing of this kind for any of these days: no watch, no sleep
+    /// tracking, or access not given. Logging more water will never change that, so it
+    /// is not answered with "keep logging".
+    case noHealthData(metric: InsightMetric)
 
     var metric: InsightMetric {
         switch self {
         case .finding(let finding): return finding.metric
-        case .needsMoreData(let metric, _, _), .noClearPattern(let metric): return metric
+        case .needsMoreData(let metric, _, _), .noClearPattern(let metric), .noHealthData(let metric): return metric
         }
     }
 
@@ -134,6 +148,8 @@ enum InsightResult: Equatable {
             return nil
         case .noClearPattern:
             return "No clear difference so far. This updates as more days come in."
+        case .noHealthData(let metric):
+            return "Apple Health has no \(metric.healthName) data for these days. If you expected some, check what HydroDrop can read in the Health app, under Sharing, then Apps."
         case .needsMoreData(_, let goalDays, let otherDays):
             var parts: [String] = []
             if goalDays > 0 { parts.append("\(goalDays) more \(goalDays == 1 ? "day" : "days") when you hit your goal") }
@@ -173,7 +189,9 @@ enum InsightsEngine {
     }
 
     /// - Parameters:
-    ///   - metDays: the days the goal was met, as `DayKey` strings.
+    ///   - metDays: the days the goal was met, as `DayKey` strings. Judged against the
+    ///     goal as it stands today, as the streak is: HydroDrop stores drinks, not the
+    ///     goal each day was measured against.
     ///   - firstLoggedDay: the day of the first drink ever logged.
     static func analyse(
         metDays: Set<String>,
@@ -185,6 +203,7 @@ enum InsightsEngine {
         let days = window(today: today, firstLoggedDay: firstLoggedDay, calendar: calendar)
         return InsightMetric.allCases.map { metric in
             let values = health.values(for: metric)
+            guard !values.isEmpty else { return .noHealthData(metric: metric) }
             var met: [Double] = []
             var missed: [Double] = []
             for day in days {
@@ -259,6 +278,22 @@ enum WorkoutBump {
     /// What to suggest for today's workouts, given how long each one lasted in minutes.
     /// Nil when none of them was long enough. The daily cap across every reason is
     /// applied later, by `TodayBump.suggestion`, not here.
+    /// How long each of a day's workouts lasted, in minutes, with the same workout
+    /// counted once. A run recorded by a watch and again by another app is two records
+    /// of one run, so stretches that overlap are merged first, as sleep is.
+    static func minutes(of workouts: [DateInterval]) -> [Double] {
+        let sorted = workouts.filter { $0.duration > 0 }.sorted { $0.start < $1.start }
+        var merged: [DateInterval] = []
+        for workout in sorted {
+            if let last = merged.last, workout.start < last.end {
+                merged[merged.count - 1] = DateInterval(start: last.start, end: max(last.end, workout.end))
+            } else {
+                merged.append(workout)
+            }
+        }
+        return merged.map { $0.duration / 60 }
+    }
+
     static func suggestedML(workoutMinutes: [Double]) -> Int? {
         let counted = workoutMinutes.filter { $0 >= minimumMinutes }.reduce(0, +)
         guard counted > 0 else { return nil }
@@ -267,3 +302,36 @@ enum WorkoutBump {
         return Int((exact / 50).rounded()) * 50
     }
 }
+
+/// Every fixed line Insights shows, in one place, so that one test can read all of it.
+/// The rule is the same for these as for a finding: describe, never explain, and never
+/// sound like medicine.
+enum InsightsCopy {
+    static let cardTitle = "See what your goal days line up with"
+    static let lockedBody = "Your sleep, resting heart rate and active energy on the days you hit your goal, next to the days you did not. Part of HydroDrop+."
+    static let connectBody = "Connect Apple Health to compare your sleep, resting heart rate and active energy on the days you hit your goal with the days you did not. It also reads your workouts, to suggest extra water on the day."
+    static let unavailable = "Apple Health is not available on this device, so there is nothing to compare with."
+
+    static let primerIntro = "Insights compares the days you hit your goal with the days you did not, using four things from Apple Health."
+    static let primerReads = [
+        "Sleep",
+        "Resting heart rate",
+        "Active energy",
+        "Workouts, to suggest extra water on the day",
+    ]
+    static let primerPromises = [
+        "Worked out on this iPhone. None of your sleep, heart rate, energy or workout readings are saved, synced, shared with a duo or shown in a widget.",
+        "If you say yes to extra water after a workout, today's goal goes up like it does on a hot day. That number is all that is kept.",
+        "HydroDrop reads only these four, and only after you say yes on the next screen.",
+        "Saying no changes nothing else. Everything in HydroDrop works the same without it.",
+        "Never used for advertising.",
+    ]
+
+    static let workoutCardTitle = "Nice workout"
+
+    static var all: [String] {
+        [cardTitle, lockedBody, connectBody, unavailable, primerIntro, workoutCardTitle, InsightsEngine.footer]
+            + primerReads + primerPromises
+    }
+}
+

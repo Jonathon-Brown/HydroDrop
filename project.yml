@@ -44,7 +44,7 @@ targets:
           - UIInterfaceOrientationPortrait
         NSUserNotificationsUsageDescription: "HydroDrop reminds you to drink water throughout the day."
         NSHealthUpdateUsageDescription: "HydroDrop adds the drinks you log to Apple Health as dietary water, and removes them again if you delete them. This is off until you turn it on."
-        NSHealthShareUsageDescription: "HydroDrop reads your sleep, resting heart rate, workouts, and active energy, only when you turn on Insights, to show you patterns in your own data."
+        NSHealthShareUsageDescription: "HydroDrop reads your sleep, resting heart rate, workouts, and active energy, only when you turn on Insights, to show you patterns in your own data and to suggest extra water on days you work out."
         NSLocationWhenInUseUsageDescription: "HydroDrop checks the weather where you are so it can suggest extra water on hot days. Your location is only used for that, and never leaves your device except to ask Apple for the forecast."
         NFCReaderUsageDescription: "HydroDrop reads the NFC sticker on your bottle so one tap logs a full bottle, and writes to a sticker when you set one up."
         NSSupportsLiveActivities: true
