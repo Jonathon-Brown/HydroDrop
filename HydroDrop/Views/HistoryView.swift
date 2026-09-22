@@ -11,6 +11,7 @@ private struct DayTotal: Identifiable {
 struct HistoryView: View {
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject private var store = StoreManager.shared
+    @ObservedObject private var router = AppRouter.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @State private var showingPaywall = false
     @State private var showingWeeklyRecap = false
@@ -49,6 +50,17 @@ struct HistoryView: View {
         displayedDays.filter { $0.totalML >= settings.dailyGoalML }.count
     }
 
+    private static let insightsAnchor = "insights"
+
+    private func showInsightsIfAsked(_ proxy: ScrollViewProxy) {
+        guard router.pendingInsights else { return }
+        router.pendingInsights = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.4))
+            withAnimation { proxy.scrollTo(Self.insightsAnchor, anchor: .top) }
+        }
+    }
+
     private var worldCard: WorldCardContent {
         WorldCardContent(
             state: WorldEngine.state(
@@ -69,6 +81,7 @@ struct HistoryView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     statsRow
@@ -136,6 +149,12 @@ struct HistoryView: View {
                         .buttonStyle(.plain)
                     }
 
+                    InsightsSection(
+                        totalsByDay: StreakCalculator.totalsByDay(allEntries),
+                        goalML: settings.dailyGoalML
+                    )
+                    .id(Self.insightsAnchor)
+
                     BadgeShelf(
                         earnedDays: Set(settings.celebratedMilestones),
                         currentStreak: streak
@@ -146,6 +165,12 @@ struct HistoryView: View {
                     }
                 }
                 .padding()
+            }
+            // The weekly recap's link lands here. Waits a beat so the tab has changed
+            // and the recap has gone before anything moves.
+            .onChange(of: router.pendingInsights) { _, _ in showInsightsIfAsked(proxy) }
+            // This tab may not have existed yet when the link was tapped.
+            .onAppear { showInsightsIfAsked(proxy) }
             }
             .navigationTitle("History")
             .toolbar {

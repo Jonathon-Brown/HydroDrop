@@ -72,6 +72,8 @@ final class WeeklyRecapNotifier {
 final class AppRouter: ObservableObject {
     static let shared = AppRouter()
     @Published var showingWeeklyRecap = false
+    /// Set by the weekly recap's link. History picks it up and scrolls to Insights.
+    @Published var pendingInsights = false
 
     /// A bottle tag that was tapped or scanned and has not been dealt with yet.
     ///

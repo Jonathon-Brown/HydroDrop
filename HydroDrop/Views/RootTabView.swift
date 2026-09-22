@@ -49,6 +49,9 @@ struct RootTabView: View {
         .onChange(of: router.pendingBottleTagID) { _, tagID in
             if tagID != nil { selectedTab = .today }
         }
+        .onChange(of: router.pendingInsights) { _, wanted in
+            if wanted { selectedTab = .history }
+        }
         #if DEBUG
         // `-SimulateBottleTap <address>` hands an address to the same place a real tag
         // read does. The simulator has no NFC and cannot open a universal link that is

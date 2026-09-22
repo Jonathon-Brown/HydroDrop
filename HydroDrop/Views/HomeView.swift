@@ -35,6 +35,11 @@ struct HomeView: View {
     @State private var showingWorld = false
     /// A weather suggestion fetched for today but not yet answered.
     @State private var pendingWeatherBumpML: Int?
+    /// The same for today's workouts.
+    @State private var pendingWorkoutBumpML: Int?
+    /// The day extra water was accepted for something other than the heat, so the line
+    /// under the goal does not blame the weather for it.
+    @AppStorage("todayBump.otherReasonDayKey") private var otherReasonBumpDayKey = ""
     /// The drink that can still be taken back, and the task that retires the offer.
     @State private var pendingUndo: PendingUndo?
     @State private var undoDismissal: Task<Void, Never>?
@@ -83,6 +88,7 @@ struct HomeView: View {
         var parts: [TodayBump.Source: Int] = [:]
         if let heat = pendingWeatherBumpML { parts[.heat] = heat }
         if nightOut.offerIsDue() { parts[.nightOut] = TodayBump.nightOutML }
+        if let workout = pendingWorkoutBumpML { parts[.workout] = workout }
         return TodayBump.suggestion(from: parts, alreadyAcceptedML: acceptedWeatherBumpML)
     }
 
@@ -98,6 +104,12 @@ struct HomeView: View {
         if suggestion.sources.contains(.nightOut) {
             withAnimation { nightOut.answerOffer(accepted: accepted) }
         }
+        if suggestion.sources.contains(.workout) {
+            // Either answer is the one suggestion for today.
+            settings.markWorkoutBumpAnswered()
+            withAnimation { pendingWorkoutBumpML = nil }
+        }
+        if accepted, suggestion.sources != [.heat] { otherReasonBumpDayKey = DayKey.key(for: Date()) }
         if accepted { afterGoalChange() }
     }
 
@@ -198,7 +210,8 @@ struct HomeView: View {
                             WeatherBumpBadge(
                                 bumpML: acceptedWeatherBumpML,
                                 system: settings.measurementSystem,
-                                isOnlyHeat: nightOut.bumpAcceptedDayKey != DayKey.key(for: Date()),
+                                isOnlyHeat: nightOut.bumpAcceptedDayKey != DayKey.key(for: Date())
+                                    && otherReasonBumpDayKey != DayKey.key(for: Date()),
                                 mayIncludeWeather: settings.weatherGoalActive
                             )
                         }
@@ -1006,7 +1019,24 @@ struct HomeView: View {
         syncHealth()
         applyStreakFreezeIfNeeded()
         checkWeather()
+        checkWorkouts()
         ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
+    }
+
+    /// Asks Health whether a workout worth a suggestion has ended today.
+    ///
+    /// Only for a subscriber who has connected Insights, which is the one place Health
+    /// read access is ever asked for. One suggestion a day: once it has been answered,
+    /// either way, a second workout does not bring it back. Silent when there is
+    /// nothing to say, like the weather.
+    private func checkWorkouts() {
+        guard settings.workoutGoalActive, !settings.hasAnsweredWorkoutBump() else { return }
+        Task { @MainActor in
+            let minutes = await HealthInsightsReader.shared.workoutMinutesEndedToday()
+            guard settings.workoutGoalActive, !settings.hasAnsweredWorkoutBump() else { return }
+            let suggested = WorkoutBump.suggestedML(workoutMinutes: minutes)
+            if suggested != pendingWorkoutBumpML { withAnimation { pendingWorkoutBumpML = suggested } }
+        }
     }
 
     /// Asks the forecast whether today is worth a suggestion.

@@ -18,14 +18,21 @@ struct WeatherBumpCard: View {
 
     private var title: String {
         if isOnlyHeat { return "It is hot out there" }
-        return sources.contains(.heat) ? "A hot day after a late night" : "A little extra today?"
+        if sources == [.workout] { return InsightsCopy.workoutCardTitle }
+        if sources == [.heat, .nightOut] { return "A hot day after a late night" }
+        return "A little extra today?"
+    }
+
+    private var icon: String {
+        if isOnlyHeat { return "sun.max.fill" }
+        return sources == [.workout] ? "figure.run" : "drop.circle.fill"
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: isOnlyHeat ? "sun.max.fill" : "drop.circle.fill")
+            Image(systemName: icon)
                 .font(.title3)
-                .foregroundStyle(isOnlyHeat ? .orange : .blue)
+                .foregroundStyle(isOnlyHeat ? .orange : (sources == [.workout] ? .green : .blue))
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(title)

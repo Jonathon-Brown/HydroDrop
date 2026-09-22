@@ -124,6 +124,8 @@ UNSHIPPED=(
   "More duo streaks"
   "Duo streak widget"
   "World decorations"
+  "Health insights"
+  "Workout-aware"
 )
 FOUND_UNSHIPPED=0
 if [[ -f "$PAYWALL" ]]; then

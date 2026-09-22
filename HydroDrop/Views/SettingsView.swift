@@ -458,10 +458,15 @@ struct SettingsView: View {
 
                 Toggle("Hot day suggestions", isOn: weatherToggleBinding)
 
+                // Rests on Health access, which is only ever asked for from Insights.
+                Toggle("Workout suggestions", isOn: $settings.workoutGoalEnabled)
+                    .disabled(!HealthInsightsReader.isConnected)
+
                 Toggle("Live Activity", isOn: $settings.liveActivityEnabled)
             } else {
                 lockedRow("Weekly recap")
                 lockedRow("Hot day suggestions")
+                lockedRow("Workout suggestions")
                 lockedRow("Live Activity")
             }
         } header: {
@@ -475,7 +480,10 @@ struct SettingsView: View {
         guard store.isSubscribed else {
             return "HydroDrop+ adds a Sunday recap of your week, a suggestion to drink more on hot days, and today's progress on your Lock Screen."
         }
-        return "The recap arrives on Sunday evening. Hot day suggestions use your location to check the weather, and only ever offer extra water for that day; your saved goal and your streak never change on their own. The Live Activity starts with your first drink and ends when you reach your goal."
+        let workouts = HealthInsightsReader.isConnected
+            ? "Workout suggestions, off until you turn them on, offer extra water on a day you exercised for 20 minutes or more."
+            : "Workout suggestions need Apple Health, which you connect from Insights, in History."
+        return "The recap arrives on Sunday evening. Hot day suggestions use your location to check the weather. \(workouts) Both only ever offer extra water for that day; your saved goal and your streak never change on their own. The Live Activity starts with your first drink and ends when you reach your goal."
     }
 
     private func lockedRow(_ title: String) -> some View {
@@ -551,9 +559,9 @@ struct SettingsView: View {
 
     private var healthFooter: String {
         if settings.healthKitSyncEnabled {
-            return "New drinks are added to Health as dietary water, using the amount HydroDrop counts, so a coffee adds what it actually hydrates. Deleting or editing a drink here updates Health too. HydroDrop never reads anything from Health, and turning this off leaves whatever is already there in place."
+            return "New drinks are added to Health as dietary water, using the amount HydroDrop counts, so a coffee adds what it actually hydrates. Deleting or editing a drink here updates Health too. Turning this off leaves whatever is already there in place. HydroDrop reads from Health only if you connect Insights, in History."
         }
-        return "Off by default. When on, the drinks you log are added to Health as dietary water. HydroDrop only ever writes, never reads, and nothing is sent to us."
+        return "Off by default. When on, the drinks you log are added to Health as dietary water. This only writes. HydroDrop reads from Health only if you connect Insights, in History, and nothing is sent to us either way."
     }
 
     /// Turning the toggle on asks Health for permission first, and only commits the
