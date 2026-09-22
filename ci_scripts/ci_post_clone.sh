@@ -90,6 +90,30 @@ if [ ! -d "$REPO_ROOT/HydroDrop.xcodeproj" ]; then
     exit 1
 fi
 
+# Xcode Cloud resolves Swift packages with automatic dependency resolution disabled, so
+# it requires a Package.resolved committed to the repository. Xcode writes that file
+# inside HydroDrop.xcodeproj, which is generated and gitignored, so a fresh clone has
+# none and dependency resolution fails before the build starts:
+#
+#   "a resolved file is required when automatic dependency resolution is disabled"
+#
+# The tracked copy lives at Dependencies/Package.resolved and is placed here, once the
+# project exists for it to go into. Nothing needed this before 2026-09-17, when the
+# GoogleMobileAds package became the project's first SPM dependency.
+RESOLVED_TRACKED="$REPO_ROOT/Dependencies/Package.resolved"
+RESOLVED_IN_PROJECT="$REPO_ROOT/HydroDrop.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+
+if [ ! -f "$RESOLVED_TRACKED" ]; then
+    echo "error: $RESOLVED_TRACKED is missing, so Swift package resolution will fail." >&2
+    echo "       Copy the file Xcode writes at HydroDrop.xcodeproj/project.xcworkspace/" >&2
+    echo "       xcshareddata/swiftpm/Package.resolved into Dependencies/ and commit it." >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname "$RESOLVED_IN_PROJECT")"
+cp "$RESOLVED_TRACKED" "$RESOLVED_IN_PROJECT"
+echo "Placed Package.resolved from Dependencies/ into the generated project."
+
 # XcodeGen emits StoreKit configuration paths the schemes cannot resolve, and omits
 # them from the test action entirely. Repair both before anything opens the project.
 python3 "$REPO_ROOT/Scripts/patch_scheme_storekit.py" "$REPO_ROOT"
