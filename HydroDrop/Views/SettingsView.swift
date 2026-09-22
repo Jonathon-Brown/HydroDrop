@@ -252,6 +252,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Replay intro", systemImage: "play.circle")
                     }
+                    NavigationLink {
+                        WeatherDataSourcesView()
+                    } label: {
+                        Label("Apple Weather", systemImage: "cloud.sun")
+                    }
                     LabeledContent("Version", value: appVersionLabel)
                         .contentShape(Rectangle())
                         // Hidden way into the on-device paywall counts. Does nothing in

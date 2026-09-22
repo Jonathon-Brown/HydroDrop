@@ -43,6 +43,13 @@ struct WeatherBumpCard: View {
                         .buttonStyle(.borderless)
                         .controlSize(.small)
                 }
+
+                // Only when the weather is part of the reason. A Night Out morning has
+                // nothing to do with Apple Weather and must not carry its mark.
+                if sources.contains(.heat) {
+                    WeatherAttributionLink()
+                        .padding(.top, 2)
+                }
             }
         }
         .padding()
@@ -57,17 +64,28 @@ struct WeatherBumpBadge: View {
     let system: MeasurementSystem
     /// False once anything other than the heat is part of today's extra.
     var isOnlyHeat = true
+    /// Whether the weather could have contributed to today's extra at all. The badge
+    /// cannot tell heat from a Night Out once both have been accepted, because they
+    /// share one stored number, so the caller answers this and the mark is shown
+    /// whenever the answer is yes.
+    var mayIncludeWeather = true
 
     var body: some View {
-        Label(
-            isOnlyHeat
-                ? "Includes \(system.format(mL: bumpML)) for the heat today"
-                : "Includes \(system.format(mL: bumpML)) extra, for today only",
-            systemImage: isOnlyHeat ? "sun.max.fill" : "drop.circle.fill"
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .accessibilityLabel("Today's goal includes \(system.format(mL: bumpML)) extra, for today only")
+        VStack(spacing: 2) {
+            Label(
+                isOnlyHeat
+                    ? "Includes \(system.format(mL: bumpML)) for the heat today"
+                    : "Includes \(system.format(mL: bumpML)) extra, for today only",
+                systemImage: isOnlyHeat ? "sun.max.fill" : "drop.circle.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Today's goal includes \(system.format(mL: bumpML)) extra, for today only")
+
+            if mayIncludeWeather {
+                WeatherAttributionLink()
+            }
+        }
     }
 }
 

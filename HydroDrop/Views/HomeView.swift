@@ -171,7 +171,8 @@ struct HomeView: View {
                             WeatherBumpBadge(
                                 bumpML: acceptedWeatherBumpML,
                                 system: settings.measurementSystem,
-                                isOnlyHeat: nightOut.bumpAcceptedDayKey != DayKey.key(for: Date())
+                                isOnlyHeat: nightOut.bumpAcceptedDayKey != DayKey.key(for: Date()),
+                                mayIncludeWeather: settings.weatherGoalActive
                             )
                         }
                         if settings.caffeineTrackingActive {
