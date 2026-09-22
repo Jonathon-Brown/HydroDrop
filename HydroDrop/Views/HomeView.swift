@@ -10,6 +10,7 @@ struct HomeView: View {
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var router = AppRouter.shared
     @ObservedObject private var nightOut = NightOutCoordinator.shared
+    @ObservedObject private var duoStore = DuoStore.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @Query(sort: \Bottle.createdAt) private var bottles: [Bottle]
 
@@ -190,6 +191,8 @@ struct HomeView: View {
 
                     NightOutSection(nightOut: nightOut, entries: allEntries)
 
+                    DuoCardsSection(duoStore: duoStore)
+
                     todayLogSection
 
                     if !store.isSubscribed {
@@ -199,6 +202,9 @@ struct HomeView: View {
                 .padding()
             }
             .navigationTitle("Today")
+            // Only for someone with a duo: for everyone else there is nothing to fetch,
+            // and a spinner that does nothing is worse than no spinner.
+            .modifier(DuoRefreshable(isEnabled: !duoStore.duos.isEmpty) { await duoStore.refresh() })
             .sheet(isPresented: $showingAddSheet) {
                 AddDrinkSheet { amount, drinkType, timestamp in
                     addEntry(amount: amount, drinkType: drinkType, timestamp: timestamp)
@@ -865,6 +871,9 @@ struct HomeView: View {
             isShared: SharedModelContainer.isShared(modelContext.container),
             goalMLOverride: todayGoal
         )
+        // The shared streak is measured against the saved goal, like the solo one, so a
+        // bump accepted for today can never cost a partner the streak.
+        duoStore.logChanged(entries: allEntries, goalML: settings.dailyGoalML)
         let total = todayTotal
         let goal = todayGoal
         let currentStreak = streak
@@ -895,6 +904,7 @@ struct HomeView: View {
     private func syncOnForeground() {
         sayItIsAvailable = SayIt.isAvailable
         nightOut.expireIfNeeded()
+        Task { await duoStore.refresh() }
         mirrorToCompanions()
         syncHealth()
         applyStreakFreezeIfNeeded()
@@ -966,4 +976,18 @@ struct HomeView: View {
     HomeView()
         .environmentObject(AppSettings.shared)
         .modelContainer(for: WaterEntry.self, inMemory: true)
+}
+
+/// Pull to refresh, only when there is something to refresh.
+private struct DuoRefreshable: ViewModifier {
+    let isEnabled: Bool
+    let action: @Sendable () async -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.refreshable { await action() }
+        } else {
+            content
+        }
+    }
 }

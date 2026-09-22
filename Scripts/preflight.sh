@@ -121,6 +121,7 @@ echo "Paywall honesty (2.3.1)"
 UNSHIPPED=(
   "Unlimited bottle tags"
   "Caffeine"
+  "More duo streaks"
 )
 FOUND_UNSHIPPED=0
 if [[ -f "$PAYWALL" ]]; then
