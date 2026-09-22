@@ -13,6 +13,9 @@ struct DuoView: View {
     @State private var sharing: SharingItem?
     @State private var leaving: DuoState?
     @State private var paywallSource: PaywallSource?
+    /// The duo a nudge is being picked for.
+    @State private var nudging: DuoState?
+    @State private var notificationsEnabled = DuoCache.notificationsEnabled()
 
     private struct SharingItem: Identifiable {
         let id = UUID()
@@ -34,6 +37,9 @@ struct DuoView: View {
             ForEach(duoStore.duos) { duo in
                 Section {
                     DuoCard(duoStore: duoStore, duo: duo, showsBackground: false)
+                    if !duo.hasEnded, !duo.isPending {
+                        nudgeRows(for: duo)
+                    }
                     if duo.isPending {
                         Button {
                             Task {
@@ -58,6 +64,17 @@ struct DuoView: View {
             } footer: {
                 Text(footer)
             }
+
+            if !duoStore.activeDuos.isEmpty {
+                Section {
+                    Toggle("Duo notifications", isOn: $notificationsEnabled)
+                        .onChange(of: notificationsEnabled) { _, enabled in
+                            DuoCache.setNotificationsEnabled(enabled)
+                        }
+                } footer: {
+                    Text("A nudge from your partner, and the moment they meet their goal. Never outside your reminder hours: anything that arrives then waits until they start.")
+                }
+            }
         }
         .navigationTitle("Duo Streaks")
         .navigationBarTitleDisplayMode(.inline)
@@ -78,6 +95,21 @@ struct DuoView: View {
             PaywallView(source: source)
         }
         .confirmationDialog(
+            "Send a nudge",
+            isPresented: Binding(get: { nudging != nil }, set: { if !$0 { nudging = nil } }),
+            titleVisibility: .visible,
+            presenting: nudging
+        ) { duo in
+            ForEach(DuoNudgePreset.allCases) { preset in
+                Button(preset.text) {
+                    Task { await duoStore.sendNudge(preset, in: duo) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { duo in
+            Text("\(duo.displayName(of: duo.myRole.other)) gets it as a notification.")
+        }
+        .confirmationDialog(
             leaving?.hasEnded == true ? "Clear this duo?" : "Leave this duo?",
             isPresented: Binding(get: { leaving != nil }, set: { if !$0 { leaving = nil } }),
             titleVisibility: .visible,
@@ -89,6 +121,45 @@ struct DuoView: View {
             Button("Cancel", role: .cancel) {}
         } message: { duo in
             Text(leaveMessage(for: duo))
+        }
+    }
+
+    /// The way to send a nudge, or the reason there is none to send, and the last thing
+    /// the partner sent.
+    @ViewBuilder
+    private func nudgeRows(for duo: DuoState) -> some View {
+        let partner = duo.displayName(of: duo.myRole.other)
+        switch duoStore.nudgeVerdict(for: duo) {
+        case .allowed(let remaining):
+            Button {
+                nudging = duo
+            } label: {
+                HStack {
+                    Label("Send a nudge", systemImage: "hand.wave.fill")
+                    Spacer()
+                    Text("\(remaining) left today")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        case .limitReached:
+            Label("That is all three nudges for today.", systemImage: "hand.wave")
+                .foregroundStyle(.secondary)
+        case .partnerAlreadyMet:
+            Label("\(partner) already met their goal. Nothing to nudge.", systemImage: "checkmark.circle")
+                .foregroundStyle(.secondary)
+        case .nobodyToNudge:
+            EmptyView()
+        }
+
+        if let last = duo.allNudges.filter({ $0.fromRole != duo.myRole }).max(by: { $0.createdAt < $1.createdAt }) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(partner): \(DuoNudgePreset.text(forID: last.presetID))")
+                    .font(.subheadline)
+                Text(last.createdAt, format: .relative(presentation: .named))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

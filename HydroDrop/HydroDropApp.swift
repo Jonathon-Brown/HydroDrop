@@ -28,6 +28,8 @@ struct HydroDropApp: App {
         // Installed before the first scene exists, so a "Log a glass" tap that launches
         // the app in the background is handled rather than dropped.
         NotificationActionHandler.shared.activate(modelContainer: container)
+        // So a duo refresh with nobody looking can still read the log.
+        DuoStore.shared.activate(modelContainer: container)
         ReminderManager.shared.registerCategories()
         // Published before any view appears, so a widget added while the app was
         // uninstalled has something true to draw as soon as the app is opened again.
@@ -89,8 +91,15 @@ struct HydroDropApp: App {
         // foreground republishes the current state so the widget catches up without the
         // user having to log anything.
         .onChange(of: scenePhase) { _, phase in
+            // Silent pushes are throttled, so on the way out a background refresh is
+            // asked for as the net underneath them. A no-op for anyone without a duo.
+            if phase == .background { DuoStore.shared.scheduleBackgroundRefresh() }
             guard phase == .active else { return }
             Self.publishWidgetSnapshot(from: container)
+        }
+        .backgroundTask(.appRefresh(DuoStore.backgroundRefreshIdentifier)) {
+            _ = await DuoStore.shared.backgroundRefresh()
+            await DuoStore.shared.scheduleBackgroundRefresh()
         }
     }
 

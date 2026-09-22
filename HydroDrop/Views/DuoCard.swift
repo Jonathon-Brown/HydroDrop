@@ -155,3 +155,39 @@ struct DuoCardsSection: View {
         .buttonStyle(.plain)
     }
 }
+
+/// Shown once, after a few days of a solo streak: the suggestion to keep one with
+/// someone else. Closing it, or taking it up, is the last anyone sees of it.
+struct DuoInviteCard: View {
+    let onInvite: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "person.2.fill")
+                .font(.title3)
+                .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Streaks are better with company")
+                    .font(.subheadline.weight(.semibold))
+                Text("Keep one streak with one other person. It grows on the days you both meet your goal.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Invite someone", action: onInvite)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            Spacer(minLength: 4)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("Dismiss")
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
+    }
+}

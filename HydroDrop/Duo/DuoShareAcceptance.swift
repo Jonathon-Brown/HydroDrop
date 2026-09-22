@@ -1,9 +1,43 @@
 import CloudKit
 import UIKit
 
-/// Exists to name the scene delegate. SwiftUI still owns the app and its windows; this
-/// only asks for `DuoSceneDelegate` to be told what the scene is told.
+/// Exists for the two things a duo needs that SwiftUI has no modifier for: naming the
+/// scene delegate that receives an opened invite, and receiving the silent push that
+/// says something in a duo changed. SwiftUI still owns the app and its windows.
 final class DuoAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        // Silent pushes need no permission and show nothing. SwiftData's own sync relies
+        // on the same registration, so this asks for nothing the app did not already have.
+        application.registerForRemoteNotifications()
+        return true
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // Expected in the simulator. A duo still refreshes on foreground without it.
+        Diagnostics.log("could not register for remote notifications: \(error)")
+    }
+
+    /// Every silent push comes through here, SwiftData's included. Only the two duo
+    /// subscriptions are acted on; anything else is answered "nothing new" and left to
+    /// whoever it was for.
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        guard DuoStore.isDuoPush(userInfo) else {
+            completionHandler(.noData)
+            return
+        }
+        Task { @MainActor in
+            let changed = await DuoStore.shared.backgroundRefresh()
+            completionHandler(changed ? .newData : .noData)
+        }
+    }
+
     func application(
         _ application: UIApplication,
         configurationForConnecting connectingSceneSession: UISceneSession,

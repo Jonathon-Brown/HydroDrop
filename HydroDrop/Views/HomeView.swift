@@ -43,6 +43,10 @@ struct HomeView: View {
     /// store — and keyed by day so each broken streak is announced once, not every launch.
     @AppStorage("streakBreakNotice.dismissedDayKey") private var dismissedStreakNoticeDayKey = ""
     @AppStorage("streakBreakNotice.countedDayKey") private var countedStreakNoticeDayKey = ""
+    /// The one-time suggestion to start a duo. Device-local, and once it has been closed
+    /// or taken up it never comes back.
+    @AppStorage("duoInviteMoment.dismissed") private var duoInviteDismissed = false
+    @State private var showingDuoFromInvite = false
 
     private var todayEntries: [WaterEntry] {
         allEntries.filter { Calendar.current.isDateInToday($0.timestamp) }
@@ -193,6 +197,16 @@ struct HomeView: View {
 
                     DuoCardsSection(duoStore: duoStore)
 
+                    if DuoInviteMoment.shouldShow(soloStreak: streak, hasAnyDuo: !duoStore.duos.isEmpty, wasDismissed: duoInviteDismissed) {
+                        DuoInviteCard {
+                            duoInviteDismissed = true
+                            showingDuoFromInvite = true
+                        } onDismiss: {
+                            withAnimation { duoInviteDismissed = true }
+                        }
+                        .transition(.opacity)
+                    }
+
                     todayLogSection
 
                     if !store.isSubscribed {
@@ -202,6 +216,7 @@ struct HomeView: View {
                 .padding()
             }
             .navigationTitle("Today")
+            .navigationDestination(isPresented: $showingDuoFromInvite) { DuoView() }
             // Only for someone with a duo: for everyone else there is nothing to fetch,
             // and a spinner that does nothing is worse than no spinner.
             .modifier(DuoRefreshable(isEnabled: !duoStore.duos.isEmpty) { await duoStore.refresh() })

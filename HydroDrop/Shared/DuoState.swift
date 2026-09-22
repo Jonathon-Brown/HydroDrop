@@ -141,6 +141,11 @@ struct DuoState: Codable, Equatable, Identifiable {
     /// Where the last read of the zone left off, as iCloud handed it over. Kept beside
     /// what that read brought back, so the two can never be saved apart.
     var changeToken: Data?
+    /// The last couple of days of nudges, from both sides. Optional so that a cache
+    /// written before nudges existed still reads.
+    var nudges: [DuoNudge]?
+
+    var allNudges: [DuoNudge] { nudges ?? [] }
 
     var hasEnded: Bool { endedAt != nil }
     /// Waiting for the invite to be accepted.
@@ -442,6 +447,10 @@ enum DuoParticipants {
 /// The duo state, kept in the App Group so that a widget can draw a duo without the
 /// app running. Holds exactly what the zone holds and nothing more personal than that.
 enum DuoCache {
+    /// The duo widget's kind, here because both the app, which reloads it, and the
+    /// widget extension, which declares it, have to agree on the spelling.
+    static let widgetKind = "DuoWidget"
+
     private static let statesKey = "duo.states.v1"
     private static let nameKey = "duo.myDisplayName"
 

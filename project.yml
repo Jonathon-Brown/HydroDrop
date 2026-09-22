@@ -35,6 +35,10 @@ targets:
         # CloudKit delivers SwiftData sync via silent pushes.
         UIBackgroundModes:
           - remote-notification
+          # The net under throttled silent pushes: a duo refresh iOS grants now and then.
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - "$(PRODUCT_BUNDLE_IDENTIFIER).duo.refresh"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
