@@ -98,6 +98,16 @@ struct WeatherDataSourcesView: View {
 
     var body: some View {
         List {
+            // The mark and the legal link together, on a screen that is always reachable
+            // whatever the weather and whether or not anyone has subscribed. The card on
+            // Today carries them too, but only on a hot day for a subscriber, which is
+            // not something a reviewer can be relied on to reach.
+            Section {
+                WeatherAttributionLink()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 6)
+            }
+
             Section {
                 if let attribution = store.attribution {
                     Text(attribution.legalAttributionText)
