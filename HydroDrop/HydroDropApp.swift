@@ -69,9 +69,28 @@ struct HydroDropApp: App {
             // A previous run may have left a cached entitlement behind, and the paywall
             // tests need to start from a known one.
             EntitlementCache.isPlusActive = false
-            let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-            guard let container = try? ModelContainer(for: SharedModelContainer.schema, configurations: configuration) else {
-                fatalError("Failed to create in-memory ModelContainer for UI tests")
+            // On disk rather than in memory. On iOS 27 a save into an in-memory store
+            // raises an Objective-C exception that no Swift `catch` can intercept, and the
+            // app dies partway through a UI test. Wiped on every launch, so each run still
+            // starts from the same seeded state an in-memory store used to guarantee. This
+            // lives in the app's own temporary directory and never touches the App Group
+            // store the user's real data is in.
+            let directory = URL.temporaryDirectory.appending(path: "HydroDropUITestStore")
+            try? FileManager.default.removeItem(at: directory)
+            // An in-memory store could not carry anything over from a previous launch. A
+            // file can, so if the wipe did not take, say so instead of seeding on top of
+            // a stale store and quietly capturing the wrong screenshot.
+            if FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)) {
+                fatalError("Could not clear the seeded UI-test store at \(directory.path(percentEncoded: false))")
+            }
+            let configuration = ModelConfiguration(
+                schema: SharedModelContainer.schema,
+                url: directory.appending(path: "store.sqlite"),
+                cloudKitDatabase: .none
+            )
+            guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil,
+                  let container = try? ModelContainer(for: SharedModelContainer.schema, configurations: configuration) else {
+                fatalError("Failed to create the seeded ModelContainer for UI tests")
             }
             seedHistory(into: container)
             return container

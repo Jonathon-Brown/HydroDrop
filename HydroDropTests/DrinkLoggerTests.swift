@@ -13,21 +13,23 @@ import SwiftData
 final class DrinkLoggerTests: XCTestCase {
     private var container: ModelContainer!
     private var context: ModelContext!
+    private var storeDirectory: URL!
 
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        container = try ModelContainer(
-            for: WaterEntry.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let store = try TemporaryStore.make(for: Schema([WaterEntry.self]))
+        container = store.container
+        storeDirectory = store.directory
         context = ModelContext(container)
     }
 
     override func tearDownWithError() throws {
         context = nil
         container = nil
+        TemporaryStore.remove(storeDirectory)
+        storeDirectory = nil
         try super.tearDownWithError()
     }
 

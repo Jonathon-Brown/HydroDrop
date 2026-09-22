@@ -8,20 +8,22 @@ import SwiftData
 final class StreakTests: XCTestCase {
     private var container: ModelContainer!
     private var context: ModelContext!
+    private var storeDirectory: URL!
 
     private let goal = 2000
 
     override func setUpWithError() throws {
-        container = try ModelContainer(
-            for: WaterEntry.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let store = try TemporaryStore.make(for: Schema([WaterEntry.self]))
+        container = store.container
+        storeDirectory = store.directory
         context = ModelContext(container)
     }
 
     override func tearDown() {
         context = nil
         container = nil
+        TemporaryStore.remove(storeDirectory)
+        storeDirectory = nil
         super.tearDown()
     }
 
