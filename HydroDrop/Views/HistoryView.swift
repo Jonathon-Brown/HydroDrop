@@ -49,6 +49,19 @@ struct HistoryView: View {
         displayedDays.filter { $0.totalML >= settings.dailyGoalML }.count
     }
 
+    private var worldCard: WorldCardContent {
+        WorldCardContent(
+            state: WorldEngine.state(
+                totalsByDay: StreakCalculator.totalsByDay(allEntries),
+                goalML: settings.dailyGoalML,
+                frozenDayKeys: settings.frozenStreakDayKeys,
+                recordedGoalDays: settings.worldGoalDaysRecord
+            ),
+            decorations: settings.activeWorldDecorations,
+            timeOfDay: WorldTimeOfDay(date: Date())
+        )
+    }
+
     private var todayTotal: Int {
         let totals = StreakCalculator.totalsByDay(allEntries, calendar: calendar)
         return totals[DayKey.key(for: Date(), calendar: calendar)] ?? 0
@@ -139,14 +152,28 @@ struct HistoryView: View {
                 // Nothing worth sharing until there is a streak to share.
                 if streak > 0 {
                     ToolbarItem(placement: .primaryAction) {
-                        StreakShareButton(
-                            streak: streak,
-                            skin: settings.activeMascotSkin,
-                            todayTotalML: todayTotal,
-                            goalML: settings.dailyGoalML,
-                            system: settings.measurementSystem
-                        )
-                        .labelStyle(.iconOnly)
+                        // Two cards to choose from: the streak on its own, or the droplet
+                        // at home in its world.
+                        Menu {
+                            StreakShareButton(
+                                streak: streak,
+                                skin: settings.activeMascotSkin,
+                                todayTotalML: todayTotal,
+                                goalML: settings.dailyGoalML,
+                                system: settings.measurementSystem
+                            )
+                            StreakShareButton(
+                                streak: streak,
+                                skin: settings.activeMascotSkin,
+                                todayTotalML: todayTotal,
+                                goalML: settings.dailyGoalML,
+                                system: settings.measurementSystem,
+                                label: "Share my world",
+                                world: worldCard
+                            )
+                        } label: {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
                     }
                 }
             }

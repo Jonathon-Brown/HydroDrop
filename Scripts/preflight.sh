@@ -123,6 +123,7 @@ UNSHIPPED=(
   "Caffeine"
   "More duo streaks"
   "Duo streak widget"
+  "World decorations"
 )
 FOUND_UNSHIPPED=0
 if [[ -f "$PAYWALL" ]]; then

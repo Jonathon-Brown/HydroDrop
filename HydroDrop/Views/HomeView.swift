@@ -27,8 +27,12 @@ struct HomeView: View {
     @State private var sayItIsAvailable = false
     @State private var paywallSource: PaywallSource?
     @State private var editingEntry: WaterEntry?
-    /// The milestone whose celebration is on screen.
-    @State private var celebration: StreakMilestone?
+    /// The streak milestone, the new world stage, or both, whose celebration is on screen.
+    @State private var celebration: MilestoneCelebrationView.Occasion?
+    /// The droplet's world, worked out from the whole log. Kept rather than recomputed
+    /// on every render: it walks every day there has ever been.
+    @State private var world = WorldState.empty
+    @State private var showingWorld = false
     /// A weather suggestion fetched for today but not yet answered.
     @State private var pendingWeatherBumpML: Int?
     /// The drink that can still be taken back, and the task that retires the offer.
@@ -153,7 +157,25 @@ struct HomeView: View {
                     }
 
                     VStack(spacing: 2) {
-                        MascotView(progress: progress, size: 150, skin: settings.activeMascotSkin)
+                        ZStack(alignment: .bottom) {
+                            WorldSceneView(
+                                state: world,
+                                decorations: settings.activeWorldDecorations,
+                                timeOfDay: WorldTimeOfDay(date: Date()),
+                                weather: WorldWeather.current(isFeatureActive: settings.weatherGoalActive)
+                            )
+                            MascotView(progress: progress, size: 150, skin: settings.activeMascotSkin)
+                                .padding(.bottom, 34)
+                        }
+                        .frame(height: 300)
+                        .clipShape(RoundedRectangle(cornerRadius: 28))
+                        .contentShape(RoundedRectangle(cornerRadius: 28))
+                        .onTapGesture { showingWorld = true }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(world.spokenDescription)
+                        .accessibilityHint("Opens your world")
+                        .accessibilityAddTraits(.isButton)
+                        .padding(.bottom, 6)
                         // The face carries the mood; naming it makes sure the signal
                         // still lands for anyone who reads the screen quickly.
                         Text(MascotMood.forProgress(progress).label)
@@ -221,6 +243,10 @@ struct HomeView: View {
             }
             .navigationTitle("Today")
             .navigationDestination(isPresented: $showingDuoFromInvite) { DuoView() }
+            .navigationDestination(isPresented: $showingWorld) {
+                WorldView(state: world, streak: streak, todayTotalML: todayTotal)
+                    .environmentObject(settings)
+            }
             // Only for someone with a duo: for everyone else there is nothing to fetch,
             // and a spinner that does nothing is worse than no spinner.
             .modifier(DuoRefreshable(isEnabled: !duoStore.duos.isEmpty) { await duoStore.refresh() })
@@ -296,9 +322,14 @@ struct HomeView: View {
             .sheet(item: $paywallSource) { source in
                 PaywallView(source: source)
             }
-            .sheet(item: $celebration) { milestone in
+            .sheet(item: $celebration) { occasion in
                 MilestoneCelebrationView(
-                    milestone: milestone,
+                    occasion: occasion,
+                    world: WorldCardContent(
+                        state: world,
+                        decorations: settings.activeWorldDecorations,
+                        timeOfDay: WorldTimeOfDay(date: Date())
+                    ),
                     streak: streak,
                     skin: settings.activeMascotSkin,
                     todayTotalML: todayTotal,
@@ -318,6 +349,7 @@ struct HomeView: View {
         }
         .onAppear {
             syncOnForeground()
+            refreshWorld()
             checkMilestones()
             considerReviewPrompt()
             // A tag read with the app closed is already waiting by the time this exists.
@@ -359,6 +391,14 @@ struct HomeView: View {
         }
         .onChange(of: settings.activeMascotSkin) { _, _ in
             mirrorToCompanions()
+        }
+        // The world can grow on a day the streak does not, when a drink is moved onto a
+        // day in the past, so it gets a look of its own.
+        .onChange(of: world.goalDays) { _, _ in
+            checkMilestones()
+        }
+        .onChange(of: settings.frozenStreakDayKeys) { _, _ in
+            refreshWorld()
         }
         .onChange(of: streak) { _, _ in
             checkMilestones()
@@ -431,13 +471,50 @@ struct HomeView: View {
             )
         }
 
+        // The same for the world: whatever had already grown before the world existed is
+        // marked quietly, once, and the record of goal days never goes down.
+        // Worked out afresh here rather than read back from the view's state, which may
+        // not have caught up with a drink logged a moment ago.
+        let world = currentWorld()
+        #if DEBUG
+        // A world staged from a launch argument is for looking at. It is not recorded.
+        if WorldDebug.state != nil { return }
+        #endif
+        settings.noteWorld(goalDays: world.goalDays)
+
         guard celebration == nil else { return }
-        guard let milestone = StreakMilestone.newlyReached(
+        let milestone = StreakMilestone.newlyReached(
             streak: streak,
             alreadyCelebrated: Set(settings.celebratedMilestones)
-        ) else { return }
-        settings.recordMilestone(milestone)
-        celebration = milestone
+        )
+        let stage = WorldStage.newlyReached(
+            goalDays: world.goalDays,
+            alreadyCelebrated: Set(settings.celebratedWorldStages)
+        )
+        guard milestone != nil || stage != nil else { return }
+        // Three goal days are a three day streak too. One moment for both, not two sheets.
+        if let milestone { settings.recordMilestone(milestone) }
+        if let stage { settings.recordWorldStage(stage) }
+        celebration = .init(milestone: milestone, worldStage: stage)
+    }
+
+    /// Works the world out again from the log. Called wherever the log, the goal or the
+    /// frozen days can have changed.
+    private func refreshWorld() {
+        let next = currentWorld()
+        if next != world { withAnimation(.easeInOut(duration: 0.6)) { world = next } }
+    }
+
+    private func currentWorld() -> WorldState {
+        #if DEBUG
+        if let staged = WorldDebug.state { return staged }
+        #endif
+        return WorldEngine.state(
+            totalsByDay: StreakCalculator.totalsByDay(allEntries),
+            goalML: settings.dailyGoalML,
+            frozenDayKeys: settings.frozenStreakDayKeys,
+            recordedGoalDays: settings.worldGoalDaysRecord
+        )
     }
 
     private var streakBadge: some View {
@@ -878,6 +955,7 @@ struct HomeView: View {
     /// Hands the current state to the two places that render it without the app being
     /// open: the watch and the widgets.
     private func mirrorToCompanions() {
+        refreshWorld()
         WatchSessionManager.shared.pushContext(
             totalML: todayTotal,
             goalML: todayGoal,
