@@ -237,6 +237,39 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
+# 7. The Swift package lock CI depends on
+#
+# Xcode Cloud resolves packages with automatic resolution disabled, so it needs a
+# Package.resolved from the repository. Xcode only ever writes one inside the generated,
+# gitignored HydroDrop.xcodeproj, so the tracked copy in Dependencies/ is what CI gets,
+# placed by ci_scripts/ci_post_clone.sh. If a package is bumped locally and that copy is
+# not refreshed, CI silently builds the old versions, or stops outright. Catch it here.
+# ---------------------------------------------------------------------------
+echo "Swift package lock"
+TRACKED_LOCK="Dependencies/Package.resolved"
+PROJECT_LOCK="HydroDrop.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+
+if ! grep -qE '^packages:' project.yml 2>/dev/null; then
+  pass "no Swift packages declared, so no lock is needed"
+elif [[ ! -f "$TRACKED_LOCK" ]]; then
+  fail "$TRACKED_LOCK is missing — Xcode Cloud cannot resolve packages without it"
+  echo "          copy $PROJECT_LOCK there and commit it"
+elif [[ ! -f "$PROJECT_LOCK" ]]; then
+  # A fresh clone that has not been opened in Xcode yet. Nothing to compare against,
+  # and the tracked copy is present, which is what CI actually reads.
+  pass "tracked lock present (no generated copy to compare against yet)"
+elif ! cmp -s "$TRACKED_LOCK" "$PROJECT_LOCK"; then
+  fail "$TRACKED_LOCK is stale — Xcode has resolved different package versions"
+  echo "          cp \"$PROJECT_LOCK\" \"$TRACKED_LOCK\" && git add $TRACKED_LOCK"
+  diff <(grep -E '"(identity|version)"' "$TRACKED_LOCK") \
+       <(grep -E '"(identity|version)"' "$PROJECT_LOCK") | sed 's/^/          /' || true
+else
+  PINS=$(grep -c '"identity"' "$TRACKED_LOCK" 2>/dev/null || echo 0)
+  pass "tracked lock matches the resolved project ($PINS package(s))"
+fi
+echo
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo "─────────────────────────────────────────"
