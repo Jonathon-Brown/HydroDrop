@@ -32,7 +32,7 @@ final class WatchSessionManager: NSObject {
     /// opportunistic — a context sent at 23:58 can arrive after midnight — and without
     /// the day the watch had no way to tell yesterday's total from today's.
     func pushContext(totalML: Int, goalML: Int, measurementSystem: MeasurementSystem, quickAddPresetsML: [Int]) {
-        guard WCSession.isSupported(), WCSession.default.activationState == .activated else { return }
+        guard canReachWatchApp else { return }
         do {
             try WCSession.default.updateApplicationContext([
                 "todayTotalML": totalML,
@@ -44,6 +44,24 @@ final class WatchSessionManager: NSObject {
         } catch {
             Diagnostics.log("failed to push watch context: \(error)")
         }
+    }
+
+    /// Whether there is anything on the other end to receive a context.
+    ///
+    /// A supported, activated session is not enough. With no watch paired, or a watch
+    /// that has not installed the companion app, `updateApplicationContext` fails — and
+    /// how it fails depends on the OS. On iOS 26 it throws a `WCError` the `catch` above
+    /// absorbs. On iOS 27 it raises `NSInternalInconsistencyException` ("No eligible
+    /// connection available"), an Objective-C exception that a Swift `catch` cannot
+    /// intercept: it takes the process down with it. Asking first is the only defence.
+    ///
+    /// It also keeps `WCErrorCodeWatchAppNotInstalled` out of the device log, which every
+    /// push was writing there for anyone without the watch app.
+    private var canReachWatchApp: Bool {
+        WCSession.isSupported()
+            && WCSession.default.activationState == .activated
+            && WCSession.default.isPaired
+            && WCSession.default.isWatchAppInstalled
     }
 
     /// Re-reads today's total from the store and mirrors it to the watch.
@@ -118,6 +136,17 @@ extension WatchSessionManager: WCSessionDelegate {
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
+
+    /// The paired-watch picture is not settled the instant activation completes: `isPaired`
+    /// and `isWatchAppInstalled` can still read false for a beat after that. Now that a push
+    /// is gated on both, a cold launch could quietly skip its first one and leave the watch
+    /// showing a stale total until the next drink. WatchConnectivity says when the picture
+    /// changes, so push again when it does.
+    nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
+        Task { @MainActor in
+            WatchSessionManager.shared.pushCurrentContext()
+        }
+    }
 
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
         session.activate()

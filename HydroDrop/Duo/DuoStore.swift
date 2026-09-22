@@ -55,7 +55,9 @@ final class DuoStore: ObservableObject {
     private var isRefreshing = false
     private var modelContainer: ModelContainer?
     private var backgroundWork: Task<Bool, Never>?
-    private static let subscriptionsSavedKey = "duo.subscriptionsSaved"
+    // Read from the CKAccountChanged observer's @Sendable closure, so it cannot be
+    // main-actor isolated. An immutable String is safe to share as it is.
+    private nonisolated static let subscriptionsSavedKey = "duo.subscriptionsSaved"
     private var isFlushing = false
     /// Something changed while a flush was under way, so one more is owed after it.
     private var flushIsStale = false
