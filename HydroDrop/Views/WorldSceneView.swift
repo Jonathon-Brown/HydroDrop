@@ -17,6 +17,9 @@ struct WorldSceneView: View {
     var weather: WorldWeather?
     /// Off for the share card and anywhere else a still picture is wanted.
     var isAnimated = true
+    /// How tall the world itself is, when the view is taller than that. The world sits
+    /// at the bottom and the rest is more sky, stars and all, for words to sit on.
+    var worldHeight: CGFloat?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -38,11 +41,26 @@ struct WorldSceneView: View {
         .accessibilityAddTraits(.isImage)
     }
 
+    /// The colour at the very top of the sky, veil and all, for anything that has to
+    /// carry the sky on past the scene's edge (Today runs it up behind its title).
+    static func skyTop(timeOfDay: WorldTimeOfDay, weather: WorldWeather?) -> Color {
+        let top = WorldPainter.skyBands(timeOfDay)[0]
+        guard let veil = WorldPainter.skyVeil(timeOfDay: timeOfDay, weather: weather) else {
+            return Color(red: top.0, green: top.1, blue: top.2)
+        }
+        func mix(_ a: Double, _ b: Double) -> Double { a + (b - a) * veil.opacity }
+        return Color(red: mix(top.0, veil.color.0), green: mix(top.1, veil.color.1), blue: mix(top.2, veil.color.2))
+    }
+
     private func canvas(at time: TimeInterval) -> some View {
         Canvas(rendersAsynchronously: false) { context, size in
+            let headroom = worldHeight.map { max(0, size.height - $0) } ?? 0
+            var context = context
+            context.translateBy(x: 0, y: headroom)
             var painter = WorldPainter(
                 context: context,
-                size: size,
+                size: CGSize(width: size.width, height: size.height - headroom),
+                headroom: headroom,
                 time: time,
                 state: state,
                 decorations: decorations,
@@ -58,6 +76,9 @@ struct WorldSceneView: View {
 private struct WorldPainter {
     var context: GraphicsContext
     let size: CGSize
+    /// Sky above the world's top edge (negative y), which only the sky and what lives in
+    /// it reach up into.
+    let headroom: CGFloat
     let time: TimeInterval
     let state: WorldState
     let decorations: [WorldDecoration]
@@ -128,6 +149,8 @@ private struct WorldPainter {
     // MARK: The whole picture
 
     mutating func paint() {
+        // A first layout pass can hand over a zero-sized canvas; there is nothing to draw.
+        guard w > 0, h > 0 else { return }
         let still = context
         sky()
         atDepth(0.08, from: still)
@@ -205,35 +228,48 @@ private struct WorldPainter {
 
     // MARK: Sky
 
-    private mutating func sky() {
-        // Four bands from the top of the sky down to the hills, each time of day its own:
-        // deep overhead, lighter and warmer where the sky meets the land.
-        let bands: [(Double, Double, Double)]
+    /// Four bands from the top of the sky down to the hills, each time of day its own:
+    /// deep overhead, lighter and warmer where the sky meets the land.
+    static func skyBands(_ timeOfDay: WorldTimeOfDay) -> [(Double, Double, Double)] {
         switch timeOfDay {
-        case .dawn: bands = [(0.38, 0.52, 0.82), (0.66, 0.72, 0.92), (0.98, 0.80, 0.76), (1.00, 0.89, 0.68)]
-        case .day: bands = [(0.30, 0.60, 0.94), (0.50, 0.76, 0.97), (0.76, 0.89, 0.99), (0.92, 0.96, 1.00)]
-        case .dusk: bands = [(0.20, 0.20, 0.46), (0.46, 0.33, 0.62), (0.93, 0.56, 0.52), (1.00, 0.76, 0.50)]
-        case .night: bands = [(0.02, 0.03, 0.12), (0.06, 0.08, 0.25), (0.15, 0.16, 0.38), (0.30, 0.27, 0.48)]
+        case .dawn: [(0.38, 0.52, 0.82), (0.66, 0.72, 0.92), (0.98, 0.80, 0.76), (1.00, 0.89, 0.68)]
+        case .day: [(0.30, 0.60, 0.94), (0.50, 0.76, 0.97), (0.76, 0.89, 0.99), (0.92, 0.96, 1.00)]
+        case .dusk: [(0.20, 0.20, 0.46), (0.46, 0.33, 0.62), (0.93, 0.56, 0.52), (1.00, 0.76, 0.50)]
+        case .night: [(0.02, 0.03, 0.12), (0.06, 0.08, 0.25), (0.15, 0.16, 0.38), (0.30, 0.27, 0.48)]
         }
+    }
+
+    /// The grey that cloud lays over the whole sky, if there is cloud.
+    static func skyVeil(timeOfDay: WorldTimeOfDay, weather: WorldWeather?) -> (color: (Double, Double, Double), opacity: Double)? {
+        guard weather == .cloudy || weather == .rain || weather == .snow else { return nil }
+        let color = timeOfDay.isDark ? (0.10, 0.11, 0.16) : (0.62, 0.66, 0.72)
+        return (color, weather == .cloudy ? 0.45 : 0.6)
+    }
+
+    private mutating func sky() {
+        let bands = Self.skyBands(timeOfDay)
         let locations = [0.0, 0.40, 0.75, 1.0]
         let gradient = Gradient(stops: zip(bands, locations).map { band, location in
             .init(color: Color(red: band.0, green: band.1, blue: band.2), location: location)
         })
-        let rect = CGRect(origin: .zero, size: size)
+        // Above the world the gradient holds its top colour, so headroom is seamless.
+        let rect = CGRect(x: 0, y: -headroom, width: w, height: h + headroom)
         context.fill(Path(rect), with: .linearGradient(gradient, startPoint: .zero, endPoint: CGPoint(x: 0, y: h * 0.64)))
-        if isOvercast {
-            let veil = timeOfDay.isDark ? Color(red: 0.10, green: 0.11, blue: 0.16) : Color(red: 0.62, green: 0.66, blue: 0.72)
-            context.fill(Path(rect), with: .color(veil.opacity(weather == .cloudy ? 0.45 : 0.6)))
+        if let veil = Self.skyVeil(timeOfDay: timeOfDay, weather: weather) {
+            let color = Color(red: veil.color.0, green: veil.color.1, blue: veil.color.2)
+            context.fill(Path(rect), with: .color(color.opacity(veil.opacity)))
         }
     }
 
     private mutating func sunOrMoon() {
         guard !isOvercast else { return }
         if timeOfDay.isDark {
-            for index in 0..<26 {
+            // The same density of stars however much sky there is, up to a point.
+            let starry = h * 0.5 + headroom
+            for index in 0..<Int(26 * min(3, starry / (h * 0.5))) {
                 let twinkle = 0.45 + 0.55 * abs(sin(time * (0.6 + scatter(index, 3)) + Double(index)))
                 let across = (1.6 + scatter(index, 4) * 1.4) * unit
-                let star = CGRect(x: w * scatter(index, 1), y: h * 0.5 * scatter(index, 2), width: across, height: across)
+                let star = CGRect(x: w * scatter(index, 1), y: starry * scatter(index, 2) - headroom, width: across, height: across)
                 context.fill(Path(ellipseIn: star), with: .color(.white.opacity(0.85 * twinkle)))
             }
             let centre = point(0.80, 0.17)
@@ -681,11 +717,11 @@ private struct WorldPainter {
     private mutating func precipitation() {
         guard weather == .rain || weather == .snow else { return }
         let isSnow = weather == .snow
-        for index in 0..<(isSnow ? 34 : 46) {
+        for index in 0..<Int(Double(isSnow ? 34 : 46) * min(2, 1 + headroom / h)) {
             let speed = isSnow ? 0.10 + 0.06 * scatter(index, 61) : 0.9 + 0.5 * scatter(index, 61)
             let fall = (time * speed + scatter(index, 62)).truncatingRemainder(dividingBy: 1)
             let x = w * scatter(index, 63) + (isSnow ? sin(time + Double(index)) * 6 : -fall * 14)
-            let y = h * fall
+            let y = (h + headroom) * fall - headroom
             if isSnow {
                 let flake = 2.0 + 2.0 * scatter(index, 64)
                 context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: flake, height: flake)), with: .color(.white.opacity(0.85)))

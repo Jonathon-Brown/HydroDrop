@@ -151,7 +151,20 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
-                    streakBadge
+                    VStack(spacing: 2) {
+                        worldHero
+                            .padding(.bottom, 6)
+                        // The face carries the mood; naming it makes sure the signal
+                        // still lands for anyone who reads the screen quickly.
+                        Text(MascotMood.forProgress(progress).label)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .animation(.easeInOut, value: progress)
+
+                        if !store.isSubscribed {
+                            moreLooksLink
+                        }
+                    }
 
                     if let lost = visibleLostStreak {
                         streakBreakNotice(lost)
@@ -169,41 +182,6 @@ struct HomeView: View {
                             answer(suggestion, accepted: false)
                         }
                         .transition(.opacity)
-                    }
-
-                    VStack(spacing: 2) {
-                        ZStack(alignment: .bottom) {
-                            WorldSceneView(
-                                state: world,
-                                decorations: settings.activeWorldDecorations,
-                                timeOfDay: WorldTimeOfDay(date: Date()),
-                                weather: WorldWeather.current(isFeatureActive: settings.weatherGoalActive)
-                            )
-                            MascotView(progress: progress, size: 180, skin: settings.activeMascotSkin)
-                                .padding(.bottom, 45)
-                        }
-                        .frame(height: 400)
-                        .clipped()
-                        .contentShape(Rectangle())
-                        .onTapGesture { showingWorld = true }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(world.spokenDescription)
-                        .accessibilityHint("Opens your world")
-                        .accessibilityAddTraits(.isButton)
-                        // Edge to edge: the world is the backdrop of Today, not a card
-                        // on it. Undoes the page's side padding for this one view.
-                        .padding(.horizontal, -Self.pagePadding)
-                        .padding(.bottom, 6)
-                        // The face carries the mood; naming it makes sure the signal
-                        // still lands for anyone who reads the screen quickly.
-                        Text(MascotMood.forProgress(progress).label)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .animation(.easeInOut, value: progress)
-
-                        if !store.isSubscribed {
-                            moreLooksLink
-                        }
                     }
 
                     VStack(spacing: 6) {
@@ -260,7 +238,11 @@ struct HomeView: View {
                 }
                 .padding(Self.pagePadding)
             }
+            // Still named, for the back button on whatever is pushed from here.
             .navigationTitle("Today")
+            // The hero draws the title itself, in white on the world's sky, which is dark
+            // enough at every time of day for it.
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $showingDuoFromInvite) { DuoView() }
             .navigationDestination(isPresented: $showingWorld) {
                 WorldView(state: world, streak: streak, todayTotalML: todayTotal)
@@ -536,6 +518,66 @@ struct HomeView: View {
         )
     }
 
+    private var worldTime: WorldTimeOfDay { WorldTimeOfDay(date: Date()) }
+    private var worldWeather: WorldWeather? { WorldWeather.current(isFeatureActive: settings.weatherGoalActive) }
+
+    /// The top of Today: the streak on the sky, the world under it, and the droplet at
+    /// home in it. Runs to both screen edges and up behind the title, and melts into the
+    /// page at its foot, so it reads as the place Today happens rather than a picture
+    /// set into it.
+    private var worldHero: some View {
+        VStack(spacing: 14) {
+            Text("Today")
+                .font(.largeTitle.bold())
+                .foregroundStyle(.white)
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Self.pagePadding)
+                .padding(.top, 8)
+            streakBadge
+                .environment(\.colorScheme, .dark)
+            ZStack(alignment: .bottom) {
+                LinearGradient(colors: [.clear, Color(.systemBackground)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 44)
+                    .allowsHitTesting(false)
+                MascotView(progress: progress, size: 180, skin: settings.activeMascotSkin)
+                    .padding(.bottom, 45)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.worldHeight, alignment: .bottom)
+            .contentShape(Rectangle())
+            .onTapGesture { showingWorld = true }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(world.spokenDescription)
+            .accessibilityHint("Opens your world")
+            .accessibilityAddTraits(.isButton)
+        }
+        .background {
+            // One canvas behind the lot: the world at the bottom, its sky carrying on up
+            // behind the badge and the title with the stars still in it.
+            WorldSceneView(
+                state: world,
+                decorations: settings.activeWorldDecorations,
+                timeOfDay: worldTime,
+                weather: worldWeather,
+                worldHeight: Self.worldHeight
+            )
+            .accessibilityHidden(true)
+        }
+        .background(alignment: .top) {
+            // Past the canvas, behind the status bar and far enough up that pulling
+            // Today down never shows white above it: the sky's top colour, which is
+            // where the canvas starts.
+            WorldSceneView.skyTop(timeOfDay: worldTime, weather: worldWeather)
+                .padding(.top, -1000)
+        }
+        // Undoes the page's padding at the sides and top.
+        .padding(.horizontal, -Self.pagePadding)
+        .padding(.top, -Self.pagePadding)
+    }
+
+    private static let worldHeight: CGFloat = 400
+
     private var streakBadge: some View {
         HStack(spacing: 6) {
             Image(systemName: "flame.fill")
@@ -551,7 +593,7 @@ struct HomeView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
-        .background(Capsule().fill(Color(.secondarySystemBackground)))
+        .background(Capsule().fill(.ultraThinMaterial))
     }
 
     /// Shown once per broken streak, and only to free users. Information first: it says
