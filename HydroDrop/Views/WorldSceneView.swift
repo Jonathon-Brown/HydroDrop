@@ -343,35 +343,112 @@ private struct WorldPainter {
     }
 
     private var pondCentre: CGPoint { point(0.5, 0.83) }
+    /// The water's typical reach, before the inlet and the wobble reshape it by angle.
     private var pondRadii: CGSize { CGSize(width: w * 0.40, height: h * 0.115) }
-    /// The water drops as the world dries, and leaves its muddy rim showing.
+    /// The water drops as the world dries, and leaves more of the basin showing round it.
     private var waterLevel: Double { 0.70 + 0.30 * vitality }
 
-    private func pondEllipse(scale: Double) -> CGRect {
-        CGRect(
-            x: pondCentre.x - pondRadii.width * scale,
-            y: pondCentre.y - pondRadii.height * scale,
-            width: pondRadii.width * 2 * scale,
-            height: pondRadii.height * 2 * scale
+    /// Where the water opens onto the edge of the frame, and how it's shaped around
+    /// that: named so `koi()` can steer clear of it, too.
+    private static let inletAngle: Double = 3.02
+    /// Kept narrow on purpose. The window must stay inside the west half of the circle
+    /// (pi/2 to 3pi/2) for `waterOutline`'s x-clamp to stay a simple polygon, and the
+    /// glints (up to 0.85pi) and the paper boat (from 3.4) sit just outside it by their
+    /// own fixed angles, not derived from these. Widen it and check both.
+    private static let inletHalfWidth: Double = 0.35
+    /// Enough to carry the inlet past the frame at full reach on every canvas width;
+    /// `waterOutline` clamps the overshoot, so a little extra costs nothing.
+    private static let inletBoostX: Double = 0.8
+    private static let inletBoostY: Double = 0.55
+
+    /// The water's reach at a given angle: a couple of long, low harmonics so the edge
+    /// reads as an irregular pool rather than a drawn ellipse, plus one wide opening to
+    /// the west -- eased in and out with a smoothstep -- where it reaches past the frame
+    /// instead of closing into a shape. One function, so the fill, the glints and every
+    /// reed, pad and stone anchored in `onWater` all agree on the same edge.
+    private func waterRadius(angle: Double) -> (rx: CGFloat, ry: CGFloat) {
+        // Whole-number frequencies only, so the edge meets itself where the outline
+        // closes: a fractional one left a hard step on the east side where the radius at
+        // 0 and at 2pi disagreed. One broad sway and a smaller second one read as a single
+        // natural asymmetry rather than a scalloped edge.
+        let wobble = 1 + 0.10 * sin(angle + 0.7) + 0.04 * sin(2 * angle - 0.4)
+        let eased = inletWeight(angle: angle)
+        return (
+            rx: pondRadii.width * wobble * (1 + Self.inletBoostX * eased),
+            ry: pondRadii.height * wobble * (1 + Self.inletBoostY * eased)
         )
+    }
+
+    /// How far into the inlet an angle is: 0 outside the window, easing up to 1 at its
+    /// middle with a smoothstep.
+    private func inletWeight(angle: Double) -> Double {
+        let toInlet = angle - Self.inletAngle
+        let wrapped = atan2(sin(toInlet), cos(toInlet))
+        let taper = max(0, 1 - abs(wrapped) / Self.inletHalfWidth)
+        return taper * taper * (3 - 2 * taper)
     }
 
     /// A point on the water, by angle and by how far out from the middle.
     private func onWater(angle: Double, reach: Double) -> CGPoint {
-        CGPoint(
-            x: pondCentre.x + cos(angle) * pondRadii.width * waterLevel * reach,
-            y: pondCentre.y + sin(angle) * pondRadii.height * waterLevel * reach
+        let r = waterRadius(angle: angle)
+        return CGPoint(
+            x: pondCentre.x + cos(angle) * r.rx * waterLevel * reach,
+            y: pondCentre.y + sin(angle) * r.ry * waterLevel * reach
         )
     }
 
+    /// The water's own outline, at `scale` of its typical reach -- 1.0 for the basin,
+    /// `waterLevel` for the water itself.
+    ///
+    /// With `keepsInletReach`, the inlet holds its full reach whatever the scale and gets
+    /// narrower instead: a dry world's water still runs off the frame as a thin channel
+    /// rather than drawing back into a closed pool, which is the one state where a
+    /// boundary reappearing would matter most.
+    private func waterOutline(scale: Double, keepsInletReach: Bool = false) -> Path {
+        var path = Path()
+        let steps = 96
+        for step in 0...steps {
+            let t = Double(step) / Double(steps) * 2 * Double.pi
+            let r = waterRadius(angle: t)
+            let inlet = keepsInletReach ? inletWeight(angle: t) : 0
+            let reach = scale + (1 - scale) * inlet
+            let breadth = scale * (1 - (1 - scale) * inlet)
+            // Held to just past the frame: anything further is clipped anyway, and an
+            // earlier, larger inlet silently failed to render at all -- no crash, no
+            // artifact, the fill just stopped short -- when the spike ran far off-canvas.
+            let x = min(w * 1.15, max(-w * 0.15, pondCentre.x + cos(t) * r.rx * reach))
+            let vertex = CGPoint(x: x, y: pondCentre.y + sin(t) * r.ry * breadth)
+            if step == 0 { path.move(to: vertex) } else { path.addLine(to: vertex) }
+        }
+        path.closeSubpath()
+        return path
+    }
+
     private mutating func pond() {
-        context.fill(Path(ellipseIn: pondEllipse(scale: 1.04)), with: .color(tone(0.47, 0.37, 0.26, living: false)))
-        let water = pondEllipse(scale: waterLevel)
-        context.fill(Path(ellipseIn: water), with: .linearGradient(
+        // Damp ground, blending into grass rather than stopping at a drawn edge:
+        // several copies of the basin's full extent, each a little larger and fainter
+        // than the last, the way `glow` feathers a light instead of drawing a circle.
+        // Stays at full size regardless of vitality, so the water drops within it.
+        // Many close, lightly-stepped layers rather than a few -- three shapes read as
+        // rings; enough of them, easing in toward the water, reads as a blend.
+        let mud = tone(0.40, 0.30, 0.20, living: false)
+        // Night darkens the mud nearly to black, and at full strength it read as a ring
+        // round the water; lighter at night, it's damp ground again.
+        let strength = timeOfDay.isDark ? 0.30 : 0.55
+        let layers = 10
+        for step in 0..<layers {
+            let t = Double(step) / Double(layers - 1) // 0 (outermost) ... 1 (innermost)
+            let scale = 1.20 - 0.22 * t
+            let opacity = strength * (t * t)
+            context.fill(waterOutline(scale: scale), with: .color(mud.opacity(opacity)))
+        }
+        let water = waterOutline(scale: waterLevel, keepsInletReach: true)
+        context.fill(water, with: .linearGradient(
             Gradient(colors: [tone(0.40, 0.74, 0.93, living: false), tone(0.16, 0.50, 0.84, living: false)]),
-            startPoint: CGPoint(x: water.midX, y: water.minY),
-            endPoint: CGPoint(x: water.midX, y: water.maxY)
+            startPoint: CGPoint(x: pondCentre.x, y: pondCentre.y - h * 0.115),
+            endPoint: CGPoint(x: pondCentre.x, y: pondCentre.y + h * 0.115)
         ))
+
         // A few slow glints, so the water is never quite still.
         for index in 0..<4 {
             let sweep = (time * 0.05 + scatter(index, 11)).truncatingRemainder(dividingBy: 1)
@@ -458,7 +535,10 @@ private struct WorldPainter {
     private mutating func flowers() {
         let petals: [(Double, Double, Double)] = [(0.96, 0.45, 0.55), (0.99, 0.80, 0.30), (0.72, 0.55, 0.95), (0.98, 0.98, 0.98), (0.98, 0.58, 0.36)]
         // All on the bank: every one of these is outside the pond's rim.
-        let beds: [(Double, Double)] = [(0.04, 0.80), (0.08, 0.91), (0.20, 0.95), (0.80, 0.96), (0.93, 0.91), (0.97, 0.80), (0.66, 0.985)]
+                // (0.04, 0.80) used to sit on the bank beside the pond's old rim; the inlet's
+        // mouth now opens through about that height, so it moved down next to its
+        // neighbour, clear of the water.
+        let beds: [(Double, Double)] = [(0.02, 0.94), (0.08, 0.91), (0.20, 0.95), (0.80, 0.96), (0.93, 0.91), (0.97, 0.80), (0.66, 0.985)]
         for (index, bed) in beds.enumerated() {
             let height = h * (0.060 + 0.030 * scatter(index, 31))
             let top = stem(from: point(bed.0, bed.1), height: height, sway: Double(index) * 2.3, color: tone(0.32, 0.60, 0.28), width: 1.6 * unit)
@@ -514,10 +594,18 @@ private struct WorldPainter {
         }
     }
 
+    /// The long way round the pond, clear of the inlet on the west side.
+    private static let koiArcStart = inletAngle + inletHalfWidth + 0.3
+    private static let koiArcEnd = inletAngle - inletHalfWidth - 0.3 + 2 * Double.pi
+
     private mutating func koi() {
-        let angle = time * 0.22
+        // Back and forth along a wide arc rather than a full loop, so it never swims
+        // out through the inlet.
+        let sweep = (sin(time * 0.11) + 1) / 2
+        let angle = Self.koiArcStart + (Self.koiArcEnd - Self.koiArcStart) * sweep
         let body = onWater(angle: angle, reach: 0.55)
-        let heading = atan2(cos(angle) * Double(pondRadii.height), -sin(angle) * Double(pondRadii.width))
+        let r = waterRadius(angle: angle)
+        let heading = atan2(cos(angle) * Double(r.ry), -sin(angle) * Double(r.rx))
         var fish = Path()
         fish.addEllipse(in: CGRect(x: -w * 0.030, y: -h * 0.010, width: w * 0.060, height: h * 0.020))
         fish.move(to: CGPoint(x: -w * 0.028, y: 0))
