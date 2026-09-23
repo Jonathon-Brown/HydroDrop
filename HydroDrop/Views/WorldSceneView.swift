@@ -44,17 +44,6 @@ struct WorldSceneView: View {
         .accessibilityAddTraits(.isImage)
     }
 
-    /// The colour at the very top of the sky, veil and all, for anything that has to
-    /// carry the sky on past the scene's edge (Today runs it up behind its title).
-    static func skyTop(timeOfDay: WorldTimeOfDay, weather: WorldWeather?) -> Color {
-        let top = WorldPainter.skyBands(timeOfDay)[0]
-        guard let veil = WorldPainter.skyVeil(timeOfDay: timeOfDay, weather: weather) else {
-            return Color(red: top.0, green: top.1, blue: top.2)
-        }
-        func mix(_ a: Double, _ b: Double) -> Double { a + (b - a) * veil.opacity }
-        return Color(red: mix(top.0, veil.color.0), green: mix(top.1, veil.color.1), blue: mix(top.2, veil.color.2))
-    }
-
     private func canvas(at time: TimeInterval) -> some View {
         Canvas(rendersAsynchronously: false) { context, size in
             let footroom = min(groundBelow, size.height)

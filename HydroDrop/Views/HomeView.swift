@@ -33,6 +33,8 @@ struct HomeView: View {
     /// on every render: it walks every day there has ever been.
     @State private var world = WorldState.empty
     @State private var showingWorld = false
+    /// How tall the title and streak are, so the world behind lines up under them.
+    @State private var worldHeaderHeight: CGFloat = 110
     /// A weather suggestion fetched for today but not yet answered.
     @State private var pendingWeatherBumpML: Int?
     /// The same for today's workouts.
@@ -149,98 +151,117 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    VStack(spacing: 2) {
-                        worldHero
-                            .padding(.bottom, 6)
-                        // The face carries the mood; naming it makes sure the signal
-                        // still lands for anyone who reads the screen quickly.
-                        Text(MascotMood.forProgress(progress).label)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .animation(.easeInOut, value: progress)
+            GeometryReader { screen in
+                ZStack {
+                    // The world is the page. It stays put and everything else scrolls over it.
+                    worldBackdrop(safeTop: screen.safeAreaInsets.top,
+                                  fullHeight: screen.size.height + screen.safeAreaInsets.top + screen.safeAreaInsets.bottom)
+                        .ignoresSafeArea()
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            worldHeader
+                            mascotStage
+                            VStack(spacing: 24) {
+                                VStack(spacing: 2) {
+                                    // The face carries the mood; naming it makes sure the signal
+                                    // still lands for anyone who reads the screen quickly.
+                                    Text(MascotMood.forProgress(progress).label)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                        .animation(.easeInOut, value: progress)
 
-                        if !store.isSubscribed {
-                            moreLooksLink
+                                    if !store.isSubscribed {
+                                        moreLooksLink
+                                    }
+                                }
+
+                                if let lost = visibleLostStreak {
+                                    streakBreakNotice(lost)
+                                        .transition(.opacity)
+                                }
+
+                                if let suggestion = bumpSuggestion {
+                                    WeatherBumpCard(
+                                        bumpML: suggestion.addML,
+                                        system: settings.measurementSystem,
+                                        sources: suggestion.sources
+                                    ) {
+                                        answer(suggestion, accepted: true)
+                                    } onDismiss: {
+                                        answer(suggestion, accepted: false)
+                                    }
+                                    .transition(.opacity)
+                                }
+
+                                VStack(spacing: 6) {
+                                    Text(settings.measurementSystem.format(mL: todayTotal))
+                                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                                    Text("of \(settings.measurementSystem.format(mL: todayGoal)) goal")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    if acceptedWeatherBumpML > 0 {
+                                        WeatherBumpBadge(
+                                            bumpML: acceptedWeatherBumpML,
+                                            system: settings.measurementSystem,
+                                            isOnlyHeat: nightOut.bumpAcceptedDayKey != DayKey.key(for: Date())
+                                                && otherReasonBumpDayKey != DayKey.key(for: Date()),
+                                            mayIncludeWeather: settings.weatherGoalActive
+                                        )
+                                    }
+                                    if settings.caffeineTrackingActive {
+                                        CaffeineTodayLine(
+                                            entries: todayEntries,
+                                            cutoffMinutes: settings.caffeineCutoffMinutes,
+                                            wakingStartMinutes: settings.quietStartMinutes
+                                        )
+                                    }
+                                }
+
+                                progressBar
+
+                                quickAddSection
+
+                                NightOutSection(nightOut: nightOut, entries: allEntries)
+
+                                DuoCardsSection(duoStore: duoStore)
+
+                                // Not under screenshot automation: its seeded history is a three day
+                                // streak, so the card would sit half under the tab bar in every App
+                                // Store capture of Today. Always false in Release.
+                                if !AppSettings.isScreenshotMode,
+                                   DuoInviteMoment.shouldShow(soloStreak: streak, hasAnyDuo: !duoStore.duos.isEmpty, wasDismissed: duoInviteDismissed) {
+                                    DuoInviteCard {
+                                        duoInviteDismissed = true
+                                        showingDuoFromInvite = true
+                                    } onDismiss: {
+                                        withAnimation { duoInviteDismissed = true }
+                                    }
+                                    .transition(.opacity)
+                                }
+
+                                todayLogSection
+
+                                if !store.isSubscribed {
+                                    BannerAdView(adUnitID: AdManager.bannerAdUnitID)
+                                }
+                            }
+                            .padding(Self.pagePadding)
+                            .padding(.top, 4)
+                            .background(alignment: .top) {
+                                // Frosted, so the world still shows through as the panel slides up
+                                // over it, and carried on down past the last row so overscroll at
+                                // the bottom never shows the scene through a gap.
+                                UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28)
+                                    .fill(.regularMaterial)
+                                    .padding(.bottom, -1000)
+                            }
                         }
-                    }
-
-                    if let lost = visibleLostStreak {
-                        streakBreakNotice(lost)
-                            .transition(.opacity)
-                    }
-
-                    if let suggestion = bumpSuggestion {
-                        WeatherBumpCard(
-                            bumpML: suggestion.addML,
-                            system: settings.measurementSystem,
-                            sources: suggestion.sources
-                        ) {
-                            answer(suggestion, accepted: true)
-                        } onDismiss: {
-                            answer(suggestion, accepted: false)
-                        }
-                        .transition(.opacity)
-                    }
-
-                    VStack(spacing: 6) {
-                        Text(settings.measurementSystem.format(mL: todayTotal))
-                            .font(.system(size: 34, weight: .bold, design: .rounded))
-                        Text("of \(settings.measurementSystem.format(mL: todayGoal)) goal")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        if acceptedWeatherBumpML > 0 {
-                            WeatherBumpBadge(
-                                bumpML: acceptedWeatherBumpML,
-                                system: settings.measurementSystem,
-                                isOnlyHeat: nightOut.bumpAcceptedDayKey != DayKey.key(for: Date())
-                                    && otherReasonBumpDayKey != DayKey.key(for: Date()),
-                                mayIncludeWeather: settings.weatherGoalActive
-                            )
-                        }
-                        if settings.caffeineTrackingActive {
-                            CaffeineTodayLine(
-                                entries: todayEntries,
-                                cutoffMinutes: settings.caffeineCutoffMinutes,
-                                wakingStartMinutes: settings.quietStartMinutes
-                            )
-                        }
-                    }
-
-                    progressBar
-
-                    quickAddSection
-
-                    NightOutSection(nightOut: nightOut, entries: allEntries)
-
-                    DuoCardsSection(duoStore: duoStore)
-
-                    // Not under screenshot automation: its seeded history is a three day
-                    // streak, so the card would sit half under the tab bar in every App
-                    // Store capture of Today. Always false in Release.
-                    if !AppSettings.isScreenshotMode,
-                       DuoInviteMoment.shouldShow(soloStreak: streak, hasAnyDuo: !duoStore.duos.isEmpty, wasDismissed: duoInviteDismissed) {
-                        DuoInviteCard {
-                            duoInviteDismissed = true
-                            showingDuoFromInvite = true
-                        } onDismiss: {
-                            withAnimation { duoInviteDismissed = true }
-                        }
-                        .transition(.opacity)
-                    }
-
-                    todayLogSection
-
-                    if !store.isSubscribed {
-                        BannerAdView(adUnitID: AdManager.bannerAdUnitID)
                     }
                 }
-                .padding(Self.pagePadding)
             }
             // Still named, for the back button on whatever is pushed from here.
             .navigationTitle("Today")
-            // The hero draws the title itself, in white on the world's sky, which is dark
+            // The page draws the title itself, in white on the world's sky, which is dark
             // enough at every time of day for it.
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $showingDuoFromInvite) { DuoView() }
@@ -521,11 +542,9 @@ struct HomeView: View {
     private var worldTime: WorldTimeOfDay { WorldTimeOfDay(date: Date()) }
     private var worldWeather: WorldWeather? { WorldWeather.current(isFeatureActive: settings.weatherGoalActive) }
 
-    /// The top of Today: the streak on the sky, the world under it, and the droplet at
-    /// home in it. Runs to both screen edges and up behind the title, and melts into the
-    /// page at its foot, so it reads as the place Today happens rather than a picture
-    /// set into it.
-    private var worldHero: some View {
+    /// The title and the streak, on the sky. Measured, so the world behind can put its
+    /// top edge exactly where this ends, whatever the text size.
+    private var worldHeader: some View {
         VStack(spacing: 14) {
             Text("Today")
                 .font(.largeTitle.bold())
@@ -536,50 +555,43 @@ struct HomeView: View {
                 .padding(.top, 8)
             streakBadge
                 .environment(\.colorScheme, .dark)
-            ZStack(alignment: .bottom) {
-                LinearGradient(colors: [.clear, Color(.systemBackground)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 44)
-                    .allowsHitTesting(false)
-                MascotView(progress: progress, size: 180, skin: settings.activeMascotSkin)
-                    .padding(.bottom, 45 + Self.groundBelow)
-            }
+        }
+        .padding(.bottom, 14)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { worldHeaderHeight = $0 }
+    }
+
+    /// A window onto the world as tall as the world itself, with the droplet standing
+    /// in the pond. Scrolls with the page, so the droplet rides up over the sky with the
+    /// rest of Today while the world stays where it is.
+    private var mascotStage: some View {
+        MascotView(progress: progress, size: 180, skin: settings.activeMascotSkin)
+            .padding(.bottom, 45)
             .frame(maxWidth: .infinity)
-            .frame(height: Self.worldHeight + Self.groundBelow, alignment: .bottom)
+            .frame(height: Self.worldHeight, alignment: .bottom)
             .contentShape(Rectangle())
             .onTapGesture { showingWorld = true }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(world.spokenDescription)
             .accessibilityHint("Opens your world")
             .accessibilityAddTraits(.isButton)
-        }
-        .background {
-            // One canvas behind the lot: the world at the bottom, its sky carrying on up
-            // behind the badge and the title with the stars still in it.
-            WorldSceneView(
-                state: world,
-                decorations: settings.activeWorldDecorations,
-                timeOfDay: worldTime,
-                weather: worldWeather,
-                worldHeight: Self.worldHeight,
-                groundBelow: Self.groundBelow
-            )
-            .accessibilityHidden(true)
-        }
-        .background(alignment: .top) {
-            // Past the canvas, behind the status bar and far enough up that pulling
-            // Today down never shows white above it: the sky's top colour, which is
-            // where the canvas starts.
-            WorldSceneView.skyTop(timeOfDay: worldTime, weather: worldWeather)
-                .padding(.top, -1000)
-        }
-        // Undoes the page's padding at the sides and top.
-        .padding(.horizontal, -Self.pagePadding)
-        .padding(.top, -Self.pagePadding)
+    }
+
+    /// The whole screen of world: sky from the very top down to where the header ends,
+    /// the world's 400pt below that, lined up with `mascotStage` when Today is scrolled
+    /// to the top, and bank the rest of the way down behind the panel.
+    private func worldBackdrop(safeTop: CGFloat, fullHeight: CGFloat) -> some View {
+        WorldSceneView(
+            state: world,
+            decorations: settings.activeWorldDecorations,
+            timeOfDay: worldTime,
+            weather: worldWeather,
+            worldHeight: Self.worldHeight,
+            groundBelow: max(0, fullHeight - safeTop - worldHeaderHeight - Self.worldHeight)
+        )
+        .accessibilityHidden(true)
     }
 
     private static let worldHeight: CGFloat = 400
-    /// Enough bank under the pond for the fade into the page to happen on grass.
-    private static let groundBelow: CGFloat = 44
 
     private var streakBadge: some View {
         HStack(spacing: 6) {
