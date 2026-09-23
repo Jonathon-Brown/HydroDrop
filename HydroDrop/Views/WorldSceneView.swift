@@ -20,6 +20,9 @@ struct WorldSceneView: View {
     /// How tall the world itself is, when the view is taller than that. The world sits
     /// at the bottom and the rest is more sky, stars and all, for words to sit on.
     var worldHeight: CGFloat?
+    /// Plain bank under the world, for something to fade out over without losing the
+    /// bottom of the pond.
+    var groundBelow: CGFloat = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -54,13 +57,15 @@ struct WorldSceneView: View {
 
     private func canvas(at time: TimeInterval) -> some View {
         Canvas(rendersAsynchronously: false) { context, size in
-            let headroom = worldHeight.map { max(0, size.height - $0) } ?? 0
+            let footroom = min(groundBelow, size.height)
+            let headroom = worldHeight.map { max(0, size.height - footroom - $0) } ?? 0
             var context = context
             context.translateBy(x: 0, y: headroom)
             var painter = WorldPainter(
                 context: context,
-                size: CGSize(width: size.width, height: size.height - headroom),
+                size: CGSize(width: size.width, height: size.height - headroom - footroom),
                 headroom: headroom,
+                footroom: footroom,
                 time: time,
                 state: state,
                 decorations: decorations,
@@ -79,6 +84,8 @@ private struct WorldPainter {
     /// Sky above the world's top edge (negative y), which only the sky and what lives in
     /// it reach up into.
     let headroom: CGFloat
+    /// Bank below the world's bottom edge (y beyond h), which only the bank reaches down into.
+    let footroom: CGFloat
     let time: TimeInterval
     let state: WorldState
     let decorations: [WorldDecoration]
@@ -330,10 +337,10 @@ private struct WorldPainter {
 
     private mutating func bank() {
         var path = Path()
-        path.move(to: point(-0.05, 1))
+        path.move(to: CGPoint(x: -w * 0.05, y: h + footroom))
         path.addLine(to: point(-0.05, 0.665))
         path.addCurve(to: point(1.05, 0.64), control1: point(0.3, 0.60), control2: point(0.7, 0.68))
-        path.addLine(to: point(1.05, 1))
+        path.addLine(to: CGPoint(x: w * 1.05, y: h + footroom))
         path.closeSubpath()
         context.fill(path, with: .linearGradient(
             Gradient(colors: [tone(0.42, 0.72, 0.38), tone(0.30, 0.58, 0.30)]),
@@ -721,7 +728,7 @@ private struct WorldPainter {
             let speed = isSnow ? 0.10 + 0.06 * scatter(index, 61) : 0.9 + 0.5 * scatter(index, 61)
             let fall = (time * speed + scatter(index, 62)).truncatingRemainder(dividingBy: 1)
             let x = w * scatter(index, 63) + (isSnow ? sin(time + Double(index)) * 6 : -fall * 14)
-            let y = (h + headroom) * fall - headroom
+            let y = (h + headroom + footroom) * fall - headroom
             if isSnow {
                 let flake = 2.0 + 2.0 * scatter(index, 64)
                 context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: flake, height: flake)), with: .color(.white.opacity(0.85)))

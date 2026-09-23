@@ -541,10 +541,10 @@ struct HomeView: View {
                     .frame(height: 44)
                     .allowsHitTesting(false)
                 MascotView(progress: progress, size: 180, skin: settings.activeMascotSkin)
-                    .padding(.bottom, 45)
+                    .padding(.bottom, 45 + Self.groundBelow)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: Self.worldHeight, alignment: .bottom)
+            .frame(height: Self.worldHeight + Self.groundBelow, alignment: .bottom)
             .contentShape(Rectangle())
             .onTapGesture { showingWorld = true }
             .accessibilityElement(children: .ignore)
@@ -560,7 +560,8 @@ struct HomeView: View {
                 decorations: settings.activeWorldDecorations,
                 timeOfDay: worldTime,
                 weather: worldWeather,
-                worldHeight: Self.worldHeight
+                worldHeight: Self.worldHeight,
+                groundBelow: Self.groundBelow
             )
             .accessibilityHidden(true)
         }
@@ -577,6 +578,8 @@ struct HomeView: View {
     }
 
     private static let worldHeight: CGFloat = 400
+    /// Enough bank under the pond for the fade into the page to happen on grass.
+    private static let groundBelow: CGFloat = 44
 
     private var streakBadge: some View {
         HStack(spacing: 6) {
