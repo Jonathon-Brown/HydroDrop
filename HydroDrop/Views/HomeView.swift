@@ -144,6 +144,9 @@ struct HomeView: View {
         return lost.missedDayKey == dismissedStreakNoticeDayKey ? nil : lost
     }
 
+    /// Today's margin, named so the world scene can reach past it to the screen edges.
+    private static let pagePadding: CGFloat = 16
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -176,17 +179,20 @@ struct HomeView: View {
                                 timeOfDay: WorldTimeOfDay(date: Date()),
                                 weather: WorldWeather.current(isFeatureActive: settings.weatherGoalActive)
                             )
-                            MascotView(progress: progress, size: 150, skin: settings.activeMascotSkin)
-                                .padding(.bottom, 34)
+                            MascotView(progress: progress, size: 180, skin: settings.activeMascotSkin)
+                                .padding(.bottom, 45)
                         }
-                        .frame(height: 300)
-                        .clipShape(RoundedRectangle(cornerRadius: 28))
-                        .contentShape(RoundedRectangle(cornerRadius: 28))
+                        .frame(height: 400)
+                        .clipped()
+                        .contentShape(Rectangle())
                         .onTapGesture { showingWorld = true }
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(world.spokenDescription)
                         .accessibilityHint("Opens your world")
                         .accessibilityAddTraits(.isButton)
+                        // Edge to edge: the world is the backdrop of Today, not a card
+                        // on it. Undoes the page's side padding for this one view.
+                        .padding(.horizontal, -Self.pagePadding)
                         .padding(.bottom, 6)
                         // The face carries the mood; naming it makes sure the signal
                         // still lands for anyone who reads the screen quickly.
@@ -252,7 +258,7 @@ struct HomeView: View {
                         BannerAdView(adUnitID: AdManager.bannerAdUnitID)
                     }
                 }
-                .padding()
+                .padding(Self.pagePadding)
             }
             .navigationTitle("Today")
             .navigationDestination(isPresented: $showingDuoFromInvite) { DuoView() }
