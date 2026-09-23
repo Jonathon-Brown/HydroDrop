@@ -17,6 +17,12 @@ struct WorldSceneView: View {
     var weather: WorldWeather?
     /// Off for the share card and anywhere else a still picture is wanted.
     var isAnimated = true
+    /// How tall the world itself is, when the view is taller than that. The world sits
+    /// at the bottom and the rest is more sky, stars and all, for words to sit on.
+    var worldHeight: CGFloat?
+    /// Plain bank under the world, for something to fade out over without losing the
+    /// bottom of the pond.
+    var groundBelow: CGFloat = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -40,9 +46,19 @@ struct WorldSceneView: View {
 
     private func canvas(at time: TimeInterval) -> some View {
         Canvas(rendersAsynchronously: false) { context, size in
+            let footroom = min(groundBelow, size.height)
+            // `size` here is the true, safe-area-ignoring full height (see the comment on
+            // `HomeView.worldBackdrop`), so this headroom works out to exactly
+            // `safeTop + worldHeaderHeight` — where the header's own bottom edge actually
+            // lands on screen, since `ScrollView` pads its content by the top safe area.
+            let headroom = worldHeight.map { max(0, size.height - footroom - $0) } ?? 0
+            var context = context
+            context.translateBy(x: 0, y: headroom)
             var painter = WorldPainter(
                 context: context,
-                size: size,
+                size: CGSize(width: size.width, height: size.height - headroom - footroom),
+                headroom: headroom,
+                footroom: footroom,
                 time: time,
                 state: state,
                 decorations: decorations,
@@ -58,6 +74,11 @@ struct WorldSceneView: View {
 private struct WorldPainter {
     var context: GraphicsContext
     let size: CGSize
+    /// Sky above the world's top edge (negative y), which only the sky and what lives in
+    /// it reach up into.
+    let headroom: CGFloat
+    /// Bank below the world's bottom edge (y beyond h), which only the bank reaches down into.
+    let footroom: CGFloat
     let time: TimeInterval
     let state: WorldState
     let decorations: [WorldDecoration]
@@ -71,6 +92,16 @@ private struct WorldPainter {
     /// How far plants hang their heads: 0 upright, 1 fully drooped.
     private var droop: Double { max(0, min(1, (0.55 - vitality) / 0.55)) }
     private var isOvercast: Bool { weather == .cloudy || weather == .rain || weather == .snow }
+
+    /// Fixed sizes (petals, stars, stroke widths) grow with the frame, so a bigger scene
+    /// is a closer look rather than the same flowers lost in more space. Capped, so an
+    /// iPad-wide scene gets more world rather than cartoonishly fat petals.
+    private var unit: CGFloat { min(1.4, max(0.8, sqrt(w * h / (370 * 300)))) }
+
+    /// How far the slow sideways drift has carried the nearest things. The mascot's idle
+    /// bob takes 5.2 seconds; this takes 7, so the ground drifts a little slower than the
+    /// droplet breathes. Everything further back moves less, which is what reads as depth.
+    private var drift: CGFloat { w * 0.009 * sin(time * 2 * .pi / 7) }
 
     private func has(_ wanted: WorldStage) -> Bool { stage >= wanted }
     private func point(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: w * x, y: h * y) }
@@ -118,12 +149,21 @@ private struct WorldPainter {
     // MARK: The whole picture
 
     mutating func paint() {
+        // A first layout pass can hand over a zero-sized canvas; there is nothing to draw.
+        guard w > 0, h > 0 else { return }
+        let still = context
         sky()
+        atDepth(0.08, from: still)
         sunOrMoon()
+        atDepth(0.15, from: still)
         clouds()
-        hills()
+        atDepth(0.25, from: still)
+        ridge(base: 0.60, swell: 0.12, phase: 0.4, color: tone(0.55, 0.74, 0.70, living: false))
+        atDepth(0.40, from: still)
+        ridge(base: 0.64, swell: 0.08, phase: 2.1, color: tone(0.44, 0.68, 0.56))
         if decorations.contains(.bunting) { bunting() }
         if decorations.contains(.balloon) { balloon() }
+        atDepth(0.60, from: still)
         if has(.tree) { tree() }
         if decorations.contains(.birdhouse) { birdhouse() }
         bank()
@@ -134,64 +174,119 @@ private struct WorldPainter {
         if has(.lilyPads) { lilyPads() }
         if decorations.contains(.paperBoat) { paperBoat() }
         if decorations.contains(.rubberDuck) { rubberDuck() }
+        atDepth(1.0, from: still)
         if has(.reeds) { reeds() }
         if has(.flowers) { flowers() }
         if has(.sprout) { sprout() }
         if decorations.contains(.mushrooms) { mushrooms() }
+        // In front of the reeds that grow up around its post.
         if decorations.contains(.lantern) { lantern() }
         if has(.fireflies) { firefliesOrDragonflies() }
+        // Weather is in front of everything and belongs to no layer.
+        context = still
         precipitation()
+    }
+
+    /// Draws what follows shifted by this layer's share of the drift: 0 stays put, 1 is
+    /// the nearest ground. At rest (Reduce Motion, the share card) the drift is zero.
+    private mutating func atDepth(_ depth: Double, from still: GraphicsContext) {
+        context = still
+        context.translateBy(x: drift * depth, y: 0)
+    }
+
+    // MARK: Light
+
+    /// A soft pool of light: bright at the middle, falling away over several steps, with
+    /// no edge anywhere. What every light source in the scene sits inside.
+    private mutating func glow(at centre: CGPoint, radius: CGFloat, color: Color, strength: Double) {
+        let stops = Gradient(stops: [
+            .init(color: color.opacity(strength), location: 0),
+            .init(color: color.opacity(strength * 0.78), location: 0.25),
+            .init(color: color.opacity(strength * 0.42), location: 0.50),
+            .init(color: color.opacity(strength * 0.14), location: 0.78),
+            .init(color: color.opacity(0), location: 1),
+        ])
+        context.fill(
+            Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2)),
+            with: .radialGradient(stops, center: centre, startRadius: 0, endRadius: radius)
+        )
+    }
+
+    /// A disc whose rim melts into what is behind it instead of stopping dead.
+    private mutating func softDisc(at centre: CGPoint, radius: CGFloat, color: Color) {
+        let outer = radius * 1.18
+        let stops = Gradient(stops: [
+            .init(color: color, location: 0),
+            .init(color: color, location: 0.80),
+            .init(color: color.opacity(0), location: 1),
+        ])
+        context.fill(
+            Path(ellipseIn: CGRect(x: centre.x - outer, y: centre.y - outer, width: outer * 2, height: outer * 2)),
+            with: .radialGradient(stops, center: centre, startRadius: 0, endRadius: outer)
+        )
     }
 
     // MARK: Sky
 
-    private mutating func sky() {
-        let colors: [Color]
+    /// Four bands from the top of the sky down to the hills, each time of day its own:
+    /// deep overhead, lighter and warmer where the sky meets the land.
+    static func skyBands(_ timeOfDay: WorldTimeOfDay) -> [(Double, Double, Double)] {
         switch timeOfDay {
-        case .dawn: colors = [Color(red: 0.60, green: 0.74, blue: 0.93), Color(red: 0.99, green: 0.83, blue: 0.72)]
-        case .day: colors = [Color(red: 0.45, green: 0.72, blue: 0.96), Color(red: 0.80, green: 0.92, blue: 0.99)]
-        case .dusk: colors = [Color(red: 0.36, green: 0.34, blue: 0.62), Color(red: 0.98, green: 0.66, blue: 0.48)]
-        case .night: colors = [Color(red: 0.05, green: 0.07, blue: 0.20), Color(red: 0.16, green: 0.20, blue: 0.40)]
+        case .dawn: [(0.38, 0.52, 0.82), (0.66, 0.72, 0.92), (0.98, 0.80, 0.76), (1.00, 0.89, 0.68)]
+        case .day: [(0.30, 0.60, 0.94), (0.50, 0.76, 0.97), (0.76, 0.89, 0.99), (0.92, 0.96, 1.00)]
+        case .dusk: [(0.20, 0.20, 0.46), (0.46, 0.33, 0.62), (0.93, 0.56, 0.52), (1.00, 0.76, 0.50)]
+        case .night: [(0.02, 0.03, 0.12), (0.06, 0.08, 0.25), (0.15, 0.16, 0.38), (0.30, 0.27, 0.48)]
         }
-        let rect = CGRect(origin: .zero, size: size)
-        context.fill(Path(rect), with: .linearGradient(Gradient(colors: colors), startPoint: .zero, endPoint: CGPoint(x: 0, y: h * 0.7)))
-        if isOvercast {
-            let veil = timeOfDay.isDark ? Color(red: 0.10, green: 0.11, blue: 0.16) : Color(red: 0.62, green: 0.66, blue: 0.72)
-            context.fill(Path(rect), with: .color(veil.opacity(weather == .cloudy ? 0.45 : 0.6)))
+    }
+
+    /// The grey that cloud lays over the whole sky, if there is cloud.
+    static func skyVeil(timeOfDay: WorldTimeOfDay, weather: WorldWeather?) -> (color: (Double, Double, Double), opacity: Double)? {
+        guard weather == .cloudy || weather == .rain || weather == .snow else { return nil }
+        let color = timeOfDay.isDark ? (0.10, 0.11, 0.16) : (0.62, 0.66, 0.72)
+        return (color, weather == .cloudy ? 0.45 : 0.6)
+    }
+
+    private mutating func sky() {
+        let bands = Self.skyBands(timeOfDay)
+        let locations = [0.0, 0.40, 0.75, 1.0]
+        let gradient = Gradient(stops: zip(bands, locations).map { band, location in
+            .init(color: Color(red: band.0, green: band.1, blue: band.2), location: location)
+        })
+        // Above the world the gradient holds its top colour, so headroom is seamless.
+        let rect = CGRect(x: 0, y: -headroom, width: w, height: h + headroom)
+        context.fill(Path(rect), with: .linearGradient(gradient, startPoint: .zero, endPoint: CGPoint(x: 0, y: h * 0.64)))
+        if let veil = Self.skyVeil(timeOfDay: timeOfDay, weather: weather) {
+            let color = Color(red: veil.color.0, green: veil.color.1, blue: veil.color.2)
+            context.fill(Path(rect), with: .color(color.opacity(veil.opacity)))
         }
     }
 
     private mutating func sunOrMoon() {
         guard !isOvercast else { return }
         if timeOfDay.isDark {
-            for index in 0..<26 {
+            // The same density of stars however much sky there is, up to a point.
+            let starry = h * 0.5 + headroom
+            for index in 0..<Int(26 * min(3, starry / (h * 0.5))) {
                 let twinkle = 0.45 + 0.55 * abs(sin(time * (0.6 + scatter(index, 3)) + Double(index)))
-                let star = CGRect(
-                    x: w * scatter(index, 1),
-                    y: h * 0.5 * scatter(index, 2),
-                    width: 1.6 + scatter(index, 4) * 1.4,
-                    height: 1.6 + scatter(index, 4) * 1.4
-                )
+                let across = (1.6 + scatter(index, 4) * 1.4) * unit
+                let star = CGRect(x: w * scatter(index, 1), y: starry * scatter(index, 2) - headroom, width: across, height: across)
                 context.fill(Path(ellipseIn: star), with: .color(.white.opacity(0.85 * twinkle)))
             }
             let centre = point(0.80, 0.17)
             let radius = w * 0.055
-            context.fill(
-                Path(ellipseIn: CGRect(x: centre.x - radius * 2.6, y: centre.y - radius * 2.6, width: radius * 5.2, height: radius * 5.2)),
-                with: .radialGradient(Gradient(colors: [.white.opacity(0.22), .clear]), center: centre, startRadius: radius, endRadius: radius * 2.6)
-            )
-            context.fill(Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2)), with: .color(Color(red: 0.96, green: 0.95, blue: 0.86)))
+            let moonlight = Color(red: 0.86, green: 0.90, blue: 1.0)
+            glow(at: centre, radius: radius * 6, color: moonlight, strength: 0.30)
+            glow(at: centre, radius: radius * 2.4, color: moonlight, strength: 0.45)
+            softDisc(at: centre, radius: radius, color: Color(red: 0.97, green: 0.96, blue: 0.88))
             return
         }
         let height: Double = timeOfDay == .day ? 0.16 : 0.40
         let centre = point(timeOfDay == .dawn ? 0.22 : 0.80, height)
         let radius = w * 0.06
         let warm = timeOfDay == .day ? Color(red: 1.0, green: 0.93, blue: 0.62) : Color(red: 1.0, green: 0.78, blue: 0.52)
-        context.fill(
-            Path(ellipseIn: CGRect(x: centre.x - radius * 3, y: centre.y - radius * 3, width: radius * 6, height: radius * 6)),
-            with: .radialGradient(Gradient(colors: [warm.opacity(0.5), .clear]), center: centre, startRadius: radius * 0.8, endRadius: radius * 3)
-        )
-        context.fill(Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2)), with: .color(warm))
+        glow(at: centre, radius: radius * 6, color: warm, strength: 0.35)
+        glow(at: centre, radius: radius * 2.2, color: warm, strength: 0.55)
+        softDisc(at: centre, radius: radius, color: warm)
     }
 
     private mutating func clouds() {
@@ -219,29 +314,26 @@ private struct WorldPainter {
 
     // MARK: Land and water
 
-    private mutating func hills() {
-        func ridge(base: Double, swell: Double, phase: Double) -> Path {
-            var path = Path()
-            path.move(to: CGPoint(x: 0, y: h))
-            for step in 0...24 {
-                let x = Double(step) / 24
-                let y = base - swell * (sin(x * 3.1 + phase) * 0.6 + sin(x * 7.3 + phase * 2) * 0.25 + 0.5)
-                path.addLine(to: point(x, y))
-            }
-            path.addLine(to: CGPoint(x: w, y: h))
-            path.closeSubpath()
-            return path
+    /// One line of hills. Runs a little past both edges, so the drift never shows a gap.
+    private mutating func ridge(base: Double, swell: Double, phase: Double, color: Color) {
+        var path = Path()
+        path.move(to: point(-0.05, 1))
+        for step in 0...26 {
+            let x = -0.05 + 1.1 * Double(step) / 26
+            let y = base - swell * (sin(x * 3.1 + phase) * 0.6 + sin(x * 7.3 + phase * 2) * 0.25 + 0.5)
+            path.addLine(to: point(x, y))
         }
-        context.fill(ridge(base: 0.60, swell: 0.12, phase: 0.4), with: .color(tone(0.55, 0.74, 0.70, living: false)))
-        context.fill(ridge(base: 0.64, swell: 0.08, phase: 2.1), with: .color(tone(0.44, 0.68, 0.56)))
+        path.addLine(to: point(1.05, 1))
+        path.closeSubpath()
+        context.fill(path, with: .color(color))
     }
 
     private mutating func bank() {
         var path = Path()
-        path.move(to: CGPoint(x: 0, y: h))
-        path.addLine(to: point(0, 0.66))
-        path.addCurve(to: point(1, 0.64), control1: point(0.3, 0.60), control2: point(0.7, 0.68))
-        path.addLine(to: CGPoint(x: w, y: h))
+        path.move(to: CGPoint(x: -w * 0.05, y: h + footroom))
+        path.addLine(to: point(-0.05, 0.665))
+        path.addCurve(to: point(1.05, 0.64), control1: point(0.3, 0.60), control2: point(0.7, 0.68))
+        path.addLine(to: CGPoint(x: w * 1.05, y: h + footroom))
         path.closeSubpath()
         context.fill(path, with: .linearGradient(
             Gradient(colors: [tone(0.42, 0.72, 0.38), tone(0.30, 0.58, 0.30)]),
@@ -251,35 +343,112 @@ private struct WorldPainter {
     }
 
     private var pondCentre: CGPoint { point(0.5, 0.83) }
+    /// The water's typical reach, before the inlet and the wobble reshape it by angle.
     private var pondRadii: CGSize { CGSize(width: w * 0.40, height: h * 0.115) }
-    /// The water drops as the world dries, and leaves its muddy rim showing.
+    /// The water drops as the world dries, and leaves more of the basin showing round it.
     private var waterLevel: Double { 0.70 + 0.30 * vitality }
 
-    private func pondEllipse(scale: Double) -> CGRect {
-        CGRect(
-            x: pondCentre.x - pondRadii.width * scale,
-            y: pondCentre.y - pondRadii.height * scale,
-            width: pondRadii.width * 2 * scale,
-            height: pondRadii.height * 2 * scale
+    /// Where the water opens onto the edge of the frame, and how it's shaped around
+    /// that: named so `koi()` can steer clear of it, too.
+    private static let inletAngle: Double = 3.02
+    /// Kept narrow on purpose. The window must stay inside the west half of the circle
+    /// (pi/2 to 3pi/2) for `waterOutline`'s x-clamp to stay a simple polygon, and the
+    /// glints (up to 0.85pi) and the paper boat (from 3.4) sit just outside it by their
+    /// own fixed angles, not derived from these. Widen it and check both.
+    private static let inletHalfWidth: Double = 0.35
+    /// Enough to carry the inlet past the frame at full reach on every canvas width;
+    /// `waterOutline` clamps the overshoot, so a little extra costs nothing.
+    private static let inletBoostX: Double = 0.8
+    private static let inletBoostY: Double = 0.55
+
+    /// The water's reach at a given angle: a couple of long, low harmonics so the edge
+    /// reads as an irregular pool rather than a drawn ellipse, plus one wide opening to
+    /// the west -- eased in and out with a smoothstep -- where it reaches past the frame
+    /// instead of closing into a shape. One function, so the fill, the glints and every
+    /// reed, pad and stone anchored in `onWater` all agree on the same edge.
+    private func waterRadius(angle: Double) -> (rx: CGFloat, ry: CGFloat) {
+        // Whole-number frequencies only, so the edge meets itself where the outline
+        // closes: a fractional one left a hard step on the east side where the radius at
+        // 0 and at 2pi disagreed. One broad sway and a smaller second one read as a single
+        // natural asymmetry rather than a scalloped edge.
+        let wobble = 1 + 0.10 * sin(angle + 0.7) + 0.04 * sin(2 * angle - 0.4)
+        let eased = inletWeight(angle: angle)
+        return (
+            rx: pondRadii.width * wobble * (1 + Self.inletBoostX * eased),
+            ry: pondRadii.height * wobble * (1 + Self.inletBoostY * eased)
         )
+    }
+
+    /// How far into the inlet an angle is: 0 outside the window, easing up to 1 at its
+    /// middle with a smoothstep.
+    private func inletWeight(angle: Double) -> Double {
+        let toInlet = angle - Self.inletAngle
+        let wrapped = atan2(sin(toInlet), cos(toInlet))
+        let taper = max(0, 1 - abs(wrapped) / Self.inletHalfWidth)
+        return taper * taper * (3 - 2 * taper)
     }
 
     /// A point on the water, by angle and by how far out from the middle.
     private func onWater(angle: Double, reach: Double) -> CGPoint {
-        CGPoint(
-            x: pondCentre.x + cos(angle) * pondRadii.width * waterLevel * reach,
-            y: pondCentre.y + sin(angle) * pondRadii.height * waterLevel * reach
+        let r = waterRadius(angle: angle)
+        return CGPoint(
+            x: pondCentre.x + cos(angle) * r.rx * waterLevel * reach,
+            y: pondCentre.y + sin(angle) * r.ry * waterLevel * reach
         )
     }
 
+    /// The water's own outline, at `scale` of its typical reach -- 1.0 for the basin,
+    /// `waterLevel` for the water itself.
+    ///
+    /// With `keepsInletReach`, the inlet holds its full reach whatever the scale and gets
+    /// narrower instead: a dry world's water still runs off the frame as a thin channel
+    /// rather than drawing back into a closed pool, which is the one state where a
+    /// boundary reappearing would matter most.
+    private func waterOutline(scale: Double, keepsInletReach: Bool = false) -> Path {
+        var path = Path()
+        let steps = 96
+        for step in 0...steps {
+            let t = Double(step) / Double(steps) * 2 * Double.pi
+            let r = waterRadius(angle: t)
+            let inlet = keepsInletReach ? inletWeight(angle: t) : 0
+            let reach = scale + (1 - scale) * inlet
+            let breadth = scale * (1 - (1 - scale) * inlet)
+            // Held to just past the frame: anything further is clipped anyway, and an
+            // earlier, larger inlet silently failed to render at all -- no crash, no
+            // artifact, the fill just stopped short -- when the spike ran far off-canvas.
+            let x = min(w * 1.15, max(-w * 0.15, pondCentre.x + cos(t) * r.rx * reach))
+            let vertex = CGPoint(x: x, y: pondCentre.y + sin(t) * r.ry * breadth)
+            if step == 0 { path.move(to: vertex) } else { path.addLine(to: vertex) }
+        }
+        path.closeSubpath()
+        return path
+    }
+
     private mutating func pond() {
-        context.fill(Path(ellipseIn: pondEllipse(scale: 1.04)), with: .color(tone(0.47, 0.37, 0.26, living: false)))
-        let water = pondEllipse(scale: waterLevel)
-        context.fill(Path(ellipseIn: water), with: .linearGradient(
+        // Damp ground, blending into grass rather than stopping at a drawn edge:
+        // several copies of the basin's full extent, each a little larger and fainter
+        // than the last, the way `glow` feathers a light instead of drawing a circle.
+        // Stays at full size regardless of vitality, so the water drops within it.
+        // Many close, lightly-stepped layers rather than a few -- three shapes read as
+        // rings; enough of them, easing in toward the water, reads as a blend.
+        let mud = tone(0.40, 0.30, 0.20, living: false)
+        // Night darkens the mud nearly to black, and at full strength it read as a ring
+        // round the water; lighter at night, it's damp ground again.
+        let strength = timeOfDay.isDark ? 0.30 : 0.55
+        let layers = 10
+        for step in 0..<layers {
+            let t = Double(step) / Double(layers - 1) // 0 (outermost) ... 1 (innermost)
+            let scale = 1.20 - 0.22 * t
+            let opacity = strength * (t * t)
+            context.fill(waterOutline(scale: scale), with: .color(mud.opacity(opacity)))
+        }
+        let water = waterOutline(scale: waterLevel, keepsInletReach: true)
+        context.fill(water, with: .linearGradient(
             Gradient(colors: [tone(0.40, 0.74, 0.93, living: false), tone(0.16, 0.50, 0.84, living: false)]),
-            startPoint: CGPoint(x: water.midX, y: water.minY),
-            endPoint: CGPoint(x: water.midX, y: water.maxY)
+            startPoint: CGPoint(x: pondCentre.x, y: pondCentre.y - h * 0.115),
+            endPoint: CGPoint(x: pondCentre.x, y: pondCentre.y + h * 0.115)
         ))
+
         // A few slow glints, so the water is never quite still.
         for index in 0..<4 {
             let sweep = (time * 0.05 + scatter(index, 11)).truncatingRemainder(dividingBy: 1)
@@ -288,7 +457,7 @@ private struct WorldPainter {
             var glint = Path()
             glint.move(to: CGPoint(x: centre.x - length / 2, y: centre.y))
             glint.addQuadCurve(to: CGPoint(x: centre.x + length / 2, y: centre.y), control: CGPoint(x: centre.x, y: centre.y - 2))
-            context.stroke(glint, with: .color(.white.opacity(0.35 * sin(sweep * .pi))), style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
+            context.stroke(glint, with: .color(.white.opacity(0.35 * sin(sweep * .pi))), style: StrokeStyle(lineWidth: 1.4 * unit, lineCap: .round))
         }
     }
 
@@ -320,7 +489,7 @@ private struct WorldPainter {
     private mutating func sprout() {
         let base = point(0.22, 0.72)
         let height = h * 0.085
-        let top = stem(from: base, height: height, sway: 0.3, color: tone(0.30, 0.62, 0.26), width: 2.2)
+        let top = stem(from: base, height: height, sway: 0.3, color: tone(0.30, 0.62, 0.26), width: 2.2 * unit)
         let hang = droop * 0.9
         context.fill(leaf(at: top, length: height * 0.62, angle: -.pi * 0.80 + hang), with: .color(tone(0.45, 0.80, 0.32)))
         context.fill(leaf(at: top, length: height * 0.62, angle: -.pi * 0.20 - hang), with: .color(tone(0.40, 0.76, 0.30)))
@@ -330,10 +499,10 @@ private struct WorldPainter {
         for index in 0..<6 {
             let base = onWater(angle: -0.25 + 0.16 * Double(index), reach: 1.02 / waterLevel * 0.98)
             let height = h * (0.16 + 0.07 * scatter(index, 21))
-            let top = stem(from: base, height: height, sway: Double(index) * 1.7, color: tone(0.36, 0.58, 0.26), width: 1.8)
+            let top = stem(from: base, height: height, sway: Double(index) * 1.7, color: tone(0.36, 0.58, 0.26), width: 1.8 * unit)
             guard index % 2 == 0 else { continue }
-            let head = CGRect(x: top.x - 2.2, y: top.y - h * 0.035, width: 4.4, height: h * 0.05)
-            context.fill(Path(roundedRect: head, cornerRadius: 2.2), with: .color(tone(0.45, 0.30, 0.18, living: false)))
+            let head = CGRect(x: top.x - 2.2 * unit, y: top.y - h * 0.035, width: 4.4 * unit, height: h * 0.05)
+            context.fill(Path(roundedRect: head, cornerRadius: 2.2 * unit), with: .color(tone(0.45, 0.30, 0.18, living: false)))
         }
     }
 
@@ -366,12 +535,15 @@ private struct WorldPainter {
     private mutating func flowers() {
         let petals: [(Double, Double, Double)] = [(0.96, 0.45, 0.55), (0.99, 0.80, 0.30), (0.72, 0.55, 0.95), (0.98, 0.98, 0.98), (0.98, 0.58, 0.36)]
         // All on the bank: every one of these is outside the pond's rim.
-        let beds: [(Double, Double)] = [(0.04, 0.80), (0.08, 0.91), (0.20, 0.95), (0.80, 0.96), (0.93, 0.91), (0.97, 0.80), (0.66, 0.985)]
+                // (0.04, 0.80) used to sit on the bank beside the pond's old rim; the inlet's
+        // mouth now opens through about that height, so it moved down next to its
+        // neighbour, clear of the water.
+        let beds: [(Double, Double)] = [(0.02, 0.94), (0.08, 0.91), (0.20, 0.95), (0.80, 0.96), (0.93, 0.91), (0.97, 0.80), (0.66, 0.985)]
         for (index, bed) in beds.enumerated() {
             let height = h * (0.060 + 0.030 * scatter(index, 31))
-            let top = stem(from: point(bed.0, bed.1), height: height, sway: Double(index) * 2.3, color: tone(0.32, 0.60, 0.28), width: 1.6)
+            let top = stem(from: point(bed.0, bed.1), height: height, sway: Double(index) * 2.3, color: tone(0.32, 0.60, 0.28), width: 1.6 * unit)
             let colour = petals[index % petals.count]
-            let radius = 3.0 + 1.5 * scatter(index, 32)
+            let radius = (3.0 + 1.5 * scatter(index, 32)) * unit
             for petal in 0..<5 {
                 let angle = Double(petal) / 5 * 2 * .pi + Double(index)
                 let rect = CGRect(x: top.x + cos(angle) * radius - radius * 0.7, y: top.y + sin(angle) * radius - radius * 0.7, width: radius * 1.4, height: radius * 1.4)
@@ -422,10 +594,18 @@ private struct WorldPainter {
         }
     }
 
+    /// The long way round the pond, clear of the inlet on the west side.
+    private static let koiArcStart = inletAngle + inletHalfWidth + 0.3
+    private static let koiArcEnd = inletAngle - inletHalfWidth - 0.3 + 2 * Double.pi
+
     private mutating func koi() {
-        let angle = time * 0.22
+        // Back and forth along a wide arc rather than a full loop, so it never swims
+        // out through the inlet.
+        let sweep = (sin(time * 0.11) + 1) / 2
+        let angle = Self.koiArcStart + (Self.koiArcEnd - Self.koiArcStart) * sweep
         let body = onWater(angle: angle, reach: 0.55)
-        let heading = atan2(cos(angle) * Double(pondRadii.height), -sin(angle) * Double(pondRadii.width))
+        let r = waterRadius(angle: angle)
+        let heading = atan2(cos(angle) * Double(r.ry), -sin(angle) * Double(r.rx))
         var fish = Path()
         fish.addEllipse(in: CGRect(x: -w * 0.030, y: -h * 0.010, width: w * 0.060, height: h * 0.020))
         fish.move(to: CGPoint(x: -w * 0.028, y: 0))
@@ -444,13 +624,10 @@ private struct WorldPainter {
                 let phase = Double(index) * 1.9
                 let x = 0.12 + 0.76 * scatter(index, 51) + sin(time * 0.35 + phase) * 0.05
                 let y = 0.40 + 0.34 * scatter(index, 52) + cos(time * 0.28 + phase) * 0.04
-                let glow = 0.35 + 0.65 * abs(sin(time * 1.3 + phase))
+                let brightness = 0.35 + 0.65 * abs(sin(time * 1.3 + phase))
                 let centre = point(x, y)
-                context.fill(
-                    Path(ellipseIn: CGRect(x: centre.x - 9, y: centre.y - 9, width: 18, height: 18)),
-                    with: .radialGradient(Gradient(colors: [Color(red: 1, green: 0.95, blue: 0.55).opacity(0.75 * glow), .clear]), center: centre, startRadius: 0, endRadius: 9)
-                )
-                context.fill(Path(ellipseIn: CGRect(x: centre.x - 1.5, y: centre.y - 1.5, width: 3, height: 3)), with: .color(Color(red: 1, green: 0.98, blue: 0.75).opacity(glow)))
+                glow(at: centre, radius: 15 * unit, color: Color(red: 1, green: 0.93, blue: 0.50), strength: 0.95 * brightness)
+                softDisc(at: centre, radius: 1.7 * unit, color: Color(red: 1, green: 0.98, blue: 0.75).opacity(brightness))
             }
             return
         }
@@ -481,10 +658,20 @@ private struct WorldPainter {
         let lit = timeOfDay == .night || timeOfDay == .dusk
         if lit {
             let centre = CGPoint(x: box.midX, y: box.midY)
-            context.fill(
-                Path(ellipseIn: box.insetBy(dx: -w * 0.07, dy: -w * 0.07)),
-                with: .radialGradient(Gradient(colors: [Color(red: 1, green: 0.82, blue: 0.45).opacity(0.55), .clear]), center: centre, startRadius: 2, endRadius: w * 0.09)
+            let flame = Color(red: 1, green: 0.80, blue: 0.42)
+            // The smallest flicker, the way a real flame never quite holds still.
+            let flicker = 0.92 + 0.08 * sin(time * 6.1) * sin(time * 2.3 + 1)
+            // Light spilling onto the grass under it.
+            var pool = context
+            pool.scaleBy(x: 1, y: 0.28)
+            pool.translateBy(x: 0, y: base.y / 0.28 - base.y)
+            let poolCentre = CGPoint(x: base.x, y: base.y)
+            pool.fill(
+                Path(ellipseIn: CGRect(x: poolCentre.x - w * 0.12, y: poolCentre.y - w * 0.12, width: w * 0.24, height: w * 0.24)),
+                with: .radialGradient(Gradient(colors: [flame.opacity(0.45 * flicker), flame.opacity(0)]), center: poolCentre, startRadius: 0, endRadius: w * 0.12)
             )
+            glow(at: centre, radius: w * 0.17, color: flame, strength: 0.65 * flicker)
+            glow(at: centre, radius: w * 0.07, color: flame, strength: 0.80 * flicker)
         }
         context.fill(Path(roundedRect: box, cornerRadius: 3), with: .color(lit ? Color(red: 1, green: 0.86, blue: 0.52) : tone(0.95, 0.90, 0.78, living: false)))
         context.stroke(Path(roundedRect: box, cornerRadius: 3), with: .color(tone(0.30, 0.24, 0.20, living: false)), lineWidth: 1.4)
@@ -618,11 +805,11 @@ private struct WorldPainter {
     private mutating func precipitation() {
         guard weather == .rain || weather == .snow else { return }
         let isSnow = weather == .snow
-        for index in 0..<(isSnow ? 34 : 46) {
+        for index in 0..<Int(Double(isSnow ? 34 : 46) * min(2, 1 + headroom / h)) {
             let speed = isSnow ? 0.10 + 0.06 * scatter(index, 61) : 0.9 + 0.5 * scatter(index, 61)
             let fall = (time * speed + scatter(index, 62)).truncatingRemainder(dividingBy: 1)
             let x = w * scatter(index, 63) + (isSnow ? sin(time + Double(index)) * 6 : -fall * 14)
-            let y = h * fall
+            let y = (h + headroom + footroom) * fall - headroom
             if isSnow {
                 let flake = 2.0 + 2.0 * scatter(index, 64)
                 context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: flake, height: flake)), with: .color(.white.opacity(0.85)))
