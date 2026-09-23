@@ -248,12 +248,20 @@ struct HomeView: View {
                             .padding(Self.pagePadding)
                             .padding(.top, 4)
                             .background(alignment: .top) {
-                                // Frosted, so the world still shows through as the panel slides up
-                                // over it, and carried on down past the last row so overscroll at
-                                // the bottom never shows the scene through a gap.
-                                UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28)
-                                    .fill(.regularMaterial)
-                                    .padding(.bottom, -1000)
+                                // No hard edge, no card shape: the world just gets hazier as you
+                                // scroll into the panel. A short band where the frost ramps in from
+                                // nothing, then solid material the rest of the way down, carried on
+                                // past the last row so overscroll at the bottom never shows a gap.
+                                ZStack(alignment: .top) {
+                                    Rectangle()
+                                        .fill(.regularMaterial)
+                                        .padding(.top, Self.panelFadeHeight)
+                                        .padding(.bottom, -1000)
+                                    Rectangle()
+                                        .fill(.regularMaterial)
+                                        .mask(LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom))
+                                        .frame(height: Self.panelFadeHeight)
+                                }
                             }
                         }
                     }
@@ -601,6 +609,8 @@ struct HomeView: View {
     }
 
     private static let worldHeight: CGFloat = 400
+    /// How gradually the frosted panel fades in over the world, rather than starting flat.
+    private static let panelFadeHeight: CGFloat = 160
 
     private var streakBadge: some View {
         HStack(spacing: 6) {
