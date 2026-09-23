@@ -579,6 +579,15 @@ struct HomeView: View {
     /// The whole screen of world: sky from the very top down to where the header ends,
     /// the world's 400pt below that, lined up with `mascotStage` when Today is scrolled
     /// to the top, and bank the rest of the way down behind the panel.
+    /// `screen.size` here is not the whole screen: this `GeometryReader` sits inside
+    /// `NavigationStack`/`TabView` with nothing above it ignoring the safe area, so what
+    /// it measures is already reduced by both the status bar/Dynamic Island at the top
+    /// and the tab bar (plus any home indicator) at the bottom. Adding both insets back
+    /// undoes exactly that reduction rather than double-counting it — traced against the
+    /// real device height on an iPhone SE (667pt), a notched 13 Pro Max (926pt) and a
+    /// Dynamic Island 17 Pro (874pt): `fullHeight` landed on the true point height of the
+    /// device every time. `worldBackdrop`'s own canvas, in contrast, does ignore the safe
+    /// area, so it always sees the true full height directly.
     private func worldBackdrop(safeTop: CGFloat, fullHeight: CGFloat) -> some View {
         WorldSceneView(
             state: world,

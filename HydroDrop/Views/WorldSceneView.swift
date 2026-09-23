@@ -47,6 +47,10 @@ struct WorldSceneView: View {
     private func canvas(at time: TimeInterval) -> some View {
         Canvas(rendersAsynchronously: false) { context, size in
             let footroom = min(groundBelow, size.height)
+            // `size` here is the true, safe-area-ignoring full height (see the comment on
+            // `HomeView.worldBackdrop`), so this headroom works out to exactly
+            // `safeTop + worldHeaderHeight` — where the header's own bottom edge actually
+            // lands on screen, since `ScrollView` pads its content by the top safe area.
             let headroom = worldHeight.map { max(0, size.height - footroom - $0) } ?? 0
             var context = context
             context.translateBy(x: 0, y: headroom)
