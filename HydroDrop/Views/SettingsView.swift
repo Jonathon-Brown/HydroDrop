@@ -26,10 +26,31 @@ struct SettingsView: View {
             Form {
                 Section {
                     if store.isSubscribed {
-                        Label("HydroDrop+ is active", systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
-                        Button("Manage Subscription") {
-                            Task { await presentManageSubscriptions() }
+                        Label(
+                            store.hasLifetimeAccess ? "HydroDrop+ Lifetime is active" : "HydroDrop+ is active",
+                            systemImage: "checkmark.seal.fill"
+                        )
+                        .foregroundStyle(.green)
+                        // Lifetime has nothing to manage unless a subscription can still
+                        // charge alongside it, including one in billing retry. Everyone
+                        // else might: a subscriber, or an entitlement whose details
+                        // haven't been read yet at launch.
+                        if !store.hasLifetimeAccess || store.subscriptionWillRenew {
+                            Button("Manage Subscription") {
+                                Task {
+                                    await presentManageSubscriptions()
+                                    // Cancelling there creates no transaction, so ask
+                                    // again rather than keep saying "cancel it".
+                                    await store.refreshRenewalState()
+                                }
+                            }
+                        }
+                        if store.hasActiveSubscription && !store.hasLifetimeAccess && lifetimeIsOnSale {
+                            Button {
+                                paywallSource = .switchToLifetime
+                            } label: {
+                                Label("Switch to Lifetime", systemImage: "infinity")
+                            }
                         }
                     } else {
                         Button {
@@ -37,6 +58,10 @@ struct SettingsView: View {
                         } label: {
                             Label("Upgrade to HydroDrop+", systemImage: "sparkles")
                         }
+                    }
+                } footer: {
+                    if store.hasLifetimeAccess && store.subscriptionWillRenew {
+                        Text("Lifetime already includes everything, so you don't need your subscription anymore. Cancel it in Manage Subscription so you aren't charged for it again.")
                     }
                 }
 
@@ -289,6 +314,12 @@ struct SettingsView: View {
                 // backgrounded, and granted back the same way. Rebuilding here means the
                 // schedule matches the permission the user actually left us with.
                 ReminderManager.shared.refreshSchedule()
+                // The "cancel it" footer is only as good as the last renewal read. Ask
+                // again here: a read that failed at launch gets another go, and a
+                // subscription cancelled outside the app is noticed.
+                if store.hasActiveSubscription || store.hasLifetimeAccess {
+                    await store.refreshRenewalState()
+                }
             }
             .sheet(item: $paywallSource) { source in
                 PaywallView(source: source)
@@ -353,12 +384,12 @@ struct SettingsView: View {
             // Same alert the paywall shows for purchase and restore failures. Gated on
             // the entitlement because only the subscribed branch of this screen can set
             // the message (Manage Subscription); the paywall sheet presents its own copy
-            // for the unsubscribed flows, and two views presenting the same error at
-            // once is one too many.
+            // for everything bought through it, including a subscriber's Switch to
+            // Lifetime, and two views presenting the same error at once is one too many.
             .alert(
                 "Something went wrong",
                 isPresented: Binding(
-                    get: { store.isSubscribed && store.lastErrorMessage != nil },
+                    get: { store.isSubscribed && paywallSource == nil && store.lastErrorMessage != nil },
                     set: { if !$0 { store.lastErrorMessage = nil } }
                 )
             ) {
@@ -623,6 +654,18 @@ struct SettingsView: View {
             paywallSource = .settingsLockedSkin
         } else {
             settings.mascotSkin = skin
+        }
+    }
+
+    /// Offer Switch to Lifetime unless the catalog has come back without it (not yet on
+    /// sale, not sold in this storefront, or nothing sold at all), which would make the
+    /// row a dead end. Still loading or failed: offer it, and the sheet retries.
+    private var lifetimeIsOnSale: Bool {
+        switch store.productLoadState {
+        case .loaded, .unavailable:
+            return store.products.contains { $0.id == StoreManager.PlusProductID.lifetime.rawValue }
+        case .idle, .loading, .failed:
+            return true
         }
     }
 

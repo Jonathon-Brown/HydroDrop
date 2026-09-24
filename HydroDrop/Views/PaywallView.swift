@@ -37,6 +37,8 @@ enum PaywallSource: String, CaseIterable, Identifiable {
     case historyBanner = "history-banner"
     case todayEntryPoint = "today-entry-point"
     case streakBreakMessage = "streak-break-message"
+    /// A subscriber's way to lifetime, from Settings. The paywall offers only that.
+    case switchToLifetime = "switch-to-lifetime"
 
     var id: String { rawValue }
 }
@@ -57,8 +59,33 @@ struct PaywallView: View {
         store.products.first { $0.id == StoreManager.PlusProductID.yearly.rawValue }
     }
 
+    private var lifetimeProduct: Product? {
+        store.products.first { $0.id == StoreManager.PlusProductID.lifetime.rawValue }
+    }
+
+    /// A subscriber who tapped Switch to Lifetime. They already have Plus, so the sheet
+    /// sells only the lifetime purchase and closes once that lands.
+    private var isSwitchingToLifetime: Bool { source == .switchToLifetime }
+
+    /// The plans this sheet sells.
+    private var offeredProducts: [Product] {
+        guard isSwitchingToLifetime else { return store.products }
+        return store.products.filter { $0.id == StoreManager.PlusProductID.lifetime.rawValue }
+    }
+
+    /// The plan picked before anyone taps a card.
+    private var defaultProduct: Product? {
+        isSwitchingToLifetime ? lifetimeProduct : yearlyProduct
+    }
+
     private var selectedProduct: Product? {
-        store.products.first { $0.id == selectedProductID } ?? yearlyProduct ?? store.products.first
+        offeredProducts.first { $0.id == selectedProductID } ?? defaultProduct ?? offeredProducts.first
+    }
+
+    /// What this sheet is waiting for. For a subscriber, Plus is already on, so only
+    /// lifetime arriving counts.
+    private var purchaseCompleted: Bool {
+        isSwitchingToLifetime ? store.hasLifetimeAccess : store.isSubscribed
     }
 
     var body: some View {
@@ -68,9 +95,12 @@ struct PaywallView: View {
                     MascotView(progress: 1.15, size: 110)
 
                     VStack(spacing: 6) {
-                        Text("HydroDrop+")
+                        Text(isSwitchingToLifetime ? "HydroDrop+ Lifetime" : "HydroDrop+")
                             .font(.largeTitle.weight(.bold))
-                        Text("Unlock deeper insights and more ways to stay on track.")
+                            .multilineTextAlignment(.center)
+                        Text(isSwitchingToLifetime
+                             ? "Pay once and keep everything in HydroDrop+ for good."
+                             : "Unlock deeper insights and more ways to stay on track.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -85,8 +115,17 @@ struct PaywallView: View {
                         ProgressView()
                             .padding(.vertical, 20)
                     case .loaded:
-                        planPicker
-                        purchaseButton
+                        // Loaded can still leave nothing to sell here: lifetime missing
+                        // from the catalog while the subscriptions came back.
+                        if offeredProducts.isEmpty {
+                            unavailablePlans
+                        } else {
+                            planPicker
+                            if showsSubscriptionNote {
+                                subscriptionNote
+                            }
+                            purchaseButton
+                        }
                     case .unavailable, .failed:
                         unavailablePlans
                     }
@@ -116,8 +155,8 @@ struct PaywallView: View {
             .task {
                 if store.productLoadState != .loaded { await loadPlans() }
             }
-            .onChange(of: store.isSubscribed) { _, subscribed in
-                if subscribed { dismiss() }
+            .onChange(of: purchaseCompleted) { _, completed in
+                if completed { dismiss() }
             }
             .alert(
                 "Something went wrong",
@@ -135,9 +174,9 @@ struct PaywallView: View {
             EventCounter.record(.paywallShown(source))
         }
         // A successful purchase or restore dismisses the sheet by flipping the entitlement,
-        // so reaching here still unsubscribed means the user closed it (Close or swipe).
+        // so reaching here without it means the user closed it (Close or swipe).
         .onDisappear {
-            if !store.isSubscribed {
+            if !purchaseCompleted {
                 EventCounter.record(.paywallDismissedWithoutPurchase)
             }
         }
@@ -198,33 +237,63 @@ struct PaywallView: View {
 
     private var planPicker: some View {
         HStack(spacing: 12) {
-            ForEach(store.products, id: \.id) { product in
+            ForEach(offeredProducts, id: \.id) { product in
                 planCard(for: product)
             }
         }
     }
 
+    /// Lifetime is about to be bought by someone who also has a subscription: an active
+    /// one, or one in billing retry that has dropped out of the active list but can
+    /// still charge.
+    private var showsSubscriptionNote: Bool {
+        selectedProduct?.id == StoreManager.PlusProductID.lifetime.rawValue
+            && (store.hasActiveSubscription || store.subscriptionWillRenew)
+    }
+
+    /// Buying lifetime can't cancel a subscription; only the subscriber can, in their
+    /// Apple Account. Nor does it refund one. Both are said before they pay, not
+    /// discovered on the next bill.
+    private var subscriptionNote: some View {
+        Label {
+            Text(store.subscriptionWillRenew
+                 ? "Lifetime doesn't cancel your subscription. After you buy it, go to Settings in HydroDrop and tap Manage Subscription to cancel, so you aren't charged again. Buying Lifetime doesn't refund time you've already paid for."
+                 : "Your subscription is already set to end, so there's nothing to cancel. Buying Lifetime doesn't refund time you've already paid for.")
+        } icon: {
+            Image(systemName: "info.circle")
+        }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
+    }
+
     private func planCard(for product: Product) -> some View {
         let isYearly = product.id == StoreManager.PlusProductID.yearly.rawValue
-        let isSelected = selectedProductID == product.id
+        let isLifetime = product.id == StoreManager.PlusProductID.lifetime.rawValue
+        // Matches what the button will buy, including the default before any tap.
+        let isSelected = selectedProduct?.id == product.id
 
         return Button {
             selectedProductID = product.id
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 if isYearly {
-                    Text("BEST VALUE")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.orange))
+                    planBadge("BEST VALUE", color: .orange)
+                } else if isLifetime {
+                    planBadge("PAY ONCE", color: .blue)
                 }
-                Text(isYearly ? "Yearly" : "Monthly")
+                // Three cards share a 375pt-wide screen, so text shrinks rather than wraps.
+                Text(isLifetime ? "Lifetime" : (isYearly ? "Yearly" : "Monthly"))
                     .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Text(product.displayPrice)
                     .font(.title2.weight(.bold))
-                Text(isYearly ? "per year" : "per month")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(isLifetime ? "once" : (isYearly ? "per year" : "per month"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -242,17 +311,32 @@ struct PaywallView: View {
         .buttonStyle(.plain)
     }
 
+    private func planBadge(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(color))
+    }
+
     /// Shown when the fetch resolved but there's nothing purchasable to show. The sheet stays
     /// usable — Restore Purchases and Close are still right below — instead of trapping the
     /// user behind a spinner.
     private var unavailablePlans: some View {
         VStack(spacing: 10) {
-            Image(systemName: "wifi.exclamationmark")
+            Image(systemName: store.productLoadState == .loaded ? "exclamationmark.circle" : "wifi.exclamationmark")
                 .font(.title2)
                 .foregroundStyle(.secondary)
-            Text("Subscription options unavailable")
+            Text(isSwitchingToLifetime ? "Lifetime isn't available right now" : "Subscription options unavailable")
                 .font(.subheadline.weight(.semibold))
-            Text("We couldn't load HydroDrop+ plans right now. Check your connection and try again.")
+            // The catalog loaded but left lifetime out: not a connection problem, so
+            // don't send them to check one.
+            Text(store.productLoadState == .loaded
+                 ? "It can't be bought at the moment. Your subscription isn't affected."
+                 : "We couldn't load HydroDrop+ plans right now. Check your connection and try again.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -277,7 +361,14 @@ struct PaywallView: View {
 
     private func loadPlans() async {
         await store.loadProducts()
-        if selectedProductID == nil { selectedProductID = yearlyProduct?.id }
+        if selectedProductID == nil { selectedProductID = defaultProduct?.id }
+    }
+
+    private var purchaseButtonLabel: String {
+        guard let selectedProduct else { return "Subscribe" }
+        let verb = selectedProduct.id == StoreManager.PlusProductID.lifetime.rawValue
+            ? "Get Lifetime Access" : "Subscribe"
+        return "\(verb) — \(selectedProduct.displayPrice)"
     }
 
     private var purchaseButton: some View {
@@ -298,7 +389,7 @@ struct PaywallView: View {
                     .frame(maxWidth: .infinity)
                     .padding()
             } else {
-                Text(selectedProduct.map { "Subscribe — \($0.displayPrice)" } ?? "Subscribe")
+                Text(purchaseButtonLabel)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
