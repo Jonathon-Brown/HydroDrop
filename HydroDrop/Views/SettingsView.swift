@@ -14,8 +14,6 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = StoreManager.shared
-    @ObservedObject private var router = AppRouter.shared
-    @ObservedObject private var duoStore = DuoStore.shared
     @State private var paywallSource: PaywallSource?
     @State private var showingEventCounts = false
     @State private var showingBugReport = false
@@ -87,11 +85,6 @@ struct SettingsView: View {
                             SettingsRowLabel("Apple Health", systemImage: "heart.fill", color: .pink,
                                              value: settings.healthKitSyncEnabled ? "On" : "Off")
                         }
-                    }
-                    NavigationLink {
-                        DuoView()
-                    } label: {
-                        SettingsRowLabel("Duo Streaks", systemImage: "person.2.fill", color: .green)
                     }
                     if BottleTagSession.showsInterface {
                         NavigationLink {
@@ -172,21 +165,6 @@ struct SettingsView: View {
                 Button("OK", role: .cancel) { store.lastErrorMessage = nil }
             } message: {
                 Text(store.lastErrorMessage ?? "")
-            }
-            // Duo Streaks lives in here, and what goes wrong there (a nudge or an invite
-            // that didn't send, a duo that couldn't be left) arrives as a notice. The
-            // root shows those too, but not while this sheet is covering it. Once the
-            // sheet is on its way out, the root takes over.
-            .alert(
-                "Duo Streaks",
-                isPresented: Binding(
-                    get: { duoStore.notice != nil && router.showingSettings && !isPresentingOverSettings },
-                    set: { if !$0 { duoStore.notice = nil } }
-                )
-            ) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(duoStore.notice ?? "")
             }
         }
         // The daily goal, the unit system and the quick-add sizes all appear on the
@@ -326,13 +304,6 @@ struct SettingsView: View {
 
     private var freezesRemaining: Int {
         StreakFreeze.freezesRemaining(frozenDayKeys: settings.frozenStreakDayKeys)
-    }
-
-    /// Something Settings has put on screen over itself. An alert can't present from the
-    /// list while one of these is up, so a Duo notice waits for it to close instead of
-    /// being refused and lost.
-    private var isPresentingOverSettings: Bool {
-        paywallSource != nil || showingBugReport || showingEventCounts || showingIntroReplay
     }
 
     /// Offer Switch to Lifetime unless the catalog has come back without it (not yet on

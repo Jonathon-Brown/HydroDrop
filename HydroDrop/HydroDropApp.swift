@@ -5,9 +5,6 @@ import SwiftData
 struct HydroDropApp: App {
     let container: ModelContainer
     @Environment(\.scenePhase) private var scenePhase
-    /// Here for one reason: an opened duo invite is handed to a scene delegate, and this
-    /// is how a SwiftUI app gets to name one. See `DuoSceneDelegate`.
-    @UIApplicationDelegateAdaptor(DuoAppDelegate.self) private var appDelegate
 
     /// Collapses the duplicates a store migration leaves behind the moment CloudKit
     /// mirrors the legacy rows back down, rather than waiting for the next launch. Held
@@ -28,8 +25,9 @@ struct HydroDropApp: App {
         // Installed before the first scene exists, so a "Log a glass" tap that launches
         // the app in the background is handled rather than dropped.
         NotificationActionHandler.shared.activate(modelContainer: container)
-        // So a duo refresh with nobody looking can still read the log.
-        DuoStore.shared.activate(modelContainer: container)
+        // TestFlight builds 29 to 31 had an iCloud version of Duo Streaks that never
+        // shipped. Clears what it left on a tester's phone; does nothing for anyone else.
+        LegacyDuoCleanup.runOnce()
         ReminderManager.shared.registerCategories()
         // Published before any view appears, so a widget added while the app was
         // uninstalled has something true to draw as soon as the app is opened again.
@@ -110,16 +108,13 @@ struct HydroDropApp: App {
         // foreground republishes the current state so the widget catches up without the
         // user having to log anything.
         .onChange(of: scenePhase) { _, phase in
-            // Silent pushes are throttled, so on the way out a background refresh is
-            // asked for as the net underneath them. A no-op for anyone without a duo.
-            if phase == .background { DuoStore.shared.scheduleBackgroundRefresh() }
             guard phase == .active else { return }
             Self.publishWidgetSnapshot(from: container)
         }
-        .backgroundTask(.appRefresh(DuoStore.backgroundRefreshIdentifier)) {
-            _ = await DuoStore.shared.backgroundRefresh()
-            await DuoStore.shared.scheduleBackgroundRefresh()
-        }
+        // Does nothing on purpose. A tester's phone can still hold a refresh scheduled
+        // by the iCloud Duo in TestFlight builds 29 to 31, and a launch for a task with
+        // no handler is a crash. See `LegacyDuoCleanup.refreshIdentifier`.
+        .backgroundTask(.appRefresh(LegacyDuoCleanup.refreshIdentifier)) {}
     }
 
     /// Populates a week of realistic sample entries for App Store screenshot automation only.
