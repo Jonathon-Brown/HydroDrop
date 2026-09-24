@@ -46,10 +46,15 @@ final class ScreenshotUITests: XCTestCase {
         // The quick adds sit below the world, so tapping them scrolled Today down past
         // its title, streak and Settings gear. Back to the top before the capture.
         let settingsButton = app.buttons["Settings"].firstMatch
-        for _ in 0..<4 where !(settingsButton.exists && settingsButton.isHittable) {
+        var swipes = 0
+        while swipes < 4, !(settingsButton.exists && settingsButton.isHittable) {
             app.scrollViews.firstMatch.swipeDown()
+            swipes += 1
         }
         XCTAssertTrue(settingsButton.isHittable, "Today didn't scroll back up to its header")
+        // Scrolling brings up the scroll indicator down the right edge, which takes a
+        // moment to fade and otherwise ends up in the capture.
+        if swipes > 0 { sleep(2) }
         save(app.screenshot(), name: "01-today")
 
         app.tabBars.buttons["History"].tap()
