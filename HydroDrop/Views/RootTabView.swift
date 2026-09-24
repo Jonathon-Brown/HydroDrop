@@ -105,9 +105,14 @@ struct RootTabView: View {
         .sheet(item: pendingDuoInvite) { invite in
             DuoJoinSheet(invite: invite)
         }
+        // Settings shows this itself while it is up, Duo Streaks being inside it: an
+        // alert raised from underneath a sheet is never seen.
         .alert(
             "Duo Streaks",
-            isPresented: Binding(get: { duoStore.notice != nil }, set: { if !$0 { duoStore.notice = nil } })
+            isPresented: Binding(
+                get: { duoStore.notice != nil && !router.settingsIsOnScreen },
+                set: { if !$0 { duoStore.notice = nil } }
+            )
         ) {
             Button("OK", role: .cancel) {}
         } message: {

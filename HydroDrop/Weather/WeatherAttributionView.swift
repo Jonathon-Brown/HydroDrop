@@ -42,7 +42,7 @@ final class WeatherAttributionStore: ObservableObject {
 /// `legalAttributionText` is the other half, which Apple calls "a legal requirement of
 /// using WeatherKit". It is described as being for apps that cannot open the legal page
 /// in a Safari view, which this app can, so the link alone is arguably enough. It is
-/// shown anyway, in Settings under About: see `WeatherDataSourcesView`.
+/// shown anyway, in Settings under Apple Weather: see `WeatherDataSourcesView`.
 struct WeatherAttributionLink: View {
     @ObservedObject private var store = WeatherAttributionStore.shared
     @Environment(\.colorScheme) private var colorScheme

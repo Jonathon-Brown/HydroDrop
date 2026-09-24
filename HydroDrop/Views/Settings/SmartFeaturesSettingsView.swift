@@ -13,6 +13,8 @@ struct SmartFeaturesSettingsView: View {
     @ObservedObject private var store = StoreManager.shared
     @State private var paywallSource: PaywallSource?
     @State private var showingWeeklyRecap = false
+    /// "See your insights" was tapped in the recap, to be acted on once it has gone.
+    @State private var wantsInsightsAfterRecap = false
     @State private var locationMessage: String?
 
     var body: some View {
@@ -87,8 +89,14 @@ struct SmartFeaturesSettingsView: View {
         .sheet(item: $paywallSource) { source in
             PaywallView(source: source)
         }
-        .sheet(isPresented: $showingWeeklyRecap) {
-            WeeklyRecapView()
+        // Insights is asked for only after the recap has fully closed. The router then
+        // closes Settings, and two sheets dismissed at once can leave one stuck.
+        .sheet(isPresented: $showingWeeklyRecap, onDismiss: {
+            guard wantsInsightsAfterRecap else { return }
+            wantsInsightsAfterRecap = false
+            AppRouter.shared.pendingInsights = true
+        }) {
+            WeeklyRecapView(onSeeInsights: { wantsInsightsAfterRecap = true })
                 .environmentObject(settings)
         }
         .alert(

@@ -1,8 +1,8 @@
 import SwiftUI
 import StoreKit
 
-/// Raw `EventCounter` tallies for this device, reached by long-pressing the Version row
-/// in Settings. Read-only on purpose: it exists so the developer can check their own
+/// Raw `EventCounter` tallies for this device, reached by long-pressing the version at
+/// the foot of Settings. Read-only on purpose: it exists so the developer can check their own
 /// phone, and there is nothing to send or export.
 struct EventCountsView: View {
     @Environment(\.dismiss) private var dismiss
