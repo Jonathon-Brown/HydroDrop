@@ -176,7 +176,7 @@ struct HistoryView: View {
             .toolbar {
                 // Nothing worth sharing until there is a streak to share.
                 if streak > 0 {
-                    ToolbarItem(placement: .primaryAction) {
+                    ToolbarItem(placement: .topBarTrailing) {
                         // Two cards to choose from: the streak on its own, or the droplet
                         // at home in its world.
                         Menu {
@@ -199,6 +199,14 @@ struct HistoryView: View {
                         } label: {
                             Label("Share", systemImage: "square.and.arrow.up")
                         }
+                    }
+                }
+                // Same way into Settings as the gear on Today.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        router.showingSettings = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
                     }
                 }
             }

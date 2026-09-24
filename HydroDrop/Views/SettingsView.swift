@@ -1,290 +1,132 @@
 import SwiftUI
 import SwiftData
 import UIKit
-import UserNotifications
 import StoreKit
 
+/// Settings, opened as a sheet from the gear at the top of Today and History.
+///
+/// One short page of one-line rows, each showing where it currently stands, with the
+/// detail a tap away. Everything used to sit on this page at once: every mascot, every
+/// reminder control and a paragraph under each group, which made the few things people
+/// come here to change hard to find.
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = StoreManager.shared
-    @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var paywallSource: PaywallSource?
     @State private var showingEventCounts = false
     @State private var showingBugReport = false
-    @State private var showingGoalCalculator = false
     @State private var showingIntroReplay = false
-    @State private var editingPreset: PresetSlot?
-    @State private var healthAuthorizationMessage: String?
-    @State private var showingBackfillConfirmation = false
-    @State private var isSyncingHealth = false
-    @State private var showingWeeklyRecap = false
-    @State private var locationMessage: String?
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    if store.isSubscribed {
-                        Label("HydroDrop+ is active", systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
-                        Button("Manage Subscription") {
-                            Task { await presentManageSubscriptions() }
-                        }
-                    } else {
-                        Button {
-                            paywallSource = .settingsRow
-                        } label: {
-                            Label("Upgrade to HydroDrop+", systemImage: "sparkles")
-                        }
-                    }
-                }
+            List {
+                plusSection
 
-                Section("Daily goal") {
-                    GoalStepper(goalML: $settings.dailyGoalML, system: settings.measurementSystem)
-                    Button {
-                        showingGoalCalculator = true
+                Section {
+                    NavigationLink {
+                        GoalSettingsView()
                     } label: {
-                        Label("Calculate for me", systemImage: "wand.and.stars")
+                        SettingsRowLabel("Daily goal", systemImage: "target", color: .blue,
+                                         value: settings.measurementSystem.format(mL: settings.dailyGoalML))
                     }
-                }
-
-                Section {
-                    ForEach(Array(settings.quickAddPresets.enumerated()), id: \.offset) { index, amount in
-                        Button {
-                            editingPreset = PresetSlot(index: index, amountML: amount)
-                        } label: {
-                            HStack {
-                                Image(systemName: "drop.fill")
-                                    .foregroundStyle(.blue)
-                                Text("Button \(index + 1)")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Text(settings.measurementSystem.format(mL: amount))
-                                    .foregroundStyle(.secondary)
-                                Image(systemName: "chevron.right")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .contentShape(Rectangle())
+                    NavigationLink {
+                        ReminderSettingsView()
+                    } label: {
+                        SettingsRowLabel("Reminders", systemImage: "bell.fill", color: .red, value: reminderSummary)
+                    }
+                    NavigationLink {
+                        QuickAddSettingsView()
+                    } label: {
+                        SettingsRowLabel("Quick add", systemImage: "drop.fill", color: .cyan, value: quickAddSummary)
+                    }
+                    Picker(selection: $settings.measurementSystem) {
+                        ForEach(MeasurementSystem.allCases) { system in
+                            Text(system.label).tag(system)
                         }
-                        .buttonStyle(.plain)
+                    } label: {
+                        SettingsRowLabel("Units", systemImage: "ruler.fill", color: .gray)
                     }
-                    if settings.customQuickAddPresetsML != nil {
-                        Button("Use suggested sizes") {
-                            settings.customQuickAddPresetsML = nil
-                        }
-                    }
-                } header: {
-                    Text("Quick add")
-                } footer: {
-                    Text("The three buttons on the Today screen, and the size the Log a glass reminder button adds.")
-                }
-
-                if BottleTagSession.showsInterface {
-                    Section {
-                        NavigationLink {
-                            BottlesView()
-                        } label: {
-                            Label("My Bottles", systemImage: "waterbottle.fill")
-                        }
-                    } footer: {
-                        Text("Put an NFC sticker on a bottle, tap your iPhone to it, and a full bottle is logged.")
-                    }
+                    .pickerStyle(.menu)
                 }
 
                 Section {
                     NavigationLink {
+                        MascotSettingsView()
+                    } label: {
+                        LabeledContent {
+                            Text(settings.activeMascotSkin.label)
+                        } label: {
+                            Label {
+                                Text("Mascot")
+                            } icon: {
+                                // The droplet itself rather than a tile: it is the setting.
+                                MascotView(progress: 1.0, size: 20, skin: settings.activeMascotSkin, isAnimated: false)
+                                    .frame(width: 29, height: 29)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                    }
+                    NavigationLink {
+                        SmartFeaturesSettingsView()
+                    } label: {
+                        SettingsRowLabel("Smart features", systemImage: "sparkles", color: .purple,
+                                         value: store.isSubscribed ? smartFeaturesSummary : nil,
+                                         isLocked: !store.isSubscribed)
+                    }
+                }
+
+                Section {
+                    if HealthKitManager.isAvailable {
+                        NavigationLink {
+                            HealthSettingsView()
+                        } label: {
+                            SettingsRowLabel("Apple Health", systemImage: "heart.fill", color: .pink,
+                                             value: settings.healthKitSyncEnabled ? "On" : "Off")
+                        }
+                    }
+                    NavigationLink {
                         DuoView()
                     } label: {
-                        Label("Duo Streaks", systemImage: "person.2.fill")
+                        SettingsRowLabel("Duo Streaks", systemImage: "person.2.fill", color: .green)
                     }
-                } footer: {
-                    Text("Keep one streak with one other person. It grows on the days you both meet your goal.")
-                }
-
-                Section("Units") {
-                    Picker("Measurement system", selection: $settings.measurementSystem) {
-                        ForEach(MeasurementSystem.allCases) { system in
-                            Text(system.label).tag(system)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                Section {
-                    ForEach(MascotSkin.allCases) { skin in
-                        Button {
-                            selectSkin(skin)
+                    if BottleTagSession.showsInterface {
+                        NavigationLink {
+                            BottlesView()
                         } label: {
-                            HStack(spacing: 12) {
-                                // A still mascot rather than a swatch — the charms are
-                                // half of what separates the skins, and a dot hides them.
-                                MascotView(progress: 1.0, size: 30, skin: skin, isAnimated: false)
-                                    // Decorative here. Left visible it prefixes every
-                                    // row with "Fully hydrated!", which says nothing
-                                    // about the skin being chosen.
-                                    .accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(skin.label)
-                                        .foregroundStyle(.primary)
-                                    Text(skin.tagline)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if settings.activeMascotSkin == skin {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(.tint)
-                                } else if skin.requiresPlus && !store.isSubscribed {
-                                    Image(systemName: "lock.fill")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .contentShape(Rectangle())
+                            SettingsRowLabel("My Bottles", systemImage: "waterbottle.fill", color: .teal)
                         }
-                        // Without this the Form tints the whole row like a link,
-                        // which reads as an action rather than a selection list.
-                        .buttonStyle(.plain)
-                    }
-                } header: {
-                    Text("Mascot")
-                } footer: {
-                    if !store.isSubscribed {
-                        Text("HydroDrop+ unlocks every mascot skin.")
                     }
                 }
 
                 Section {
-                    Toggle("Reminders", isOn: $settings.remindersEnabled)
-                        .onChange(of: settings.remindersEnabled) { _, enabled in
-                            if enabled {
-                                ReminderManager.shared.requestAuthorizationIfNeeded { granted in
-                                    notificationStatus = granted ? .authorized : .denied
-                                }
-                            }
-                        }
-
-                    if settings.remindersEnabled {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Remind me every")
-                            DurationWheelPicker(
-                                totalMinutes: $settings.reminderIntervalMinutes,
-                                range: AppSettings.reminderIntervalRange
-                            )
-                        }
-
-                        DatePicker(
-                            "From",
-                            selection: MinuteOfDay.dateBinding($settings.quietStartMinutes),
-                            displayedComponents: .hourAndMinute
-                        )
-                        DatePicker(
-                            "Until",
-                            selection: MinuteOfDay.dateBinding($settings.quietEndMinutes),
-                            displayedComponents: .hourAndMinute
-                        )
-
-                        if store.isSubscribed {
-                            Toggle("Smart reminders", isOn: $settings.smartRemindersEnabled)
-                        } else {
-                            Button {
-                                paywallSource = .settingsLockedReminder
-                            } label: {
-                                HStack {
-                                    Text("Smart reminders")
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                    Image(systemName: "lock.fill")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-
-                        if settings.wakingWindowIsEmpty {
-                            Label(
-                                "Set an end time that differs from the start time, or reminders can't be scheduled.",
-                                systemImage: "exclamationmark.triangle.fill"
-                            )
-                            .font(.footnote)
-                            .foregroundStyle(.orange)
-                        }
-
-                        if notificationStatus == .denied {
-                            Label("Notifications are disabled in iOS Settings.", systemImage: "exclamationmark.triangle.fill")
-                                .font(.footnote)
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                } header: {
-                    Text("Reminders")
-                } footer: {
-                    if settings.remindersEnabled {
-                        if settings.smartRemindersEnabled && store.isSubscribed {
-                            Text("Nudges every \(intervalLabel) between the times above, skipped whenever you're already ahead of pace for the day.")
-                        } else {
-                            Text("You'll get a nudge every \(intervalLabel) between the times above.")
-                        }
-                    }
-                }
-
-                if store.isSubscribed {
-                    Section {
-                        LabeledContent("Freezes left this month", value: "\(freezesRemaining) of \(StreakFreeze.monthlyAllowance)")
-                    } header: {
-                        Text("Streak freeze")
-                    } footer: {
-                        Text("If you miss a day, a freeze is spent automatically to keep your streak alive.")
-                    }
-                }
-
-                smartSection
-
-                caffeineSection
-
-                if HealthKitManager.isAvailable {
-                    healthSection
-                }
-
-                Section("Support") {
                     Button {
                         showingBugReport = true
                     } label: {
-                        Label("Report a Bug", systemImage: "ladybug.fill")
+                        SettingsRowLabel("Report a Bug", systemImage: "ladybug.fill", color: .orange)
                     }
-                }
-
-                Section("About") {
-                    LabeledContent("App", value: "HydroDrop")
                     Button {
                         showingIntroReplay = true
                     } label: {
-                        Label("Replay intro", systemImage: "play.circle")
+                        SettingsRowLabel("Replay intro", systemImage: "play.fill", color: .indigo)
                     }
                     NavigationLink {
                         WeatherDataSourcesView()
                     } label: {
-                        Label("Apple Weather", systemImage: "cloud.sun")
+                        SettingsRowLabel("Apple Weather", systemImage: "cloud.sun.fill", color: .cyan)
                     }
-                    LabeledContent("Version", value: appVersionLabel)
-                        .contentShape(Rectangle())
-                        // Hidden way into the on-device paywall counts. Does nothing in
-                        // App Store builds; see `EventCountsView.isAvailable`.
-                        .onLongPressGesture(minimumDuration: 1.5) {
-                            Task {
-                                if await EventCountsView.isAvailable {
-                                    showingEventCounts = true
-                                }
-                            }
-                        }
+                } footer: {
+                    versionFooter
                 }
             }
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .task {
-                let current = await UNUserNotificationCenter.current().notificationSettings()
-                notificationStatus = current.authorizationStatus
                 // Permission can be taken away in iOS Settings while the app is
                 // backgrounded, and granted back the same way. Rebuilding here means the
                 // schedule matches the permission the user actually left us with.
@@ -298,51 +140,6 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingBugReport) {
                 BugReportView()
-            }
-            .sheet(isPresented: $showingGoalCalculator) {
-                GoalCalculatorView()
-            }
-            .alert(
-                "Apple Health",
-                isPresented: Binding(
-                    get: { healthAuthorizationMessage != nil },
-                    set: { if !$0 { healthAuthorizationMessage = nil } }
-                )
-            ) {
-                Button("OK", role: .cancel) { healthAuthorizationMessage = nil }
-            } message: {
-                Text(healthAuthorizationMessage ?? "")
-            }
-            .confirmationDialog(
-                "Add your existing drinks to Apple Health?",
-                isPresented: $showingBackfillConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Add them") { backfillHealth() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Every drink you have logged in HydroDrop will be added to Health as dietary water. You can remove them again in the Health app at any time.")
-            }
-            .alert(
-                "Location",
-                isPresented: Binding(
-                    get: { locationMessage != nil },
-                    set: { if !$0 { locationMessage = nil } }
-                )
-            ) {
-                Button("OK", role: .cancel) { locationMessage = nil }
-            } message: {
-                Text(locationMessage ?? "")
-            }
-            .sheet(isPresented: $showingWeeklyRecap) {
-                WeeklyRecapView()
-                    .environmentObject(settings)
-            }
-            .sheet(item: $editingPreset) { slot in
-                QuickAddPresetSheet(slot: slot) { amountML in
-                    settings.setQuickAddPreset(amountML, at: slot.index)
-                }
-                .environmentObject(settings)
             }
             .fullScreenCover(isPresented: $showingIntroReplay) {
                 OnboardingView(mode: .replay) {
@@ -366,14 +163,16 @@ struct SettingsView: View {
             } message: {
                 Text(store.lastErrorMessage ?? "")
             }
-            // The daily goal, the unit system and the quick-add sizes all appear on the
-            // widget, and none of them flow through a store write that would republish
-            // on their own. Republish whenever one changes so the widget matches Settings
-            // immediately rather than at the next logged drink or foreground.
-            .onChange(of: settings.dailyGoalML) { _, _ in republishWidget() }
-            .onChange(of: settings.measurementSystem) { _, _ in republishWidget() }
-            .onChange(of: settings.quickAddPresets) { _, _ in republishWidget() }
         }
+        // The daily goal, the unit system and the quick-add sizes all appear on the
+        // widget, and none of them flow through a store write that would republish
+        // on their own. Republish whenever one changes so the widget matches Settings
+        // immediately rather than at the next logged drink or foreground. Out here,
+        // around the whole stack, so a change made on a page pushed from this one is
+        // caught too.
+        .onChange(of: settings.dailyGoalML) { _, _ in republishWidget() }
+        .onChange(of: settings.measurementSystem) { _, _ in republishWidget() }
+        .onChange(of: settings.quickAddPresets) { _, _ in republishWidget() }
     }
 
     /// Recomputes the widget snapshot from the store after a settings change the widget
@@ -386,245 +185,135 @@ struct SettingsView: View {
         )
     }
 
-    // MARK: - HydroDrop+ smart features
+    // MARK: - HydroDrop+
 
-    /// The three Plus features, each following the pattern the smart-reminders row
-    /// already set: a real control for subscribers, and a locked row that opens the
-    /// paywall for everyone else.
     @ViewBuilder
-    /// Caffeine is HydroDrop+, off until switched on, and shown nowhere until it is.
-    private var caffeineSection: some View {
-        Section {
-            if store.isSubscribed {
-                Toggle("Caffeine tracking", isOn: caffeineToggleBinding)
-                if settings.caffeineTrackingEnabled {
-                    DatePicker(
-                        "No caffeine after",
-                        selection: caffeineCutoffBinding,
-                        displayedComponents: .hourAndMinute
-                    )
+    private var plusSection: some View {
+        if store.isSubscribed {
+            Section {
+                HStack(spacing: 12) {
+                    SettingsIcon(systemName: "checkmark.seal.fill", color: .green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("HydroDrop+ is active")
+                        Text("\(freezesRemaining) of \(StreakFreeze.monthlyAllowance) streak freezes left this month")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-            } else {
-                lockedRow("Caffeine tracking")
-            }
-        } header: {
-            Text("Caffeine")
-        } footer: {
-            Text("Shows today's caffeine on Today, with a gentle note if a drink lands after the time you pick. The figures are typical ones, not a lab result.")
-        }
-    }
-
-    /// Turning it on is the one moment Health is asked about caffeine, and only if
-    /// Health sync is already on. A no is fine: the total still shows in HydroDrop, and
-    /// nothing is written to Health.
-    private var caffeineToggleBinding: Binding<Bool> {
-        Binding(
-            get: { settings.caffeineTrackingEnabled },
-            set: { isOn in
-                settings.caffeineTrackingEnabled = isOn
-                guard isOn, settings.healthKitSyncEnabled else { return }
-                Task { @MainActor in
-                    _ = await HealthKitManager.shared.requestAuthorization(includingCaffeine: true)
-                    await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
+                .accessibilityElement(children: .combine)
+                Button("Manage Subscription") {
+                    Task { await presentManageSubscriptions() }
                 }
+            } footer: {
+                Text("If you miss a day, a freeze is spent automatically to keep your streak alive.")
             }
-        )
-    }
-
-    private var caffeineCutoffBinding: Binding<Date> {
-        Binding(
-            get: {
-                let minutes = settings.caffeineCutoffMinutes
-                return Calendar.current.date(
-                    bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: Date()
-                ) ?? Date()
-            },
-            set: { date in
-                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
-                settings.caffeineCutoffMinutes = (parts.hour ?? 14) * 60 + (parts.minute ?? 0)
-            }
-        )
-    }
-
-    private var smartSection: some View {
-        Section {
-            if store.isSubscribed {
-                Toggle("Weekly recap", isOn: $settings.weeklyRecapEnabled)
+        } else {
+            Section {
                 Button {
-                    showingWeeklyRecap = true
+                    paywallSource = .settingsRow
                 } label: {
-                    Label("See this week's recap", systemImage: "calendar")
+                    upgradeCard
                 }
-
-                Toggle("Hot day suggestions", isOn: weatherToggleBinding)
-
-                // Rests on Health access, which is only ever asked for from Insights.
-                Toggle("Workout suggestions", isOn: $settings.workoutGoalEnabled)
-                    .disabled(!HealthInsightsReader.isConnected)
-
-                Toggle("Live Activity", isOn: $settings.liveActivityEnabled)
-            } else {
-                lockedRow("Weekly recap")
-                lockedRow("Hot day suggestions")
-                lockedRow("Workout suggestions")
-                lockedRow("Live Activity")
+                .accessibilityLabel("Upgrade to HydroDrop+")
+                .accessibilityHint("No ads, every mascot, smart reminders and more.")
+                .listRowBackground(
+                    LinearGradient(
+                        colors: [Color(red: 0.18, green: 0.56, blue: 0.93), Color(red: 0.12, green: 0.74, blue: 0.86)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
             }
-        } header: {
-            Text("Smart features")
-        } footer: {
-            Text(smartFooter)
         }
     }
 
-    private var smartFooter: String {
-        guard store.isSubscribed else {
-            return "HydroDrop+ adds a Sunday recap of your week, a suggestion to drink more on hot days, and today's progress on your Lock Screen."
-        }
-        let workouts = HealthInsightsReader.isConnected
-            ? "Workout suggestions, off until you turn them on, offer extra water on a day you exercised for 20 minutes or more."
-            : "Workout suggestions need Apple Health, which you connect from Insights, in History."
-        return "The recap arrives on Sunday evening. Hot day suggestions use your location to check the weather. \(workouts) Both only ever offer extra water for that day; your saved goal and your streak never change on their own. The Live Activity starts with your first drink and ends when you reach your goal."
-    }
-
-    private func lockedRow(_ title: String) -> some View {
-        Button {
-            paywallSource = .settingsLockedSmartFeature
-        } label: {
-            HStack {
-                Text(title)
-                    .foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: "lock.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Turning hot day suggestions on asks for location first and only commits once
-    /// permission is granted, for the same reason the Health toggle does.
-    private var weatherToggleBinding: Binding<Bool> {
-        Binding(
-            get: { settings.weatherGoalEnabled },
-            set: { wantsOn in
-                guard wantsOn else {
-                    settings.weatherGoalEnabled = false
-                    return
-                }
-                Task { @MainActor in
-                    switch await WeatherGoalAdvisor.shared.requestLocationAccess() {
-                    case .granted:
-                        settings.weatherGoalEnabled = true
-                    case .denied:
-                        settings.weatherGoalEnabled = false
-                        locationMessage = "HydroDrop needs your location to check the weather where you are. You can allow it in iOS Settings, under Privacy and Security, Location Services, HydroDrop."
-                    case .failed(let reason):
-                        settings.weatherGoalEnabled = false
-                        locationMessage = reason
-                    }
+    /// The paid skins, fanned out, on the app's own blue: the most visible thing Plus
+    /// changes is the droplet, so the way in shows it.
+    private var upgradeCard: some View {
+        HStack(spacing: 14) {
+            HStack(spacing: -12) {
+                ForEach(MascotSkin.allCases.filter(\.requiresPlus).prefix(3)) { skin in
+                    MascotView(progress: 1.0, size: 26, skin: skin, isAnimated: false)
                 }
             }
-        )
-    }
-
-    // MARK: - Apple Health
-
-    @ViewBuilder
-    private var healthSection: some View {
-        Section {
-            Toggle("Sync to Apple Health", isOn: healthToggleBinding)
-
-            if settings.healthKitSyncEnabled {
-                if settings.hasBackfilledHealth {
-                    Label("Your earlier drinks have been added.", systemImage: "checkmark.circle")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button {
-                        showingBackfillConfirmation = true
-                    } label: {
-                        Label("Add past drinks to Health", systemImage: "clock.arrow.circlepath")
-                    }
-                    .disabled(isSyncingHealth)
-                }
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Upgrade to HydroDrop+")
+                    .font(.headline)
+                Text("No ads, every mascot, smart reminders and more.")
+                    .font(.subheadline)
+                    .opacity(0.85)
             }
-        } header: {
-            Text("Apple Health")
-        } footer: {
-            Text(healthFooter)
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .opacity(0.7)
         }
+        .foregroundStyle(.white)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
 
-    private var healthFooter: String {
-        if settings.healthKitSyncEnabled {
-            return "New drinks are added to Health as dietary water, using the amount HydroDrop counts, so a coffee adds what it actually hydrates. Deleting or editing a drink here updates Health too. Turning this off leaves whatever is already there in place. HydroDrop reads from Health only if you connect Insights, in History."
-        }
-        return "Off by default. When on, the drinks you log are added to Health as dietary water. This only writes. HydroDrop reads from Health only if you connect Insights, in History, and nothing is sent to us either way."
+    // MARK: - Row summaries
+
+    private var reminderSummary: String {
+        settings.remindersEnabled ? "Every \(DurationLabel.label(minutes: settings.reminderIntervalMinutes))" : "Off"
     }
 
-    /// Turning the toggle on asks Health for permission first, and only commits the
-    /// setting once permission is actually granted. Flipping a switch that then does
-    /// nothing is worse than the switch refusing to move.
-    private var healthToggleBinding: Binding<Bool> {
-        Binding(
-            get: { settings.healthKitSyncEnabled },
-            set: { wantsOn in
-                if wantsOn {
-                    enableHealthSync()
-                } else {
-                    settings.healthKitSyncEnabled = false
-                }
-            }
-        )
+    /// "200 · 330 · 500 mL": the three sizes, with the unit said once.
+    private var quickAddSummary: String {
+        let system = settings.measurementSystem
+        let sizes = settings.quickAddPresets.map { system.formattedNumber(mL: $0) }
+        return sizes.joined(separator: " · ") + " " + system.unitLabel
     }
 
-    private func enableHealthSync() {
-        isSyncingHealth = true
-        Task { @MainActor in
-            defer { isSyncingHealth = false }
-            switch await HealthKitManager.shared.requestAuthorization(includingCaffeine: settings.caffeineTrackingActive) {
-            case .granted:
-                // Only from here on. Turning sync on is not a request to hand Health
-                // everything logged before it.
-                settings.healthSyncStartDate = Date()
-                settings.healthKitSyncEnabled = true
-                await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
-            case .denied:
-                settings.healthKitSyncEnabled = false
-                healthAuthorizationMessage = "HydroDrop needs permission to add water to Health. You can grant it in the Health app, under Sharing, Apps and Services, HydroDrop."
-            case .unavailable:
-                settings.healthKitSyncEnabled = false
-                healthAuthorizationMessage = "Apple Health is not available on this device."
-            case .failed(let reason):
-                settings.healthKitSyncEnabled = false
-                healthAuthorizationMessage = reason
-            }
-        }
-    }
-
-    private func backfillHealth() {
-        isSyncingHealth = true
-        Task { @MainActor in
-            defer { isSyncingHealth = false }
-            settings.healthSyncStartDate = .distantPast
-            await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
-        }
+    /// How many of the Plus switches are actually doing something.
+    private var smartFeaturesSummary: String {
+        let on = [
+            settings.weeklyRecapActive,
+            settings.weatherGoalActive,
+            settings.workoutGoalActive,
+            settings.liveActivityActive,
+            settings.caffeineTrackingActive,
+        ].filter { $0 }.count
+        return on == 0 ? "Off" : "\(on) on"
     }
 
     private var freezesRemaining: Int {
         StreakFreeze.freezesRemaining(frozenDayKeys: settings.frozenStreakDayKeys)
     }
 
-    /// Locked skins send the user to the paywall rather than silently doing nothing.
-    private func selectSkin(_ skin: MascotSkin) {
-        if skin.requiresPlus && !store.isSubscribed {
-            paywallSource = .settingsLockedSkin
-        } else {
-            settings.mascotSkin = skin
+    // MARK: - About
+
+    private var versionFooter: some View {
+        VStack(spacing: 6) {
+            MascotView(progress: 1.0, size: 28, skin: settings.activeMascotSkin, isAnimated: false)
+                .accessibilityHidden(true)
+            Text("HydroDrop \(appVersionLabel)")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 28)
+        .contentShape(Rectangle())
+        // Hidden way into the on-device paywall counts. Does nothing in App Store
+        // builds; see `EventCountsView.isAvailable`.
+        .onLongPressGesture(minimumDuration: 1.5) {
+            Task {
+                if await EventCountsView.isAvailable {
+                    showingEventCounts = true
+                }
+            }
         }
     }
+
+    private var appVersionLabel: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "\(version) (\(build))"
+    }
+
+    // MARK: - Manage subscription
 
     /// Presents the App Store's manage-subscriptions sheet. Both ways this used to fail
     /// were silent: `try?` dropped whatever the sheet threw, and a missing window scene
@@ -662,68 +351,77 @@ struct SettingsView: View {
         store.lastErrorMessage = "Couldn't open your subscriptions. "
             + "You can manage them in Settings > Apple Account > Subscriptions."
     }
+}
 
-    private var appVersionLabel: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "\(version) (\(build))"
+// MARK: - Rows
+
+/// The rounded, coloured square each row leads with, as in the iOS Settings app.
+struct SettingsIcon: View {
+    let systemName: String
+    let color: Color
+
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 29
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: side * 0.52, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: side, height: side)
+            .background(RoundedRectangle(cornerRadius: side * 0.24, style: .continuous).fill(color.gradient))
+            .accessibilityHidden(true)
+    }
+}
+
+/// One row of Settings: icon and name, with where it stands on the trailing side.
+struct SettingsRowLabel: View {
+    let title: String
+    let systemImage: String
+    let color: Color
+    var value: String?
+    /// A HydroDrop+ row seen without HydroDrop+: a lock where the value would be.
+    var isLocked = false
+
+    init(_ title: String, systemImage: String, color: Color, value: String? = nil, isLocked: Bool = false) {
+        self.title = title
+        self.systemImage = systemImage
+        self.color = color
+        self.value = value
+        self.isLocked = isLocked
     }
 
-    private var intervalLabel: String {
-        DurationLabel.label(minutes: settings.reminderIntervalMinutes)
+    var body: some View {
+        if isLocked {
+            LabeledContent {
+                Image(systemName: "lock.fill")
+                    .font(.footnote)
+                    .accessibilityLabel("HydroDrop+")
+            } label: {
+                titleLabel
+            }
+        } else if let value {
+            LabeledContent {
+                Text(value)
+            } label: {
+                titleLabel
+            }
+        } else {
+            // Bare, so it also works as a picker's label, which brings its own value.
+            titleLabel
+        }
+    }
+
+    private var titleLabel: some View {
+        Label {
+            // Primary even inside a Button, which would otherwise tint it like a link.
+            Text(title)
+                .foregroundStyle(Color.primary)
+        } icon: {
+            SettingsIcon(systemName: systemImage, color: color)
+        }
     }
 }
 
 #Preview {
     SettingsView()
         .environmentObject(AppSettings.shared)
-}
-
-/// One of the three quick-add buttons, identified by its position.
-struct PresetSlot: Identifiable {
-    let index: Int
-    let amountML: Int
-    var id: Int { index }
-}
-
-/// Sets the size of a single quick-add button.
-private struct QuickAddPresetSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var settings: AppSettings
-
-    let slot: PresetSlot
-    let onSave: (Int) -> Void
-
-    @State private var amountML: Int
-
-    init(slot: PresetSlot, onSave: @escaping (Int) -> Void) {
-        self.slot = slot
-        self.onSave = onSave
-        _amountML = State(initialValue: slot.amountML)
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                Spacer()
-                AmountPicker(amountML: $amountML, system: settings.measurementSystem)
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Quick add \(slot.index + 1)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        onSave(amountML)
-                        dismiss()
-                    }
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
 }

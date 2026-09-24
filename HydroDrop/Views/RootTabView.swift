@@ -8,8 +8,10 @@ struct RootTabView: View {
     @ObservedObject private var router = AppRouter.shared
     @ObservedObject private var duoStore = DuoStore.shared
 
+    /// Settings is not a tab: it opens as a sheet from the gear at the top of each of
+    /// these, so the bar only holds the two places people actually spend time.
     private enum Tab {
-        case today, history, settings
+        case today, history
     }
 
     /// Selected by hand only so a tapped bottle tag can bring Today forward, which is
@@ -32,10 +34,6 @@ struct RootTabView: View {
             HistoryView()
                 .tabItem { Label("History", systemImage: "chart.bar.fill") }
                 .tag(Tab.history)
-
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-                .tag(Tab.settings)
         }
         // A bottle tag read with the app closed arrives as a universal link. SwiftUI
         // delivers those through either of these depending on how the app was started,
@@ -44,13 +42,26 @@ struct RootTabView: View {
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { open(url) }
         }
-        // The in-app scanner reports through the router too, from whichever tab it was
-        // started on, so the tab follows the tap rather than the other way round.
+        // The in-app scanner reports through the router too, from My Bottles in
+        // Settings, so the tab follows the tap rather than the other way round. Today
+        // holds the tap until Settings has gone; see `HomeView.handlePendingBottleTap`.
         .onChange(of: router.pendingBottleTagID) { _, tagID in
-            if tagID != nil { selectedTab = .today }
+            guard tagID != nil else { return }
+            router.showingSettings = false
+            selectedTab = .today
         }
         .onChange(of: router.pendingInsights) { _, wanted in
-            if wanted { selectedTab = .history }
+            guard wanted else { return }
+            router.showingSettings = false
+            selectedTab = .history
+        }
+        // A tapped recap notification or an opened duo invite wins over Settings left
+        // open. Both sheets below wait for it to be fully gone before they come up.
+        .onChange(of: router.showingWeeklyRecap) { _, showing in
+            if showing { router.showingSettings = false }
+        }
+        .onChange(of: duoStore.pendingInvite != nil) { _, hasInvite in
+            if hasInvite { router.showingSettings = false }
         }
         #if DEBUG
         // `-SimulateBottleTap <address>` hands an address to the same place a real tag
@@ -80,7 +91,12 @@ struct RootTabView: View {
                 isShared: SharedModelContainer.isShared(modelContext.container)
             )
         }
-        .sheet(isPresented: $router.showingWeeklyRecap) {
+        .sheet(isPresented: $router.showingSettings, onDismiss: { router.settingsDidDismiss() }) {
+            SettingsView()
+                .environmentObject(settings)
+                .onAppear { router.settingsDidAppear() }
+        }
+        .sheet(isPresented: weeklyRecapIsPresented) {
             WeeklyRecapView()
                 .environmentObject(settings)
         }
@@ -111,8 +127,16 @@ struct RootTabView: View {
 
     private var pendingDuoInvite: Binding<DuoStore.PendingInvite?> {
         Binding(
-            get: { settings.hasCompletedOnboarding ? duoStore.pendingInvite : nil },
+            get: { settings.hasCompletedOnboarding && !router.settingsIsOnScreen ? duoStore.pendingInvite : nil },
             set: { duoStore.pendingInvite = $0 }
+        )
+    }
+
+    /// The recap a notification asked for, held back while Settings is still leaving.
+    private var weeklyRecapIsPresented: Binding<Bool> {
+        Binding(
+            get: { router.showingWeeklyRecap && !router.settingsIsOnScreen },
+            set: { router.showingWeeklyRecap = $0 }
         )
     }
 

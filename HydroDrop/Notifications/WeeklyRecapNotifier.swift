@@ -82,6 +82,20 @@ final class AppRouter: ObservableObject {
     /// a tag read with the app closed launches it straight into this.
     @Published var pendingBottleTagID: UUID?
 
+    /// Settings, which opens as a sheet from the gear at the top of Today and History.
+    /// Anything above that has somewhere else to take the user closes it first.
+    @Published var showingSettings = false
+
+    /// Whether the Settings sheet is actually up: from when it appears until it has
+    /// finished sliding away, which is after `showingSettings` has already gone false.
+    /// Whatever wants to present from underneath waits on this, because a sheet or an
+    /// alert asked for while another sheet is still on its way out is dropped, not
+    /// queued.
+    @Published private(set) var settingsIsOnScreen = false
+
+    func settingsDidAppear() { settingsIsOnScreen = true }
+    func settingsDidDismiss() { settingsIsOnScreen = false }
+
     private init() {}
 
     /// Takes an address the app was opened with, from a tag read in the background, a
