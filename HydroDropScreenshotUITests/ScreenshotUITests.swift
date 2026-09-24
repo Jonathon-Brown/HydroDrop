@@ -42,6 +42,14 @@ final class ScreenshotUITests: XCTestCase {
         if undo.exists {
             XCTAssertTrue(undo.waitForNonExistence(timeout: 10), "the undo toast never went away")
         }
+
+        // The quick adds sit below the world, so tapping them scrolled Today down past
+        // its title, streak and Settings gear. Back to the top before the capture.
+        let settingsButton = app.buttons["Settings"].firstMatch
+        for _ in 0..<4 where !(settingsButton.exists && settingsButton.isHittable) {
+            app.scrollViews.firstMatch.swipeDown()
+        }
+        XCTAssertTrue(settingsButton.isHittable, "Today didn't scroll back up to its header")
         save(app.screenshot(), name: "01-today")
 
         app.tabBars.buttons["History"].tap()
