@@ -35,9 +35,11 @@ targets:
         # CloudKit delivers SwiftData sync via silent pushes.
         UIBackgroundModes:
           - remote-notification
-          # Only for the retired iCloud Duo's background refresh, which a TestFlight
-          # tester's phone may still have scheduled; a launch for it with no handler is a
-          # crash. See LegacyDuoCleanup. Remove both once no tester is on builds 29 to 31.
+          # Background app refresh. For now it only backs an empty handler for the retired
+          # iCloud Duo's refresh, which a TestFlight tester's phone may still have
+          # scheduled; a launch for it with no handler is a crash (see LegacyDuoCleanup).
+          # Keep this and the identifier below: the Duo redesign is to take the identifier
+          # over for its own background fetch rather than retire it.
           - fetch
         BGTaskSchedulerPermittedIdentifiers:
           - "$(PRODUCT_BUNDLE_IDENTIFIER).duo.refresh"
