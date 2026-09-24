@@ -179,6 +179,11 @@ struct PaywallView: View {
             if !purchaseCompleted {
                 EventCounter.record(.paywallDismissedWithoutPurchase)
             }
+            // Whatever this sheet was saying goes with it. Left set, an old purchase
+            // error would open over Settings, or the approval notice over the next
+            // paywall, long after the moment it was about.
+            store.lastErrorMessage = nil
+            store.pendingApprovalMessage = nil
         }
         // Ask to Buy is not a failure: the purchase is with a parent. It gets its own
         // alert, on a different view from the error alert so the two never compete,

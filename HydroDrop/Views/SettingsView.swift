@@ -135,9 +135,11 @@ struct SettingsView: View {
                 ReminderManager.shared.refreshSchedule()
                 // The "cancel it" footer is only as good as the last renewal read. Ask
                 // again here: a read that failed at launch gets another go, and a
-                // subscription cancelled outside the app is noticed.
+                // subscription cancelled outside the app is noticed. Unstructured, so
+                // closing Settings or opening a page from it doesn't cancel the read
+                // and throw its answer away.
                 if store.hasActiveSubscription || store.hasLifetimeAccess {
-                    await store.refreshRenewalState()
+                    Task { await store.refreshRenewalState() }
                 }
             }
             .sheet(item: $paywallSource) { source in
@@ -178,7 +180,7 @@ struct SettingsView: View {
             .alert(
                 "Duo Streaks",
                 isPresented: Binding(
-                    get: { duoStore.notice != nil && router.showingSettings },
+                    get: { duoStore.notice != nil && router.showingSettings && !isPresentingOverSettings },
                     set: { if !$0 { duoStore.notice = nil } }
                 )
             ) {
@@ -324,6 +326,13 @@ struct SettingsView: View {
 
     private var freezesRemaining: Int {
         StreakFreeze.freezesRemaining(frozenDayKeys: settings.frozenStreakDayKeys)
+    }
+
+    /// Something Settings has put on screen over itself. An alert can't present from the
+    /// list while one of these is up, so a Duo notice waits for it to close instead of
+    /// being refused and lost.
+    private var isPresentingOverSettings: Bool {
+        paywallSource != nil || showingBugReport || showingEventCounts || showingIntroReplay
     }
 
     /// Offer Switch to Lifetime unless the catalog has come back without it (not yet on

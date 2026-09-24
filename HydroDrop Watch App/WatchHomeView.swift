@@ -55,7 +55,7 @@ struct WatchHomeView: View {
                 .foregroundStyle(.secondary)
             Text("HydroDrop+")
                 .font(.headline)
-            Text("Subscribe on your iPhone to unlock Apple Watch support.")
+            Text("Get HydroDrop+ on your iPhone to unlock Apple Watch support.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
