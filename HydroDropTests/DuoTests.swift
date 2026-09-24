@@ -510,3 +510,72 @@ final class DuoTests: XCTestCase {
         XCTAssertTrue(DuoCache.load(from: defaults).isEmpty)
     }
 }
+
+/// What someone sees when joining fails. Every failure used to read "That did not work",
+/// which nobody could act on and which hid the cause from whoever was helping.
+@MainActor
+final class DuoJoinMessageTests: XCTestCase {
+    private let noLongerOpen = "That invite is no longer open. Ask for a new one."
+    private let notOpenToYou = "This invite is not open to you anymore. Someone else may have joined first. "
+        + "Ask for a new one."
+
+    /// How CKAcceptSharesOperation can report one invite's failure: inside a partial failure.
+    private func partial(_ code: CKError.Code) -> CKError {
+        let perItem: [AnyHashable: Error] = [CKRecord.ID(recordName: "share"): CKError(code)]
+        return CKError(.partialFailure, userInfo: [CKPartialErrorsByItemIDKey: perItem])
+    }
+
+    func testAnEndedDuoSaysTheInviteIsNoLongerOpen() {
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.zoneNotFound)), noLongerOpen)
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.userDeletedZone)), noLongerOpen)
+    }
+
+    func testAMissingShareSaysTheInviteIsNoLongerOpen() {
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.unknownItem)), noLongerOpen)
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: partial(.unknownItem)), noLongerOpen)
+    }
+
+    /// Past the Join sheet, a permission error means this person was taken off the
+    /// invite, most often because someone else joined first.
+    func testAnInviteNoLongerOpenToThisPersonSaysSo() {
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.participantMayNeedVerification)), notOpenToYou)
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.permissionFailure)), notOpenToYou)
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: partial(.participantMayNeedVerification)), notOpenToYou)
+    }
+
+    /// Cases where "try again" can't work until something else is done first.
+    func testAccountProblemsSayWhatToDo() {
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.accountTemporarilyUnavailable)),
+                       "Finish signing in to iCloud in Settings, then try again.")
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.managedAccountRestricted)),
+                       "Duo streaks cannot be used with this Apple Account.")
+    }
+
+    /// Joining writes into the inviter's iCloud, so full storage is theirs to fix.
+    func testFullStorageIsPutOnTheInviter() {
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.quotaExceeded)),
+                       "The person who invited you is out of iCloud storage, so you cannot join yet. Let them know.")
+    }
+
+    func testFailuresThatAlreadyHadWordsKeepThem() {
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.notAuthenticated)),
+                       "Sign in to iCloud in Settings, then try again.")
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.networkUnavailable)),
+                       "No connection right now. Try again in a bit.")
+    }
+
+    /// Anything unexplained carries its code, so a screenshot tells which failure it was.
+    func testAnUnexplainedFailureCarriesItsCode() {
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: CKError(.internalError)),
+                       "That did not work. Please try again. (iCloud error \(CKError.Code.internalError.rawValue))")
+        XCTAssertEqual(DuoStore.joinFailureMessage(for: NSError(domain: "Test", code: 7)),
+                       "That did not work. Please try again. (error 7)")
+    }
+
+    /// The join wording must not leak into the write retries, where "not found" is not
+    /// the end of a duo.
+    func testWriteRetriesStillDoNotTreatAMissingRecordAsAnEndedDuo() {
+        XCTAssertEqual(DuoRetry.verdict(for: CKError(.unknownItem)), .fail)
+        XCTAssertEqual(DuoRetry.verdict(for: CKError(.permissionFailure)), .fail)
+    }
+}

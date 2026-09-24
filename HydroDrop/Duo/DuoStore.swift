@@ -576,10 +576,51 @@ final class DuoStore: ObservableObject {
             return true
         } catch {
             Diagnostics.log("could not join a duo: \(error)")
-            sheetError = DuoRetry.verdict(for: error) == .ended
-                ? "That invite is no longer open. Ask for a new one."
-                : Self.message(for: error)
+            sheetError = Self.joinFailureMessage(for: error)
             return false
+        }
+    }
+
+    /// What to say when accepting an invite fails. Kept to joining: the retry rules for
+    /// writes stay in `DuoRetry`, where "not found" must not end a duo.
+    ///
+    /// Every one of these used to fall through to "That did not work", which gave the
+    /// person no way to fix it and gave nobody a way to tell the causes apart. An invite
+    /// sent to another Apple Account never gets this far: the share is invite-only, so
+    /// iOS turns it away before the Join sheet opens. Past the sheet, a permission error
+    /// means this person was taken off the invite while it was open, most often because
+    /// someone else joined first. Anything still unexplained carries its code, so a
+    /// screenshot says which failure it was.
+    static func joinFailureMessage(for error: Error) -> String {
+        if DuoRetry.verdict(for: error) == .ended {
+            return "That invite is no longer open. Ask for a new one."
+        }
+        let cloudError = (error as? CKError).flatMap { error -> CKError? in
+            guard error.code == .partialFailure else { return error }
+            // One invite accepted at a time, so the first per-item error is the one.
+            return error.partialErrorsByItemID?.values.first as? CKError ?? error
+        }
+        switch cloudError?.code {
+        case .unknownItem?:
+            return "That invite is no longer open. Ask for a new one."
+        case .participantMayNeedVerification?, .permissionFailure?:
+            return "This invite is not open to you anymore. Someone else may have joined first. "
+                + "Ask for a new one."
+        case .accountTemporarilyUnavailable?:
+            // Signed in, but iCloud wants the password again. Retrying won't help until then.
+            return "Finish signing in to iCloud in Settings, then try again."
+        case .managedAccountRestricted?:
+            return "Duo streaks cannot be used with this Apple Account."
+        // Joining writes into the inviter's iCloud, not this person's, so "your storage is
+        // full" would send them to fix the wrong thing.
+        case .quotaExceeded?:
+            return "The person who invited you is out of iCloud storage, so you cannot join yet. Let them know."
+        case .notAuthenticated?, .networkUnavailable?, .networkFailure?,
+             .zoneBusy?, .requestRateLimited?, .serviceUnavailable?:
+            return message(for: cloudError ?? error)
+        default:
+            let code = cloudError.map { "iCloud error \($0.code.rawValue)" } ?? "error \((error as NSError).code)"
+            return "That did not work. Please try again. (\(code))"
         }
     }
 
