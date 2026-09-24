@@ -180,6 +180,20 @@ struct PaywallView: View {
                 EventCounter.record(.paywallDismissedWithoutPurchase)
             }
         }
+        // Ask to Buy is not a failure: the purchase is with a parent. It gets its own
+        // alert, on a different view from the error alert so the two never compete,
+        // rather than a title that flips while the error alert is on screen.
+        .alert(
+            "Waiting for approval",
+            isPresented: Binding(
+                get: { store.pendingApprovalMessage != nil },
+                set: { if !$0 { store.pendingApprovalMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { store.pendingApprovalMessage = nil }
+        } message: {
+            Text(store.pendingApprovalMessage ?? "")
+        }
     }
 
     /// The four locked mascots, shown rather than described. Held still so a row of

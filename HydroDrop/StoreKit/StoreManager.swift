@@ -48,6 +48,10 @@ final class StoreManager: ObservableObject {
     @Published private(set) var subscriptionWillRenew = false
     @Published private(set) var purchaseInProgress = false
     @Published var lastErrorMessage: String?
+    /// Ask to Buy's notice that a purchase is waiting for a parent. Kept apart from
+    /// `lastErrorMessage` because nothing went wrong, so it mustn't open under the
+    /// error alert's title.
+    @Published var pendingApprovalMessage: String?
 
     #if DEBUG
     /// Why the most recent load produced no plans. Surfaced on the paywall in DEBUG builds.
@@ -181,7 +185,7 @@ final class StoreManager: ObservableObject {
                 // Ask to Buy and other deferred approvals resolve later through
                 // `Transaction.updates`. Without a word here the button simply stops.
                 // Someone who already has Plus can only be buying lifetime here.
-                lastErrorMessage = "This purchase needs approval before it can finish. "
+                pendingApprovalMessage = "This purchase needs approval before it can finish. "
                     + (isSubscribed
                        ? "Lifetime is added as soon as it's approved."
                        : "HydroDrop+ unlocks as soon as it's approved.")
