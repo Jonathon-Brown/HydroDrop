@@ -388,6 +388,9 @@ struct HomeView: View {
         .onChange(of: router.pendingBottleTagID) { _, _ in
             handlePendingBottleTap()
         }
+        .onChange(of: router.settingsIsOnScreen) { _, isOnScreen in
+            if !isOnScreen { handlePendingBottleTap() }
+        }
         // One-shot pace-aware reminders only cover a few days, so they have to be
         // re-armed when the app is opened. Nothing did that before: the schedule was
         // rebuilt on a settings change or a logged drink and nowhere else, so a user who
@@ -554,13 +557,16 @@ struct HomeView: View {
     /// top edge exactly where this ends, whatever the text size.
     private var worldHeader: some View {
         VStack(spacing: 14) {
-            Text("Today")
-                .font(.largeTitle.bold())
-                .foregroundStyle(.white)
-                .accessibilityAddTraits(.isHeader)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Self.pagePadding)
-                .padding(.top, 8)
+            HStack {
+                Text("Today")
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(.white)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                settingsButton
+            }
+            .padding(.horizontal, Self.pagePadding)
+            .padding(.top, 8)
             streakBadge
                 .environment(\.colorScheme, .dark)
         }
@@ -611,6 +617,24 @@ struct HomeView: View {
     private static let worldHeight: CGFloat = 400
     /// How gradually the frosted panel fades in over the world, rather than starting flat.
     private static let panelFadeHeight: CGFloat = 160
+
+    /// The way into Settings, in the corner of the sky. Frosted like the streak badge
+    /// under it, so it reads as part of the same header at every time of day.
+    private var settingsButton: some View {
+        Button {
+            router.showingSettings = true
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(.ultraThinMaterial))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .environment(\.colorScheme, .dark)
+        .accessibilityLabel("Settings")
+    }
 
     private var streakBadge: some View {
         HStack(spacing: 6) {
@@ -870,6 +894,10 @@ struct HomeView: View {
     /// (a background read, a link, the in-app scanner) ends up here.
     private func handlePendingBottleTap() {
         guard let tagID = router.pendingBottleTagID else { return }
+        // A scan from My Bottles closes Settings on its way here. Until the sheet has
+        // gone, an unknown tag's alert would have nowhere to appear, so the tap waits
+        // and is picked up again once it has.
+        guard !router.settingsIsOnScreen else { return }
         router.pendingBottleTagID = nil
 
         guard let bottle = BottleTag.bottle(for: tagID, in: bottles) else {

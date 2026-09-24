@@ -48,8 +48,9 @@ final class ScreenshotUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Last 7 days"].waitForExistence(timeout: 5), "history chart didn't appear")
         save(app.screenshot(), name: "02-history")
 
-        app.tabBars.buttons["Settings"].tap()
-        XCTAssertTrue(app.buttons["Calculate for me"].waitForExistence(timeout: 5), "settings didn't appear")
+        // Settings is a sheet now, opened from the gear in the corner of each tab.
+        app.buttons["Settings"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "settings didn't appear")
         save(app.screenshot(), name: "03-settings")
     }
 
