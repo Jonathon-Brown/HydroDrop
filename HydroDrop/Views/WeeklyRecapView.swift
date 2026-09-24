@@ -6,6 +6,10 @@ struct WeeklyRecapView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
+    /// What "See your insights" does once it has closed the recap. Left nil it asks the
+    /// router for Insights straight away. Settings passes its own, because it has to
+    /// leave too, and it cannot start closing while the recap is still on its way out.
+    var onSeeInsights: (() -> Void)?
 
     private var recap: WeeklyRecap {
         WeeklyRecap.make(
@@ -36,7 +40,11 @@ struct WeeklyRecapView: View {
                     // Into Insights, for the longer view: what goal days line up with.
                     Button {
                         dismiss()
-                        AppRouter.shared.pendingInsights = true
+                        if let onSeeInsights {
+                            onSeeInsights()
+                        } else {
+                            AppRouter.shared.pendingInsights = true
+                        }
                     } label: {
                         Label("See your insights", systemImage: "chart.bar.xaxis")
                             .frame(maxWidth: .infinity)

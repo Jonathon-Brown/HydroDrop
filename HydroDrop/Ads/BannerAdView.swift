@@ -13,10 +13,14 @@ struct BannerAdView: View {
     @State private var adHeight: CGFloat = 50
 
     var body: some View {
-        GeometryReader { geometry in
-            BannerViewRepresentable(adUnitID: adUnitID, width: geometry.size.width, adHeight: $adHeight)
+        // Screenshot automation runs a Debug build, which serves Google's test ad with
+        // "Test mode" printed across it. That has no place in an App Store capture.
+        if !AppSettings.isScreenshotMode {
+            GeometryReader { geometry in
+                BannerViewRepresentable(adUnitID: adUnitID, width: geometry.size.width, adHeight: $adHeight)
+            }
+            .frame(height: adHeight)
         }
-        .frame(height: adHeight)
     }
 }
 

@@ -8,11 +8,11 @@ final class PaywallDiagnosticUITests: XCTestCase {
     func testPaywallLoadsSubscriptionOptions() throws {
         let app = XCUIApplication()
         // A fresh simulator has no history, and first-launch onboarding would sit on top
-        // of the tab bar these tests drive.
+        // of the Settings button these tests drive.
         app.launchArguments = ["-UITestSkipOnboarding"]
         app.launch()
 
-        app.tabBars.buttons["Settings"].tap()
+        app.buttons["Settings"].firstMatch.tap()
         let upgrade = app.buttons["Upgrade to HydroDrop+"]
         XCTAssertTrue(upgrade.waitForExistence(timeout: 15), "no upgrade row in Settings")
         upgrade.tap()
@@ -59,11 +59,11 @@ final class PaywallDiagnosticUITests: XCTestCase {
     func testPaywallCanAlwaysBeClosed() throws {
         let app = XCUIApplication()
         // A fresh simulator has no history, and first-launch onboarding would sit on top
-        // of the tab bar these tests drive.
+        // of the Settings button these tests drive.
         app.launchArguments = ["-UITestSkipOnboarding"]
         app.launch()
 
-        app.tabBars.buttons["Settings"].tap()
+        app.buttons["Settings"].firstMatch.tap()
         let upgrade = app.buttons["Upgrade to HydroDrop+"]
         XCTAssertTrue(upgrade.waitForExistence(timeout: 15), "no upgrade row in Settings")
         upgrade.tap()

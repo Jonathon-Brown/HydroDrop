@@ -20,6 +20,67 @@ final class ScreenshotUITests: XCTestCase {
         app.launchArguments = ["-UITestSeedHistory"]
         app.launch()
 
+        logTodaysDrinks(app)
+
+        // The quick adds sit below the world, so tapping them scrolled Today down past
+        // its title, streak and Settings gear. Back to the top before the capture.
+        let settingsButton = app.buttons["Settings"].firstMatch
+        var swipes = 0
+        while swipes < 4, !(settingsButton.exists && settingsButton.isHittable) {
+            app.scrollViews.firstMatch.swipeDown()
+            swipes += 1
+        }
+        XCTAssertTrue(settingsButton.isHittable, "Today didn't scroll back up to its header")
+        // Scrolling brings up the scroll indicator down the right edge, which takes a
+        // moment to fade and otherwise ends up in the capture.
+        if swipes > 0 { sleep(2) }
+        save(app.screenshot(), name: "01-today")
+
+        app.tabBars.buttons["History"].tap()
+        XCTAssertTrue(app.staticTexts["Last 7 days"].waitForExistence(timeout: 5), "history chart didn't appear")
+        save(app.screenshot(), name: "02-history")
+
+        // Settings is a sheet now, opened from the gear in the corner of each tab.
+        app.buttons["Settings"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "settings didn't appear")
+        save(app.screenshot(), name: "03-settings")
+
+        // The paywall, for the mascots image, opened the way a free user meets it: from
+        // "More looks" under the droplet on Today.
+        app.buttons["Done"].tap()
+        app.tabBars.buttons["Today"].tap()
+        let moreLooks = app.buttons["More looks"]
+        XCTAssertTrue(moreLooks.waitForExistence(timeout: 5), "no More looks link on Today")
+        moreLooks.tap()
+        // The plans load after the sheet appears. Waiting for a price means the capture
+        // is the finished paywall, not the spinner it starts with.
+        let price = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] '$'")).firstMatch
+        XCTAssertTrue(price.waitForExistence(timeout: 25), "the paywall's plans never loaded")
+        save(app.screenshot(), name: "04-paywall")
+    }
+
+    /// History as a HydroDrop+ subscriber sees it: thirty days rather than seven, and no
+    /// ads. The App Store image for History promises 30-day trends, so it uses this one.
+    /// Runs after `testCaptureScreenshots` (tests run in name order), and every seeded
+    /// launch starts from no entitlement, so the forced one doesn't carry over.
+    func testCaptureSubscriberScreenshots() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestSeedHistory", "-UITestForceSubscribed"]
+        app.launch()
+
+        // The same day as the free captures, so today's bar matches across the set.
+        logTodaysDrinks(app)
+
+        app.tabBars.buttons["History"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Last 30 days"].waitForExistence(timeout: 10),
+            "History isn't showing a subscriber's 30 days"
+        )
+        save(app.screenshot(), name: "05-history-plus")
+    }
+
+    /// Today's two quick adds, on top of the seeded week.
+    private func logTodaysDrinks(_ app: XCUIApplication) {
         // These taps are the screenshot: if the buttons aren't there, the capture is of
         // an empty Today screen and the run should say so rather than quietly succeed.
         let button200 = app.buttons["200 mL"]
@@ -42,15 +103,6 @@ final class ScreenshotUITests: XCTestCase {
         if undo.exists {
             XCTAssertTrue(undo.waitForNonExistence(timeout: 10), "the undo toast never went away")
         }
-        save(app.screenshot(), name: "01-today")
-
-        app.tabBars.buttons["History"].tap()
-        XCTAssertTrue(app.staticTexts["Last 7 days"].waitForExistence(timeout: 5), "history chart didn't appear")
-        save(app.screenshot(), name: "02-history")
-
-        app.tabBars.buttons["Settings"].tap()
-        XCTAssertTrue(app.buttons["Calculate for me"].waitForExistence(timeout: 5), "settings didn't appear")
-        save(app.screenshot(), name: "03-settings")
     }
 
     private func save(_ screenshot: XCUIScreenshot, name: String) {
