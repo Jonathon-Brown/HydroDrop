@@ -45,8 +45,8 @@ Xcode 26/27. iOS 26-only APIs, such as FoundationModels for Say it, sit behind
     is dropped, not queued. So anything the root or Today presents must wait until
     `router.settingsIsOnScreen` is false. That flag is set in the sheet's `onAppear` and
     cleared in its `onDismiss`.
-  - `RootTabView` closes Settings first when a bottle tag, the recap's Insights link, a
-    recap notification or a duo invite arrives.
+  - `RootTabView` closes Settings first when a bottle tag, the recap's Insights link or
+    a recap notification arrives.
   - Never dismiss two stacked sheets in the same turn. See
     `WeeklyRecapView.onSeeInsights`, which waits for the recap to close before
     Settings closes.

@@ -22,8 +22,6 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>CKSharingSupported</key>
-	<true/>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-5814718978331211~3407720909</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

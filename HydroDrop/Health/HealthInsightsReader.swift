@@ -9,7 +9,7 @@ import HealthKit
 /// drinks, asks for no read access at all and is untouched by this.
 ///
 /// What comes back lives in memory for as long as the screen that asked for it. It is
-/// not saved to the store, not synced, not shared with a duo and not shown in a widget.
+/// not saved to the store, not synced, not shared with anyone and not shown in a widget.
 actor HealthInsightsReader {
     static let shared = HealthInsightsReader()
 
