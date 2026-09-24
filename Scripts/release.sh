@@ -5,7 +5,7 @@
 #
 #   Scripts/release.sh status                      # version, build, archives on disk
 #   Scripts/release.sh bump <build> [version]      # pin CURRENT_PROJECT_VERSION (and MARKETING_VERSION)
-#   Scripts/release.sh archive                     # preflight, regenerate, archive Release for iOS
+#   Scripts/release.sh archive                     # regenerate with the tracked package lock, preflight, archive Release for iOS
 #   Scripts/release.sh export                      # signed App Store IPA from that archive
 #   Scripts/release.sh upload                      # send it to App Store Connect (TestFlight)
 #
@@ -84,16 +84,38 @@ cmd_bump() {
   echo "Commit this before archiving so the build is reproducible."
 }
 
+# The tracked lock is what a commit pins, and what Xcode Cloud builds with (see
+# ci_scripts/ci_post_clone.sh). The generated project's own copy is local state: a
+# fresh checkout or worktree resolves packages on its own and can pick newer versions,
+# which is how an archive of 1.8 (31) first came out with a new major version of
+# Google's consent SDK that build 30 never had. So a release always builds with the
+# tracked copy, and says so when the project had resolved something else.
+use_tracked_lock() {
+  local tracked="Dependencies/Package.resolved"
+  local in_project="$PROJECT/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+  [[ -f "$tracked" ]] || die "$tracked is missing — commit the package lock before releasing"
+  if [[ -f "$in_project" ]] && ! cmp -s "$tracked" "$in_project"; then
+    red "the generated project had resolved different package versions; building with the tracked lock instead:"
+    diff <(grep -E '"(identity|version)"' "$in_project") <(grep -E '"(identity|version)"' "$tracked") | sed 's/^/  /' || true
+  fi
+  mkdir -p "$(dirname "$in_project")"
+  cp "$tracked" "$in_project"
+}
+
 cmd_archive() {
-  echo "== preflight =="
-  bash Scripts/preflight.sh || die "preflight failed — fix the failures above, do not archive over them"
   echo "== regenerate project =="
   sh Scripts/generate.sh
+  use_tracked_lock
+  # Given this checkout's path: on its own, preflight checks ~/Developer/HydroDrop,
+  # which from a worktree is some other branch entirely.
+  echo "== preflight =="
+  bash Scripts/preflight.sh "$REPO" || die "preflight failed — fix the failures above, do not archive over them"
   local archive; archive="$(archive_path)"
   clear_dir "$archive"
   echo "== archive $(marketing_version) ($(build_number)) =="
   xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
     -destination 'generic/platform=iOS' -archivePath "$archive" \
+    -onlyUsePackageVersionsFromResolvedFile \
     -allowProvisioningUpdates archive -quiet
   # A "Generic Xcode Archive" has no ApplicationProperties and cannot be uploaded.
   # It means SKIP_INSTALL / INSTALL_PATH are wrong on a target; fix project.yml.
