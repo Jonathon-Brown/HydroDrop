@@ -320,7 +320,7 @@ enum InsightsCopy {
         "Workouts, to suggest extra water on the day if you turn that on",
     ]
     static let primerPromises = [
-        "Worked out on this iPhone. None of your sleep, heart rate, energy or workout readings are saved, synced, shared with a duo or shown in a widget.",
+        "Worked out on this iPhone. None of your sleep, heart rate, energy or workout readings are saved, synced, shared with anyone or shown in a widget.",
         "If you say yes to extra water after a workout, today's goal goes up like it does on a hot day. That number is all that is kept.",
         "HydroDrop reads only these four, and only after you say yes on the next screen.",
         "Saying no changes nothing else. Everything in HydroDrop works the same without it.",

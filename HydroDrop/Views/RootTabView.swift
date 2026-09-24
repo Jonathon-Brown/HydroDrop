@@ -6,7 +6,6 @@ struct RootTabView: View {
     @StateObject private var settings = AppSettings.shared
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var router = AppRouter.shared
-    @ObservedObject private var duoStore = DuoStore.shared
 
     /// Settings is not a tab: it opens as a sheet from the gear at the top of each of
     /// these, so the bar only holds the two places people actually spend time.
@@ -55,13 +54,10 @@ struct RootTabView: View {
             router.showingSettings = false
             selectedTab = .history
         }
-        // A tapped recap notification or an opened duo invite wins over Settings left
-        // open. Both sheets below wait for it to be fully gone before they come up.
+        // A tapped recap notification wins over Settings left open. The recap sheet
+        // below waits for it to be fully gone before it comes up.
         .onChange(of: router.showingWeeklyRecap) { _, showing in
             if showing { router.showingSettings = false }
-        }
-        .onChange(of: duoStore.pendingInvite != nil) { _, hasInvite in
-            if hasInvite { router.showingSettings = false }
         }
         #if DEBUG
         // `-SimulateBottleTap <address>` hands an address to the same place a real tag
@@ -100,24 +96,6 @@ struct RootTabView: View {
             WeeklyRecapView()
                 .environmentObject(settings)
         }
-        // An opened duo invite, from whichever tab was showing. Held back while the intro
-        // is up: the invite keeps, and a sheet cannot sit on top of the cover anyway.
-        .sheet(item: pendingDuoInvite) { invite in
-            DuoJoinSheet(invite: invite)
-        }
-        // Settings shows this itself while it is up, Duo Streaks being inside it: an
-        // alert raised from underneath a sheet is never seen.
-        .alert(
-            "Duo Streaks",
-            isPresented: Binding(
-                get: { duoStore.notice != nil && !router.settingsIsOnScreen },
-                set: { if !$0 { duoStore.notice = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(duoStore.notice ?? "")
-        }
         .fullScreenCover(isPresented: onboardingIsPresented) {
             OnboardingView(mode: .firstLaunch) {
                 settings.hasCompletedOnboarding = true
@@ -128,13 +106,6 @@ struct RootTabView: View {
 
     private func open(_ url: URL) {
         router.handle(url)
-    }
-
-    private var pendingDuoInvite: Binding<DuoStore.PendingInvite?> {
-        Binding(
-            get: { settings.hasCompletedOnboarding && !router.settingsIsOnScreen ? duoStore.pendingInvite : nil },
-            set: { duoStore.pendingInvite = $0 }
-        )
     }
 
     /// The recap a notification asked for, held back while Settings is still leaving.

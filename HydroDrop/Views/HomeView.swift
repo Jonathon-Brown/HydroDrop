@@ -10,7 +10,6 @@ struct HomeView: View {
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var router = AppRouter.shared
     @ObservedObject private var nightOut = NightOutCoordinator.shared
-    @ObservedObject private var duoStore = DuoStore.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @Query(sort: \Bottle.createdAt) private var bottles: [Bottle]
 
@@ -54,10 +53,6 @@ struct HomeView: View {
     /// store — and keyed by day so each broken streak is announced once, not every launch.
     @AppStorage("streakBreakNotice.dismissedDayKey") private var dismissedStreakNoticeDayKey = ""
     @AppStorage("streakBreakNotice.countedDayKey") private var countedStreakNoticeDayKey = ""
-    /// The one-time suggestion to start a duo. Device-local, and once it has been closed
-    /// or taken up it never comes back.
-    @AppStorage("duoInviteMoment.dismissed") private var duoInviteDismissed = false
-    @State private var showingDuoFromInvite = false
 
     private var todayEntries: [WaterEntry] {
         allEntries.filter { Calendar.current.isDateInToday($0.timestamp) }
@@ -223,22 +218,6 @@ struct HomeView: View {
 
                                 NightOutSection(nightOut: nightOut, entries: allEntries)
 
-                                DuoCardsSection(duoStore: duoStore)
-
-                                // Not under screenshot automation: its seeded history is a three day
-                                // streak, so the card would sit half under the tab bar in every App
-                                // Store capture of Today. Always false in Release.
-                                if !AppSettings.isScreenshotMode,
-                                   DuoInviteMoment.shouldShow(soloStreak: streak, hasAnyDuo: !duoStore.duos.isEmpty, wasDismissed: duoInviteDismissed) {
-                                    DuoInviteCard {
-                                        duoInviteDismissed = true
-                                        showingDuoFromInvite = true
-                                    } onDismiss: {
-                                        withAnimation { duoInviteDismissed = true }
-                                    }
-                                    .transition(.opacity)
-                                }
-
                                 todayLogSection
 
                                 if !store.isSubscribed {
@@ -272,14 +251,10 @@ struct HomeView: View {
             // The page draws the title itself, in white on the world's sky, which is dark
             // enough at every time of day for it.
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(isPresented: $showingDuoFromInvite) { DuoView() }
             .navigationDestination(isPresented: $showingWorld) {
                 WorldView(state: world, streak: streak, todayTotalML: todayTotal)
                     .environmentObject(settings)
             }
-            // Only for someone with a duo: for everyone else there is nothing to fetch,
-            // and a spinner that does nothing is worse than no spinner.
-            .modifier(DuoRefreshable(isEnabled: !duoStore.duos.isEmpty) { await duoStore.refresh() })
             .sheet(isPresented: $showingAddSheet) {
                 AddDrinkSheet { amount, drinkType, timestamp in
                     addEntry(amount: amount, drinkType: drinkType, timestamp: timestamp)
@@ -1091,9 +1066,6 @@ struct HomeView: View {
             isShared: SharedModelContainer.isShared(modelContext.container),
             goalMLOverride: todayGoal
         )
-        // The shared streak is measured against the saved goal, like the solo one, so a
-        // bump accepted for today can never cost a partner the streak.
-        duoStore.logChanged(entries: allEntries, goalML: settings.dailyGoalML)
         let total = todayTotal
         let goal = todayGoal
         let currentStreak = streak
@@ -1124,7 +1096,6 @@ struct HomeView: View {
     private func syncOnForeground() {
         sayItIsAvailable = SayIt.isAvailable
         nightOut.expireIfNeeded()
-        Task { await duoStore.refresh() }
         mirrorToCompanions()
         syncHealth()
         applyStreakFreezeIfNeeded()
@@ -1213,18 +1184,4 @@ struct HomeView: View {
     HomeView()
         .environmentObject(AppSettings.shared)
         .modelContainer(for: WaterEntry.self, inMemory: true)
-}
-
-/// Pull to refresh, only when there is something to refresh.
-private struct DuoRefreshable: ViewModifier {
-    let isEnabled: Bool
-    let action: @Sendable () async -> Void
-
-    func body(content: Content) -> some View {
-        if isEnabled {
-            content.refreshable { await action() }
-        } else {
-            content
-        }
-    }
 }
