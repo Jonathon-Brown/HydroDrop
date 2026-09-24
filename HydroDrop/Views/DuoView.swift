@@ -193,7 +193,7 @@ struct DuoView: View {
     private var footer: String {
         "One streak, two people. It grows on every day you both meet your own goal. "
             + "Your partner sees your first name, your droplet, whether you met your goal, and roughly how far along you are. "
-            + "Never what you drank, how much, or when."
+            + "Never what you drank or exactly how much."
     }
 
     private func leaveMessage(for duo: DuoState) -> String {
@@ -219,7 +219,7 @@ private struct DuoSharingExplainer: View {
             Label("Your first name and your droplet", systemImage: "drop.fill")
             Label("Whether you met your goal each day", systemImage: "checkmark.circle.fill")
             Label("Roughly how far along you are", systemImage: "chart.bar.fill")
-            Label("Never what you drank, how much, or when", systemImage: "lock.fill")
+            Label("Never what you drank or exactly how much", systemImage: "lock.fill")
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
