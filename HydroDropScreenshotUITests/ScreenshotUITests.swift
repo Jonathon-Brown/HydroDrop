@@ -20,28 +20,7 @@ final class ScreenshotUITests: XCTestCase {
         app.launchArguments = ["-UITestSeedHistory"]
         app.launch()
 
-        // These taps are the screenshot: if the buttons aren't there, the capture is of
-        // an empty Today screen and the run should say so rather than quietly succeed.
-        let button200 = app.buttons["200 mL"]
-        XCTAssertTrue(button200.waitForExistence(timeout: 5), "no 200 mL quick-add button — is the app in imperial?")
-        button200.tap()
-
-        let button330 = app.buttons["330 mL"]
-        XCTAssertTrue(button330.waitForExistence(timeout: 3), "no 330 mL quick-add button")
-        button330.tap()
-
-        // The seeded day plus both taps: the total on screen has to reflect them.
-        XCTAssertTrue(
-            app.staticTexts["530 mL"].waitForExistence(timeout: 3),
-            "today's total didn't add up to the two quick adds"
-        )
-
-        // A quick add offers a few seconds of undo. That bar is transient and has no
-        // business in an App Store screenshot, so wait it out rather than capture it.
-        let undo = app.buttons["Undo"]
-        if undo.exists {
-            XCTAssertTrue(undo.waitForNonExistence(timeout: 10), "the undo toast never went away")
-        }
+        logTodaysDrinks(app)
 
         // The quick adds sit below the world, so tapping them scrolled Today down past
         // its title, streak and Settings gear. Back to the top before the capture.
@@ -65,6 +44,65 @@ final class ScreenshotUITests: XCTestCase {
         app.buttons["Settings"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "settings didn't appear")
         save(app.screenshot(), name: "03-settings")
+
+        // The paywall, for the mascots image, opened the way a free user meets it: from
+        // "More looks" under the droplet on Today.
+        app.buttons["Done"].tap()
+        app.tabBars.buttons["Today"].tap()
+        let moreLooks = app.buttons["More looks"]
+        XCTAssertTrue(moreLooks.waitForExistence(timeout: 5), "no More looks link on Today")
+        moreLooks.tap()
+        // The plans load after the sheet appears. Waiting for a price means the capture
+        // is the finished paywall, not the spinner it starts with.
+        let price = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] '$'")).firstMatch
+        XCTAssertTrue(price.waitForExistence(timeout: 25), "the paywall's plans never loaded")
+        save(app.screenshot(), name: "04-paywall")
+    }
+
+    /// History as a HydroDrop+ subscriber sees it: thirty days rather than seven, and no
+    /// ads. The App Store image for History promises 30-day trends, so it uses this one.
+    /// Runs after `testCaptureScreenshots` (tests run in name order), and every seeded
+    /// launch starts from no entitlement, so the forced one doesn't carry over.
+    func testCaptureSubscriberScreenshots() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestSeedHistory", "-UITestForceSubscribed"]
+        app.launch()
+
+        // The same day as the free captures, so today's bar matches across the set.
+        logTodaysDrinks(app)
+
+        app.tabBars.buttons["History"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Last 30 days"].waitForExistence(timeout: 10),
+            "History isn't showing a subscriber's 30 days"
+        )
+        save(app.screenshot(), name: "05-history-plus")
+    }
+
+    /// Today's two quick adds, on top of the seeded week.
+    private func logTodaysDrinks(_ app: XCUIApplication) {
+        // These taps are the screenshot: if the buttons aren't there, the capture is of
+        // an empty Today screen and the run should say so rather than quietly succeed.
+        let button200 = app.buttons["200 mL"]
+        XCTAssertTrue(button200.waitForExistence(timeout: 5), "no 200 mL quick-add button — is the app in imperial?")
+        button200.tap()
+
+        let button330 = app.buttons["330 mL"]
+        XCTAssertTrue(button330.waitForExistence(timeout: 3), "no 330 mL quick-add button")
+        button330.tap()
+
+        // The seeded day plus both taps: the total on screen has to reflect them.
+        XCTAssertTrue(
+            app.staticTexts["530 mL"].waitForExistence(timeout: 3),
+            "today's total didn't add up to the two quick adds"
+        )
+
+        // A quick add offers a few seconds of undo. That bar is transient and has no
+        // business in an App Store screenshot, so wait it out rather than capture it.
+        let undo = app.buttons["Undo"]
+        if undo.exists {
+            XCTAssertTrue(undo.waitForNonExistence(timeout: 10), "the undo toast never went away")
+        }
     }
 
     private func save(_ screenshot: XCUIScreenshot, name: String) {
