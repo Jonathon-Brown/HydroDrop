@@ -30,8 +30,9 @@ final class WeatherAttributionStore: ObservableObject {
 }
 
 /// The attribution Apple requires wherever HydroDrop shows something it learned from
-/// WeatherKit: the hot-day suggestion in `WeatherBumpCard`, and the badge explaining a
-/// raised goal in `WeatherBumpBadge`.
+/// WeatherKit: the hot-day suggestion in `WeatherBumpCard`, the badge explaining a
+/// raised goal in `WeatherBumpBadge`, and the World's sky while it draws a reading, on
+/// Today and on Your World (`WorldWeatherAttribution`).
 ///
 /// Apple's terms say you "must clearly display the Apple Weather trademark (Weather), as
 /// well as the legal link to other data sources", so the mark is the tappable thing and
@@ -51,6 +52,13 @@ struct WeatherAttributionLink: View {
     /// sit with caption text rather than to be as small as it can get away with.
     @ScaledMetric(relativeTo: .caption) private var markHeight: CGFloat = 15
 
+    /// On the World's painted sky rather than in ordinary content. Only
+    /// `WorldWeatherAttribution` sets it, together with the colour scheme it needs.
+    var onSky = false
+    /// How much black is laid over the frost on the sky, for a chip that sits on paler
+    /// cloud than the Today header's sky. Nothing by default.
+    var skyShade: Double = 0
+
     /// Where the legal link points before the fetch lands, and if it never does.
     static let fallbackLegalURL = URL(string: "https://weatherkit.apple.com/legal-attribution.html")!
 
@@ -61,17 +69,24 @@ struct WeatherAttributionLink: View {
 
     var body: some View {
         Link(destination: store.attribution?.legalPageURL ?? Self.fallbackLegalURL) {
-            if let markURL {
-                AsyncImage(url: markURL) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFit()
-                    } else {
-                        wordmark
+            if onSky {
+                // The frost is part of the label because a Link only takes taps on its
+                // label: padding added from outside would draw a bigger chip without
+                // making it any easier to hit. The tap area is 40pt tall, like the gear
+                // beside it on Today.
+                mark
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background {
+                        ZStack {
+                            Capsule().fill(.ultraThinMaterial)
+                            Capsule().fill(.black.opacity(skyShade))
+                        }
                     }
-                }
-                .frame(height: markHeight)
+                    .frame(minHeight: 40)
+                    .contentShape(Rectangle())
             } else {
-                wordmark
+                mark
             }
         }
         .accessibilityLabel("Weather data from Apple Weather")
@@ -79,12 +94,65 @@ struct WeatherAttributionLink: View {
         .task { await store.loadIfNeeded() }
     }
 
+    @ViewBuilder
+    private var mark: some View {
+        if let markURL {
+            AsyncImage(url: markURL) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFit()
+                } else {
+                    wordmark
+                }
+            }
+            .frame(height: markHeight)
+        } else {
+            wordmark
+        }
+    }
+
     /// The trademark in words, for the moment before the image arrives and for the case
     /// where it never does. Apple's own name for the mark, not a description of it.
     private var wordmark: some View {
         Text("Apple Weather")
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            // On the frost the words have to be as bright as the gear and the streak. A
+            // concrete colour, because inside a Link a hierarchical `.primary` resolves
+            // against the tint and would turn them accent blue, nearly invisible on the
+            // day frost (the Settings rows work around the same thing).
+            .foregroundStyle(onSky ? AnyShapeStyle(Color.primary) : AnyShapeStyle(.secondary))
+            // On the sky the chip shares a row with the title and the gear, and a second
+            // line would make the header taller. Shrinking keeps the whole name on one.
+            .lineLimit(onSky ? 1 : nil)
+            .minimumScaleFactor(onSky ? 0.5 : 1)
+    }
+}
+
+/// The Apple Weather mark on the World's painted sky, on Today and on Your World, shown
+/// while that sky is drawing a reading: cloudy, rain or snow (`WorldWeather.isOvercast`).
+/// A clear reading paints the same sky as none, so it carries no mark, and
+/// Settings > Apple Weather stays the place that always has one.
+///
+/// That sky follows the clock, not light or dark mode, so a phone in light mode at night
+/// has a near-black sky behind the mark. The mark is therefore always the one made for
+/// dark backgrounds, on the same dark frost as the Today header's gear and streak. On the
+/// Today header the black mark measured about 1.2:1 against the night sky, and the white
+/// one on frost about 4.6:1 by day and 14:1 by night. On Your World by day the frost sits
+/// over paler cloud, where plain frost measured nearer 3:1, so that card adds `shade`,
+/// which kept it at 5.6:1 or better over the palest cloud. The scheme is forced here,
+/// from outside the link, so the link's own `colorScheme` read sees it and no call site
+/// can forget it. Text size is capped so the chip fits beside the title and the gear,
+/// and the large content viewer shows the name at the sizes above the cap.
+struct WorldWeatherAttribution: View {
+    /// Passed to the link's `skyShade`. Your World sets it; the Today header does not.
+    var shade: Double = 0
+
+    var body: some View {
+        WeatherAttributionLink(onSky: true, skyShade: shade)
+            .environment(\.colorScheme, .dark)
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            .accessibilityShowsLargeContentViewer {
+                Text("Apple Weather")
+            }
     }
 }
 
@@ -100,8 +168,9 @@ struct WeatherDataSourcesView: View {
         List {
             // The mark and the legal link together, on a screen that is always reachable
             // whatever the weather and whether or not anyone has subscribed. The card on
-            // Today carries them too, but only on a hot day for a subscriber, which is
-            // not something a reviewer can be relied on to reach.
+            // Today and the World's sky carry them too, but only for a subscriber on a hot
+            // or an overcast day, which is not something a reviewer can be relied on to
+            // reach.
             Section {
                 WeatherAttributionLink()
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -121,7 +190,7 @@ struct WeatherDataSourcesView: View {
             } header: {
                 Text("Data sources")
             } footer: {
-                Text("HydroDrop's hot day suggestions use Apple Weather. These are the sources behind it.")
+                Text("HydroDrop's hot day suggestions and the weather in your world use Apple Weather. These are the sources behind it.")
             }
 
             Section {

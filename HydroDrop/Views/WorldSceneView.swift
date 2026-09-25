@@ -91,7 +91,7 @@ private struct WorldPainter {
     private var stage: WorldStage { state.stage }
     /// How far plants hang their heads: 0 upright, 1 fully drooped.
     private var droop: Double { max(0, min(1, (0.55 - vitality) / 0.55)) }
-    private var isOvercast: Bool { weather == .cloudy || weather == .rain || weather == .snow }
+    private var isOvercast: Bool { weather?.isOvercast == true }
 
     /// Fixed sizes (petals, stars, stroke widths) grow with the frame, so a bigger scene
     /// is a closer look rather than the same flowers lost in more space. Capped, so an
@@ -241,7 +241,7 @@ private struct WorldPainter {
 
     /// The grey that cloud lays over the whole sky, if there is cloud.
     static func skyVeil(timeOfDay: WorldTimeOfDay, weather: WorldWeather?) -> (color: (Double, Double, Double), opacity: Double)? {
-        guard weather == .cloudy || weather == .rain || weather == .snow else { return nil }
+        guard let weather, weather.isOvercast else { return nil }
         let color = timeOfDay.isDark ? (0.10, 0.11, 0.16) : (0.62, 0.66, 0.72)
         return (color, weather == .cloudy ? 0.45 : 0.6)
     }

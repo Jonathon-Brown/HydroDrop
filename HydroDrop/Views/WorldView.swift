@@ -37,6 +37,21 @@ struct WorldView: View {
                 }
                 .frame(height: 340)
                 .clipShape(RoundedRectangle(cornerRadius: 24))
+                // Under cloud, rain or snow the painter draws no sun, moon or stars, so the
+                // corner the chip covers holds only cloud and whatever is falling, and the
+                // leading side stays clear of where the sun and moon go should a clear sky
+                // ever carry the mark. After the clip, so neither the chip nor its tap area
+                // is cut, and an overlay, so nothing below moves when a reading arrives.
+                .overlay(alignment: .topLeading) {
+                    if weather?.isOvercast == true {
+                        // Darker than the Today chip: this corner is often pale cloud, and
+                        // plain frost over it left the white mark near 3:1 by day. This much
+                        // black kept it at 5.6:1 or better in cloud, rain and snow.
+                        WorldWeatherAttribution(shade: 0.3)
+                            .padding(.leading, 12)
+                            .padding(.top, 6)
+                    }
+                }
 
                 summary
                 nextUnlock

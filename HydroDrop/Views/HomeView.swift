@@ -537,7 +537,16 @@ struct HomeView: View {
                     .font(.largeTitle.bold())
                     .foregroundStyle(.white)
                     .accessibilityAddTraits(.isHeader)
+                    // On a narrow phone at a large text size, the weather mark gives up
+                    // width before the title does.
+                    .layoutPriority(1)
                 Spacer()
+                // Credits the sky behind, on the sky, whenever that sky is drawing a
+                // reading. It is no taller than the gear, so the header, and the world
+                // measured from it, never move when a reading arrives or goes stale.
+                if worldWeather?.isOvercast == true {
+                    WorldWeatherAttribution()
+                }
                 settingsButton
             }
             .padding(.horizontal, Self.pagePadding)
