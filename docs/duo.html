@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HydroDrop Duo invite</title>
+<meta name="description" content="Someone who uses HydroDrop invited you to keep a water streak with them. Get the app and enter the invite code shown on this page.">
+<meta name="robots" content="noindex">
+<!--
+  The invite code travels in the URL fragment (the part after #), which browsers never send in
+  the HTTP request, so GitHub Pages never receives it and neither does a link-preview fetch of
+  this page (the message that carries the link is the messenger's affair). The fragment is CODE.k:
+  the 8-character code, a dot, then a secret only the two apps share. This page shows the code
+  and nothing after the dot. The one place the whole link is used is the Smart App Banner's
+  app-argument below, which Safari hands to the app on this same phone when the banner's Open
+  button is tapped; the app needs the secret, the page never does. That is also why no
+  third-party script loads here: a script could read the fragment.
+-->
+<!-- Fragments never travel in the Referer header, but nothing this page links to needs a referrer either. -->
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#07121F">
+<link rel="canonical" href="https://hydrodrop.us/duo">
+<!-- Safari's Smart App Banner. Static HTML cannot know the fragment, so the script rewrites
+     app-argument before the body parses. It rebuilds the link from the parsed parts rather than
+     copying location.href, so the app only ever receives a canonical https://hydrodrop.us/duo link
+     with a valid code and, if present, a well-formed secret; a hand-edited or hostile fragment is
+     dropped. Whether Safari honours the rewritten value is a Phase 0 device spike. -->
+<meta name="apple-itunes-app" id="smart-banner" content="app-id=6793399317, app-argument=https://hydrodrop.us/duo">
+<script>
+  // Shared by the banner above and the page script below. Same normalisation as the apps:
+  // uppercase, O to 0, I and L to 1, dashes and spaces dropped; the code is the text before the
+  // first dot, the secret (if any) is everything after it and is only checked for shape.
+  function duoParse(hash) {
+    var parts = hash.replace(/^#/, '').split('.');
+    var code = parts[0];
+    try { code = decodeURIComponent(code); } catch (e) { /* keep it as typed */ }
+    code = code.toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1').replace(/[\s-]/g, '');
+    if (!/^[0-9A-HJKMNP-TV-Z]{8}$/.test(code)) { return null; }
+    var secret = parts.length > 1 && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(parts[1]) ? parts[1] : '';
+    return { code: code, secret: secret };
+  }
+  function duoBanner() {
+    var m = document.getElementById('smart-banner');
+    var invite = duoParse(location.hash);
+    var link = 'https://hydrodrop.us/duo' + (invite ? '#' + invite.code + (invite.secret ? '.' + invite.secret : '') : '');
+    if (m) { m.setAttribute('content', 'app-id=6793399317, app-argument=' + link); }
+  }
+  duoBanner();
+</script>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="HydroDrop">
+<meta property="og:title" content="You're invited to a Duo Streak">
+<meta property="og:description" content="Someone who uses HydroDrop invited you to keep a water streak with them. Get the app and enter the invite code shown on this page.">
+<meta property="og:url" content="https://hydrodrop.us/duo">
+<meta property="og:image" content="https://hydrodrop.us/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="HydroDrop app icon and the Today screen with the droplet mascot">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://hydrodrop.us/og-image.png">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --ground: #07121F; --card: #0C1B2D; --line: #16304A; --hair: #12263B;
+    --text: #EEF4FA; --soft: #B7C7D8; --muted: #9DB2C8; --link: #7CC0FF;
+    --blue: #2E8FED; --blue-lift: #4DA3FF; --ink: #04101D;
+    --edge: #4A7FB5; /* 4.1:1 on the card, so an outlined button still reads as a control (WCAG 1.4.11) */
+    --display: 'Unbounded', 'Arial Rounded MT Bold', system-ui, sans-serif;
+    --body: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --pad: clamp(24px, 8.3vw, 120px);
+  }
+  * { box-sizing: border-box; }
+  /* Author display rules such as .btn's inline-flex would otherwise beat the hidden attribute's
+     user-agent style, and the Copy button showed in the no-code state. */
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--body); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { color: #B5DBFF; }
+  main a:not(.btn) { text-decoration: underline; text-underline-offset: 3px; }
+  :focus-visible { outline: 3px solid var(--blue-lift); outline-offset: 3px; border-radius: 8px; }
+  h1, h2, p { margin: 0; }
+  p { text-wrap: pretty; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding-left: var(--pad); padding-right: var(--pad); }
+  .site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; }
+  .logo { display: flex; align-items: center; gap: 12px; color: var(--text); padding: 10px 0; font-family: var(--display); font-weight: 700; font-size: 18px; }
+  .logo:hover { color: var(--text); }
+  .site-nav { display: flex; align-items: center; gap: 36px; }
+  .site-nav a { color: #C5D5E6; font-size: 15px; font-weight: 500; padding: 13px 0; }
+  .site-nav a:hover { color: var(--text); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; background: var(--blue); color: var(--ink); font-family: var(--body); font-weight: 700; font-size: 15px; line-height: 1.2; padding: 13px 22px; border: 0; border-radius: 999px; cursor: pointer; transition: background .2s; }
+  .btn:hover { background: var(--blue-lift); color: var(--ink); }
+  .btn.big { font-size: 17px; padding: 16px 28px; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--edge); }
+  .btn.ghost:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); border-color: var(--blue-lift); }
+  main { padding-top: clamp(32px, 5vw, 72px); padding-bottom: clamp(64px, 7.8vw, 112px); }
+  h1 { font-family: var(--display); font-weight: 800; font-size: clamp(32px, 4.5vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }
+  .intro { display: flex; align-items: center; justify-content: space-between; gap: 64px; }
+  .intro > div { display: flex; flex-direction: column; gap: 20px; }
+  .intro p { max-width: 620px; font-size: clamp(17px, 1.3vw, 19px); color: var(--soft); }
+  .intro svg { flex-shrink: 0; width: 150px; height: auto; margin-right: 60px; filter: drop-shadow(0 22px 36px rgba(84,168,237,0.3)); }
+  .code-box { margin-top: 40px; background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 32px 36px; display: flex; flex-direction: column; gap: 10px; }
+  .code-label { font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .code { font-family: var(--mono); font-weight: 700; font-size: clamp(34px, 10vw, 56px); line-height: 1.15; letter-spacing: 0.08em; color: var(--text); user-select: all; -webkit-user-select: all; overflow-wrap: anywhere; }
+  .code-help { font-size: 16px; color: var(--soft); max-width: 620px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+  .actions + .code-help { margin-top: 6px; }
+  #copy { min-width: 9.5em; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .ways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 32px; }
+  .way { background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 36px; display: flex; flex-direction: column; gap: 12px; }
+  .way h2 { font-family: var(--display); font-weight: 700; font-size: clamp(19px, 1.6vw, 22px); letter-spacing: -0.02em; margin-top: 4px; }
+  .way p { font-size: 17px; color: var(--soft); }
+  .way strong { color: var(--text); }
+  .site-footer { border-top: 1px solid var(--hair); padding-top: 36px; padding-bottom: 48px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 40px; font-size: 14px; color: var(--muted); }
+  .site-footer p { max-width: 560px; }
+  .site-footer nav { display: flex; flex-wrap: wrap; gap: 0 32px; }
+  .site-footer nav a { color: #C5D5E6; padding: 12px 0; }
+  @media (max-width: 720px) {
+    .site-header { min-height: 64px; }
+    .site-nav { gap: 20px; }
+    .site-nav a { font-size: 14px; }
+    .site-header .btn { display: none; }
+    .logo span { display: none; }
+    .intro svg { display: none; }
+    .code-box { margin-top: 28px; padding: 24px; border-radius: 24px; }
+    .actions { flex-direction: column; }
+    .actions .btn { width: 100%; }
+    .ways { grid-template-columns: 1fr; gap: 12px; margin-top: 24px; }
+    .way { padding: 28px 24px; border-radius: 24px; }
+  }
+</style>
+</head>
+<body id="top">
+<header class="wrap site-header">
+  <a class="logo" href="./" aria-label="HydroDrop home">
+    <svg viewBox="0 0 100 134" width="22" height="30" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#2E8FED"/></svg>
+    <span>HydroDrop</span>
+  </a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="./">Home</a>
+    <a href="support.html">Support</a>
+    <a href="privacy.html">Privacy</a>
+  </nav>
+  <a class="btn" href="https://apps.apple.com/app/id6793399317">Get the app</a>
+</header>
+<main class="wrap">
+  <div class="intro">
+    <div>
+      <h1>You're invited to a Duo Streak.</h1>
+      <p>Someone who uses HydroDrop wants to keep a water streak with you: you each drink to your own daily goal, and the streak grows for every day you both make it. Get the app, then enter the invite code.</p>
+    </div>
+    <svg viewBox="0 0 100 134" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#54A8ED"/><ellipse cx="32" cy="56" rx="8" ry="13" fill="#fff" fill-opacity=".35"/><circle cx="38" cy="88" r="6" fill="#fff"/><circle cx="62" cy="88" r="6" fill="#fff"/><circle cx="39" cy="89" r="3" fill="#0B2A4A"/><circle cx="63" cy="89" r="3" fill="#0B2A4A"/><path d="M42 103q8 7 16 0" fill="none" stroke="#0B2A4A" stroke-width="3" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- The static markup is what a browser without JavaScript shows: the App Store button is the
+       filled one, Copy is hidden, and only the noscript paragraph explains where the code is. The
+       script unhides the no-code paragraph when it runs and finds no code, and flips the buttons
+       around when the link carries one. -->
+  <section class="code-box" aria-labelledby="code-label">
+    <h2 class="code-label" id="code-label">Invite code</h2>
+    <p class="code" id="code" hidden></p>
+    <p class="code-help" id="code-help" hidden>Copy it now. You'll paste it into HydroDrop after installing.</p>
+    <p class="code-help" id="no-code" hidden>We couldn't find a code in this link. Ask the person who invited you to send it again, or type the code they give you into HydroDrop under Settings, then Duo Streaks.</p>
+    <noscript><p class="code-help">With JavaScript off, this page can't show the code. It is in the link itself: tap the address bar to see the full address, and the code is the eight characters right after the # sign, before the dot.</p></noscript>
+    <div class="actions">
+      <button type="button" class="btn big" id="copy" hidden>Copy code</button>
+      <p class="visually-hidden" id="copy-status" role="status" aria-live="polite"></p>
+      <a class="btn big" id="store" href="https://apps.apple.com/app/id6793399317">Get HydroDrop on the App Store</a>
+      <!-- A Google Play button belongs here once the Android app has a Play listing. The sentence
+           below stands in until then, because a button that leads nowhere would be worse than none. -->
+    </div>
+    <p class="code-help">There's no Android version yet, so for now a Duo Streak pairs two iPhones.</p>
+  </section>
+
+  <div class="ways">
+    <section class="way">
+      <h2>Already have HydroDrop?</h2>
+      <p>Open it, go to <strong>Settings</strong>, then <strong>Duo Streaks</strong>, and enter the invite code.</p>
+    </section>
+    <section class="way">
+      <h2>What HydroDrop is</h2>
+      <p>A friendly water tracker. A little droplet gets happier as you drink, and reminders arrive only while you are awake.</p>
+    </section>
+  </div>
+</main>
+
+<footer class="wrap site-footer">
+  <p>© 2026 Jonathon Brown. Apple, iPhone and App Store are trademarks of Apple Inc., registered in the U.S. and other countries. Android is a trademark of Google LLC.</p>
+  <nav aria-label="Footer">
+    <a href="./">Home</a>
+    <a href="support.html">Support</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="mailto:support@hydrodrop.us">support@hydrodrop.us</a>
+  </nav>
+</footer>
+
+<script>
+  (function () {
+    var codeEl = document.getElementById('code');
+    var helpEl = document.getElementById('code-help');
+    var noCodeEl = document.getElementById('no-code');
+    var copyBtn = document.getElementById('copy');
+    var statusEl = document.getElementById('copy-status');
+    var storeBtn = document.getElementById('store');
+    var display = '';
+
+    function render() {
+      // Only the code is ever shown or copied. The secret after the dot goes nowhere but the
+      // Smart App Banner's app-argument, and only when it has the right shape.
+      var invite = duoParse(location.hash);
+      var ok = invite !== null;
+      display = ok ? invite.code.slice(0, 4) + '-' + invite.code.slice(4) : '';
+      codeEl.textContent = display;
+      codeEl.hidden = !ok;
+      helpEl.hidden = !ok;
+      copyBtn.hidden = !ok;
+      noCodeEl.hidden = ok;
+      storeBtn.classList.toggle('ghost', ok);
+      duoBanner();
+    }
+
+    function copied() {
+      copyBtn.textContent = 'Copied';
+      statusEl.textContent = 'Code copied';
+      setTimeout(function () { copyBtn.textContent = 'Copy code'; statusEl.textContent = ''; }, 2000);
+    }
+
+    // When a selection is copied, browsers add rich flavours (HTML, web archive, source URL) that
+    // carry the page address, fragment and all. This listener replaces the payload with the plain
+    // code whenever the copy comes from the button or from a selection inside the code itself, so
+    // the secret never reaches the clipboard in any flavour.
+    var copying = false;
+    document.addEventListener('copy', function (e) {
+      var selection = window.getSelection();
+      var inCode = selection && selection.anchorNode && codeEl.contains(selection.anchorNode);
+      if (!(copying || inCode) || !e.clipboardData) { return; }
+      e.clipboardData.setData('text/plain', display);
+      e.preventDefault();
+    });
+
+    // execCommand only works inside the click, so it runs first and synchronously; the async
+    // clipboard API is the fallback. Either way the code is left selected, so a manual copy
+    // still works if both fail.
+    copyBtn.addEventListener('click', function () {
+      var range = document.createRange();
+      range.selectNodeContents(codeEl);
+      var selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      var done = false;
+      copying = true;
+      try { done = document.execCommand('copy'); } catch (e) { done = false; }
+      copying = false;
+      if (done) { copied(); return; }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(display).then(copied, function () { statusEl.textContent = 'Copy failed. The code is selected; copy it by hand.'; });
+      } else {
+        statusEl.textContent = 'Copy failed. The code is selected; copy it by hand.';
+      }
+    });
+
+    render();
+    window.addEventListener('hashchange', render);
+  })();
+</script>
+</body>
+</html>
