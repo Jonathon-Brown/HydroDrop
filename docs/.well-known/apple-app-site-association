@@ -7,6 +7,10 @@
           {
             "/": "/tap*",
             "comment": "A HydroDrop bottle tag. Opens the app and logs that bottle."
+          },
+          {
+            "/": "/duo",
+            "comment": "Duo invite; code in fragment"
           }
         ]
       }
