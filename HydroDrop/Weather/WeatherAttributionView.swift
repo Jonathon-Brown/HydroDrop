@@ -55,8 +55,8 @@ struct WeatherAttributionLink: View {
     /// On the World's painted sky rather than in ordinary content. Only
     /// `WorldWeatherAttribution` sets it, together with the colour scheme it needs.
     var onSky = false
-    /// How much black is laid over the frost on the sky, for a chip that sits on paler
-    /// cloud than the Today header's sky. Nothing by default.
+    /// How much black is laid over the frost on the sky, for a chip over pale cloud or a
+    /// pale snowy sky. Nothing by default.
     var skyShade: Double = 0
 
     /// Where the legal link points before the fetch lands, and if it never does.
@@ -134,16 +134,17 @@ struct WeatherAttributionLink: View {
 ///
 /// That sky follows the clock, not light or dark mode, so a phone in light mode at night
 /// has a near-black sky behind the mark. The mark is therefore always the one made for
-/// dark backgrounds, on the same dark frost as the Today header's gear and streak. On the
-/// Today header the black mark measured about 1.2:1 against the night sky, and the white
-/// one on frost about 4.6:1 by day and 14:1 by night. On Your World by day the frost sits
-/// over paler cloud, where plain frost measured nearer 3:1, so that card adds `shade`,
-/// which kept it at 5.6:1 or better over the palest cloud. The scheme is forced here,
+/// dark backgrounds, on the same dark frost as the Today header's gear and streak. The
+/// black mark measured about 1.2:1 against the night sky. Plain frost left the white one
+/// about 4.3:1 on Today under a pale snowy sky and nearer 3:1 over the paler cloud on Your
+/// World, so both add `shade`, Your World more of it; with that, every sky measured
+/// 5.1:1 or better by day and 12:1 or better by night. The scheme is forced here,
 /// from outside the link, so the link's own `colorScheme` read sees it and no call site
 /// can forget it. Text size is capped so the chip fits beside the title and the gear,
 /// and the large content viewer shows the name at the sizes above the cap.
 struct WorldWeatherAttribution: View {
-    /// Passed to the link's `skyShade`. Your World sets it; the Today header does not.
+    /// Passed to the link's `skyShade`: a little on Today, for a pale snowy sky, and more on
+    /// Your World, for the paler cloud in its corner.
     var shade: Double = 0
 
     var body: some View {

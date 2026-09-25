@@ -46,7 +46,7 @@ struct WorldView: View {
                     if weather?.isOvercast == true {
                         // Darker than the Today chip: this corner is often pale cloud, and
                         // plain frost over it left the white mark near 3:1 by day. This much
-                        // black kept it at 5.6:1 or better in cloud, rain and snow.
+                        // black kept it at 5.2:1 or better in cloud, rain and snow.
                         WorldWeatherAttribution(shade: 0.3)
                             .padding(.leading, 12)
                             .padding(.top, 6)

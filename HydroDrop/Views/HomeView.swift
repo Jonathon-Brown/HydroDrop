@@ -545,7 +545,9 @@ struct HomeView: View {
                 // reading. It is no taller than the gear, so the header, and the world
                 // measured from it, never move when a reading arrives or goes stale.
                 if worldWeather?.isOvercast == true {
-                    WorldWeatherAttribution()
+                    // Shaded like the gear and the streak under an overcast sky (see
+                    // `headerFrost`).
+                    WorldWeatherAttribution(shade: Self.overcastHeaderShade)
                 }
                 settingsButton
             }
@@ -612,7 +614,7 @@ struct HomeView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 40, height: 40)
-                .background(Circle().fill(.ultraThinMaterial))
+                .background(headerFrost(Circle()))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -635,7 +637,24 @@ struct HomeView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
-        .background(Capsule().fill(.ultraThinMaterial))
+        .background(headerFrost(Capsule()))
+    }
+
+    /// How much black the header's frost takes under an overcast sky. Cloud, rain and
+    /// snow make the sky behind the header paler than a clear one, and on a snowy day
+    /// plain frost left white on it at about 4.3:1.
+    private static let overcastHeaderShade = 0.12
+
+    /// The frost behind the gear and the streak badge. Under an overcast sky it takes the
+    /// same shade as the Apple Weather mark beside them, so all three still match and the
+    /// white on them stays above 4.5:1. A clear sky gets plain frost, as it always has.
+    private func headerFrost<S: Shape>(_ shape: S) -> some View {
+        ZStack {
+            shape.fill(.ultraThinMaterial)
+            if worldWeather?.isOvercast == true {
+                shape.fill(.black.opacity(Self.overcastHeaderShade))
+            }
+        }
     }
 
     /// Shown once per broken streak, and only to free users. Information first: it says

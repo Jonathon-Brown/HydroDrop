@@ -133,6 +133,16 @@ private struct WorldPainter {
             g += (grey - g) * 0.35
             b += (grey - b) * 0.35
         }
+        // Rain dims the land a touch, and snow cools it. Both are small on purpose: the
+        // sky says what the weather is, and the ground only has to agree with it.
+        switch weather {
+        case .rain:
+            r *= 0.92; g *= 0.93; b *= 0.95
+        case .snow:
+            r *= 0.94; g *= 0.97; b += (1 - b) * 0.10
+        case .clear, .cloudy, nil:
+            break
+        }
         switch timeOfDay {
         case .day:
             break
@@ -239,15 +249,47 @@ private struct WorldPainter {
         }
     }
 
-    /// The grey that cloud lays over the whole sky, if there is cloud.
+    /// The haze that cloud lays over the whole sky, once `skyGreying` has taken the colour
+    /// out of it. Rain is a darker, dimmer grey than plain cloud; snow a pale, cool one.
     static func skyVeil(timeOfDay: WorldTimeOfDay, weather: WorldWeather?) -> (color: (Double, Double, Double), opacity: Double)? {
         guard let weather, weather.isOvercast else { return nil }
-        let color = timeOfDay.isDark ? (0.10, 0.11, 0.16) : (0.62, 0.66, 0.72)
-        return (color, weather == .cloudy ? 0.45 : 0.6)
+        let dark = timeOfDay.isDark
+        switch weather {
+        case .clear:
+            return nil
+        case .cloudy:
+            return (dark ? (0.10, 0.11, 0.16) : (0.54, 0.58, 0.66), dark ? 0.55 : 0.45)
+        case .rain:
+            return (dark ? (0.07, 0.08, 0.12) : (0.42, 0.49, 0.60), dark ? 0.62 : 0.60)
+        case .snow:
+            return (dark ? (0.15, 0.18, 0.27) : (0.60, 0.66, 0.78), dark ? 0.55 : 0.50)
+        }
+    }
+
+    /// How far cloud pulls the sky's own colours towards grey before the veil goes over
+    /// them. The veil alone left a cloudy sky mostly blue, so a cloudy day read as a clear
+    /// one. None of them goes all the way to grey, so a parched grey droplet still stands
+    /// off the sky behind it, and snow's veil is a cool one, for a cool sky, not a dull one.
+    static func skyGreying(_ weather: WorldWeather?) -> Double {
+        switch weather {
+        case .cloudy: 0.55
+        case .rain: 0.6
+        case .snow: 0.55
+        case .clear, nil: 0
+        }
     }
 
     private mutating func sky() {
-        let bands = Self.skyBands(timeOfDay)
+        var bands = Self.skyBands(timeOfDay)
+        if let weather, weather.isOvercast {
+            // Half as much at night, so an overcast night keeps some of its navy and the
+            // clouds, not a charcoal sky, say what the weather is.
+            let pull = Self.skyGreying(weather) * (timeOfDay.isDark ? 0.5 : 1)
+            bands = bands.map { r, g, b in
+                let grey = (r + g + b) / 3
+                return (r + (grey - r) * pull, g + (grey - g) * pull, b + (grey - b) * pull)
+            }
+        }
         let locations = [0.0, 0.40, 0.75, 1.0]
         let gradient = Gradient(stops: zip(bands, locations).map { band, location in
             .init(color: Color(red: band.0, green: band.1, blue: band.2), location: location)
@@ -289,27 +331,70 @@ private struct WorldPainter {
         softDisc(at: centre, radius: radius, color: warm)
     }
 
-    private mutating func clouds() {
-        let count = isOvercast ? 4 : (timeOfDay.isDark ? 0 : 2)
-        guard count > 0 else { return }
-        let shade: Color = isOvercast
-            ? (timeOfDay.isDark ? Color(red: 0.26, green: 0.28, blue: 0.36) : Color(red: 0.80, green: 0.83, blue: 0.87))
-            : .white
-        for index in 0..<count {
-            let drift = (time * (0.004 + scatter(index, 9) * 0.004) + scatter(index, 5)).truncatingRemainder(dividingBy: 1.3) - 0.15
-            let centre = point(drift, 0.10 + 0.22 * scatter(index, 6))
-            let scale = w * (0.07 + 0.05 * scatter(index, 7))
-            var cloud = Path()
-            for (dx, dy, r) in [(-1.0, 0.15, 0.75), (-0.2, -0.2, 1.0), (0.75, 0.0, 0.85), (0.1, 0.3, 0.9)] {
-                cloud.addEllipse(in: CGRect(
-                    x: centre.x + scale * dx - scale * r,
-                    y: centre.y + scale * dy * 0.7 - scale * r * 0.6,
-                    width: scale * r * 2,
-                    height: scale * r * 1.2
-                ))
-            }
-            context.fill(cloud, with: .color(shade.opacity(isOvercast ? 0.9 : 0.8)))
+    /// Where each cloud drifts: slowly, each at its own pace, wrapping round once it is
+    /// wholly past an edge. `margin` has to cover how far a cloud reaches from its centre,
+    /// or it blinks out at one side and in at the other; the overcast clouds reach further.
+    private func cloudDrift(_ index: Int, margin: Double = 0.15) -> Double {
+        let travelled = time * (0.004 + scatter(index, 9) * 0.004) + scatter(index, 5)
+        return travelled.truncatingRemainder(dividingBy: 1 + 2 * margin) - margin
+    }
+
+    /// The lobes of a fair-weather cloud and of a fuller overcast one: (across, down, size)
+    /// for each, in units of `scale` from the centre.
+    private static let fairLobes = [(-1.0, 0.15, 0.75), (-0.2, -0.2, 1.0), (0.75, 0.0, 0.85), (0.1, 0.3, 0.9)]
+    private static let overcastLobes = [(-1.35, 0.25, 0.70), (-0.7, -0.1, 0.95), (0.0, -0.35, 1.10), (0.75, -0.05, 0.95), (1.4, 0.25, 0.70), (0.2, 0.35, 1.0)]
+
+    /// One cloud as overlapping ellipses: (across, down, size) for each lobe, in units of
+    /// `scale` from the centre.
+    private func puff(at centre: CGPoint, scale: CGFloat, lobes: [(Double, Double, Double)]) -> Path {
+        var cloud = Path()
+        for (dx, dy, r) in lobes {
+            cloud.addEllipse(in: CGRect(
+                x: centre.x + scale * dx - scale * r,
+                y: centre.y + scale * dy * 0.7 - scale * r * 0.6,
+                width: scale * r * 2,
+                height: scale * r * 1.2
+            ))
         }
+        return cloud
+    }
+
+    private mutating func clouds() {
+        if isOvercast {
+            overcastClouds()
+            return
+        }
+        // A fair sky: two small white clouds by day, none at night.
+        guard !timeOfDay.isDark else { return }
+        for index in 0..<2 {
+            let centre = point(cloudDrift(index), 0.10 + 0.22 * scatter(index, 6))
+            let scale = w * (0.07 + 0.05 * scatter(index, 7))
+            let cloud = puff(at: centre, scale: scale, lobes: Self.fairLobes)
+            context.fill(cloud, with: .color(Color.white.opacity(0.8)))
+        }
+    }
+
+    /// Under cloud, rain or snow: more cloud than a fair sky, each one fuller, with a
+    /// darker underside peeking out below so it reads as having weight. Four thin grey
+    /// clouds used to be all there was, and a cloudy day looked much like a clear one.
+    private mutating func overcastClouds() {
+        let dark = timeOfDay.isDark
+        let top = dark ? Color(red: 0.27, green: 0.29, blue: 0.37) : Color(red: 0.84, green: 0.86, blue: 0.90)
+        let under = dark ? Color(red: 0.18, green: 0.19, blue: 0.26) : Color(red: 0.68, green: 0.71, blue: 0.77)
+        var undersides = Path()
+        var tops = Path()
+        for index in 0..<6 {
+            // A fuller cloud reaches up to 0.24 of the width from its centre.
+            let centre = point(cloudDrift(index, margin: 0.25), 0.06 + 0.26 * scatter(index, 6))
+            let scale = w * (0.07 + 0.045 * scatter(index, 7))
+            let cloud = puff(at: centre, scale: scale, lobes: Self.overcastLobes)
+            undersides.addPath(cloud.offsetBy(dx: 0, dy: scale * 0.18))
+            tops.addPath(cloud)
+        }
+        // Every underside first, then every top: where clouds overlap they merge into one
+        // bank, shaded only along its lower edge, and all the cloud is two fills.
+        context.fill(undersides, with: .color(under.opacity(0.95)))
+        context.fill(tops, with: .color(top.opacity(0.95)))
     }
 
     // MARK: Land and water
@@ -802,22 +887,72 @@ private struct WorldPainter {
 
     // MARK: Weather
 
+    /// Rain or snow, in two layers: a far one, smaller, slower and fainter, and a near one
+    /// that is bigger and brighter, so the fall has depth. Each layer is gathered into one
+    /// path and drawn once, which keeps a heavy shower to a handful of draw calls however
+    /// many drops it has; the old way drew every drop on its own, and fewer, fainter drops
+    /// read as specks rather than weather.
     private mutating func precipitation() {
         guard weather == .rain || weather == .snow else { return }
         let isSnow = weather == .snow
-        for index in 0..<Int(Double(isSnow ? 34 : 46) * min(2, 1 + headroom / h)) {
-            let speed = isSnow ? 0.10 + 0.06 * scatter(index, 61) : 0.9 + 0.5 * scatter(index, 61)
+        let fallHeight = h + headroom + footroom
+        var far = Path()
+        var near = Path()
+        for index in 0..<Int(Double(isSnow ? 80 : 110) * min(2, 1 + headroom / h)) {
+            let isNear = scatter(index, 65) < 0.4
+            let pace = isNear ? 1.0 : 0.7
+            let speed = (isSnow ? 0.10 + 0.06 * scatter(index, 61) : 0.9 + 0.5 * scatter(index, 61)) * pace
             let fall = (time * speed + scatter(index, 62)).truncatingRemainder(dividingBy: 1)
             let x = w * scatter(index, 63) + (isSnow ? sin(time + Double(index)) * 6 : -fall * 14)
-            let y = (h + headroom + footroom) * fall - headroom
+            // How big the flake is, or how long the streak.
+            let size = isSnow
+                ? (isNear ? 3.2 + 2.2 * scatter(index, 64) : 2.2 + 1.4 * scatter(index, 64)) * unit
+                : (isNear ? 20.0 : 13.0) * unit
+            // Starts a whole size above the top, so each one falls into view rather than
+            // appearing at the edge already drawn.
+            let y = (fallHeight + size) * fall - headroom - size
             if isSnow {
-                let flake = 2.0 + 2.0 * scatter(index, 64)
-                context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: flake, height: flake)), with: .color(.white.opacity(0.85)))
+                let flake = CGRect(x: x, y: y, width: size, height: size)
+                if isNear { near.addEllipse(in: flake) } else { far.addEllipse(in: flake) }
             } else {
-                var streak = Path()
-                streak.move(to: CGPoint(x: x, y: y))
-                streak.addLine(to: CGPoint(x: x - 3, y: y + 10))
-                context.stroke(streak, with: .color(Color(red: 0.80, green: 0.88, blue: 0.98).opacity(0.55)), lineWidth: 1.1)
+                // Leaning 3 across for every 10 down, as the drops always have.
+                let start = CGPoint(x: x, y: y)
+                let end = CGPoint(x: x - size * 0.3, y: y + size)
+                if isNear {
+                    near.move(to: start)
+                    near.addLine(to: end)
+                } else {
+                    far.move(to: start)
+                    far.addLine(to: end)
+                }
+            }
+        }
+        // Copied out, so the layer below captures plain values rather than `self`.
+        let lineScale = unit
+        let width = w
+        let worldBottom = h
+        let hasPanelBelow = footroom > 0
+        context.drawLayer { layer in
+            if isSnow {
+                layer.fill(far, with: .color(.white.opacity(0.7)))
+                layer.fill(near, with: .color(.white.opacity(0.95)))
+            } else {
+                let rain = Color(red: 0.82, green: 0.89, blue: 0.98)
+                layer.stroke(far, with: .color(rain.opacity(0.45)), style: StrokeStyle(lineWidth: 1.0 * lineScale, lineCap: .round))
+                layer.stroke(near, with: .color(rain.opacity(0.78)), style: StrokeStyle(lineWidth: 1.5 * lineScale, lineCap: .round))
+            }
+            // On Today the world ends where the panel with the day's numbers begins, and the
+            // drops fade out over the last of the bank rather than falling across its words.
+            // The Your World card has nothing under its world, so there they reach the edge.
+            if hasPanelBelow {
+                let fadeStart = worldBottom - 40
+                let fadeEnd = worldBottom + 10
+                layer.blendMode = .destinationOut
+                layer.fill(
+                    Path(CGRect(x: -width, y: fadeStart, width: 3 * width, height: fadeEnd - fadeStart)),
+                    with: .linearGradient(Gradient(colors: [.clear, .black]), startPoint: CGPoint(x: 0, y: fadeStart), endPoint: CGPoint(x: 0, y: fadeEnd))
+                )
+                layer.fill(Path(CGRect(x: -width, y: fadeEnd, width: 3 * width, height: fallHeight)), with: .color(.black))
             }
         }
     }

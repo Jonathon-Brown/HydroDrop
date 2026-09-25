@@ -265,7 +265,7 @@ final class WorldEngineTests: XCTestCase {
 
     /// Why a clear reading carries no Apple Weather mark: it paints exactly the sky that
     /// no reading paints, by day and by night, so nothing on screen came from WeatherKit.
-    /// Rain is the control, to show the comparison can tell two skies apart at all.
+    /// Every sky that does carry the mark has to paint something different.
     @MainActor
     func testAClearSkyPaintsTheSameAsNoWeather() throws {
         func picture(_ weather: WorldWeather?, _ time: WorldTimeOfDay) throws -> Data {
@@ -281,8 +281,11 @@ final class WorldEngineTests: XCTestCase {
             return try XCTUnwrap(renderer.uiImage?.pngData())
         }
         for time in [WorldTimeOfDay.day, .night] {
-            XCTAssertEqual(try picture(.clear, time), try picture(nil, time), "\(time)")
-            XCTAssertNotEqual(try picture(.rain, time), try picture(nil, time), "\(time)")
+            let none = try picture(nil, time)
+            XCTAssertEqual(try picture(.clear, time), none, "\(time)")
+            for weather in WorldWeather.allCases where weather.isOvercast {
+                XCTAssertNotEqual(try picture(weather, time), none, "\(weather) \(time)")
+            }
         }
     }
 
