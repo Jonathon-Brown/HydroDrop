@@ -169,6 +169,37 @@ if grep -rqE 'AppTrackingTransparency|ATTrackingManager|NSUserTrackingUsageDescr
 else
   pass "no App Tracking Transparency prompt or usage string"
 fi
+# The privacy page also says there are no ads, and Google's ad software never starts, in
+# the EEA, the UK and Switzerland. That holds only while the SDK starts in exactly one
+# place, after AdRegion has said yes, the banner waits for the same answer, and the
+# Info.plist keeps the SDK from setting itself up at launch on its own.
+SDK_STARTS=$(grep -rn 'MobileAds.shared.start' HydroDrop --include='*.swift' 2>/dev/null)
+if [[ $(printf '%s\n' "$SDK_STARTS" | grep -c .) -ne 1 || "$SDK_STARTS" != HydroDrop/Ads/AdManager.swift:* ]] \
+  || grep -rqE 'AdManager\.start\(' HydroDrop --include='*.swift' 2>/dev/null; then
+  fail "Google's ad SDK must start exactly once, in AdAvailability.decide(), after the region check:"
+  echo "$SDK_STARTS" | sed 's/^/          /'
+else
+  pass "Google's ad SDK starts only in AdAvailability, after the region check"
+fi
+if grep -qE '^[[:space:]]*GADDelayInitialization:[[:space:]]*true' project.yml 2>/dev/null; then
+  pass "the ad SDK doesn't set itself up at launch (GADDelayInitialization)"
+else
+  fail "project.yml lost GADDelayInitialization, so Google's ad SDK sets itself up at every launch, in the EEA, UK and Switzerland too"
+fi
+MISSING_REGION=""
+for code in GB GBR CH CHE NO NOR IS ISL LI LIE DE DEU FR FRA IE IRL; do
+  grep -q "\"$code\"" HydroDrop/Ads/AdRegion.swift 2>/dev/null || MISSING_REGION="$MISSING_REGION $code"
+done
+if [[ -n "$MISSING_REGION" ]]; then
+  fail "AdRegion no longer lists:$MISSING_REGION (the privacy page says there are no ads there)"
+else
+  pass "AdRegion still covers the EEA, the UK and Switzerland"
+fi
+if grep -q 'ads.servesAds' HydroDrop/Ads/BannerAdView.swift 2>/dev/null; then
+  pass "the banner waits for the region check"
+else
+  fail "BannerAdView no longer checks AdAvailability.servesAds"
+fi
 echo
 
 # ---------------------------------------------------------------------------

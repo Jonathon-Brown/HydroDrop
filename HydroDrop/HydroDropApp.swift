@@ -32,7 +32,10 @@ struct HydroDropApp: App {
         // Published before any view appears, so a widget added while the app was
         // uninstalled has something true to draw as soon as the app is opened again.
         Self.publishWidgetSnapshot(from: container)
-        AdManager.start()
+        // Google's ad software used to start here for everyone, including the EEA, the
+        // UK and Switzerland, where Google asks for consent before even non-personalized
+        // ads. Now it starts only once this device is known to be outside them.
+        Task { @MainActor in await AdAvailability.shared.decide() }
     }
 
     /// Recomputes and publishes the widget snapshot from the store. Runs at launch and

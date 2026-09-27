@@ -35,9 +35,11 @@ targets:
         # CloudKit delivers SwiftData sync via silent pushes.
         UIBackgroundModes:
           - remote-notification
-          # Only for the retired iCloud Duo's background refresh, which a TestFlight
-          # tester's phone may still have scheduled; a launch for it with no handler is a
-          # crash. See LegacyDuoCleanup. Remove both once no tester is on builds 29 to 31.
+          # Background app refresh. For now it only backs an empty handler for the retired
+          # iCloud Duo's refresh, which a TestFlight tester's phone may still have
+          # scheduled; a launch for it with no handler is a crash (see LegacyDuoCleanup).
+          # Keep this and the identifier below: the Duo redesign is to take the identifier
+          # over for its own background fetch rather than retire it.
           - fetch
         BGTaskSchedulerPermittedIdentifiers:
           - "$(PRODUCT_BUNDLE_IDENTIFIER).duo.refresh"
@@ -51,6 +53,14 @@ targets:
         NFCReaderUsageDescription: "HydroDrop reads the NFC sticker on your bottle so one tap logs a full bottle, and writes to a sticker when you set one up."
         NSSupportsLiveActivities: true
         GADApplicationIdentifier: "ca-app-pub-5814718978331211~3407720909" # HydroDrop's AdMob App ID
+        # Without this, Google's ad SDK sets itself up at every launch on its own (its
+        # settings, its on-device storage, a crash reporter), before and whether or not
+        # the app ever starts it. In the EEA, the UK and Switzerland the app never does
+        # (see AdRegion), and the privacy page says Google's ad software isn't started
+        # there. The key is not in Google's public docs: re-check it on every
+        # GoogleMobileAds update (a fresh install with -AdRegion GBR must leave no
+        # Library/Application Support/GoogleMobileAds folder).
+        GADDelayInitialization: true
         SKAdNetworkItems:
           - SKAdNetworkIdentifier: cstr6suwn9.skadnetwork
           - SKAdNetworkIdentifier: 4fzdc2evr5.skadnetwork

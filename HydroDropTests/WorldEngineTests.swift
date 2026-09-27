@@ -253,6 +253,42 @@ final class WorldEngineTests: XCTestCase {
         XCTAssertNil(WorldWeather.current(isFeatureActive: true, now: fetched.addingTimeInterval(4 * 3600), in: defaults), "this morning's rain is not this afternoon's")
     }
 
+    /// The painter's veil and heavy cloud and the World's Apple Weather mark all follow
+    /// `isOvercast`. A clear reading paints the same sky as none, so it must not claim to
+    /// show Apple Weather; the other three change the sky, so they must.
+    func testOnlyOvercastSkiesShowTheWeather() {
+        XCTAssertFalse(WorldWeather.clear.isOvercast)
+        for weather in [WorldWeather.cloudy, .rain, .snow] {
+            XCTAssertTrue(weather.isOvercast, "\(weather)")
+        }
+    }
+
+    /// Why a clear reading carries no Apple Weather mark: it paints exactly the sky that
+    /// no reading paints, by day and by night, so nothing on screen came from WeatherKit.
+    /// Every sky that does carry the mark has to paint something different.
+    @MainActor
+    func testAClearSkyPaintsTheSameAsNoWeather() throws {
+        func picture(_ weather: WorldWeather?, _ time: WorldTimeOfDay) throws -> Data {
+            let scene = WorldSceneView(
+                state: WorldState(goalDays: 40, vitality: 0.8),
+                timeOfDay: time,
+                weather: weather,
+                isAnimated: false
+            )
+            .frame(width: 320, height: 240)
+            let renderer = ImageRenderer(content: scene)
+            renderer.scale = 1
+            return try XCTUnwrap(renderer.uiImage?.pngData())
+        }
+        for time in [WorldTimeOfDay.day, .night] {
+            let none = try picture(nil, time)
+            XCTAssertEqual(try picture(.clear, time), none, "\(time)")
+            for weather in WorldWeather.allCases where weather.isOvercast {
+                XCTAssertNotEqual(try picture(weather, time), none, "\(weather) \(time)")
+            }
+        }
+    }
+
     // MARK: - The share card
 
     /// The world card is drawn by `ImageRenderer`, away from any screen. This makes sure

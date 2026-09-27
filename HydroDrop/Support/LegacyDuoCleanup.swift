@@ -20,7 +20,8 @@ enum LegacyDuoCleanup {
     /// The background refresh those builds scheduled. It stays declared in project.yml
     /// with an empty handler in `HydroDropApp`, because iOS can launch the app for a
     /// request scheduled before the update, and a launch for a task nobody handles is a
-    /// crash. Take out both once no tester can still be updating from those builds.
+    /// crash. Keep both even once no tester is left on those builds: the Duo redesign is
+    /// to take this identifier over for its own background fetch rather than retire it.
     static var refreshIdentifier: String {
         "\(Bundle.main.bundleIdentifier ?? "com.jonathonbrown.HydroDrop").duo.refresh"
     }

@@ -249,6 +249,18 @@ enum WorldWeather: String, CaseIterable {
     private static let conditionKey = "world.weather.condition"
     private static let fetchedAtKey = "world.weather.fetchedAt"
 
+    /// Whether this sky looks any different from no weather at all. A clear reading paints
+    /// the same sun, moon, stars and clouds as nil, so only these three put something
+    /// learned from WeatherKit on screen. The painter draws its veil and its heavy cloud
+    /// from this, and the World's Apple Weather mark shows exactly when it is true, so the
+    /// two cannot disagree about a clear sky. A new case has to answer it here.
+    var isOvercast: Bool {
+        switch self {
+        case .clear: false
+        case .cloudy, .rain, .snow: true
+        }
+    }
+
     /// Called by the hot-day feature with what it just learned.
     static func remember(_ weather: WorldWeather, at date: Date = Date(), in defaults: UserDefaults = .standard) {
         defaults.set(weather.rawValue, forKey: conditionKey)

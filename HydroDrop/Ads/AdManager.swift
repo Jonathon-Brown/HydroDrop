@@ -1,12 +1,14 @@
 import Foundation
 import GoogleMobileAds
+import StoreKit
 
 /// Central spot for HydroDrop's ad configuration.
 ///
 /// Free-tier users see an anchored adaptive banner on Today and History.
 /// HydroDrop+ subscribers never see ads — see the `!store.isSubscribed`
 /// checks in HomeView/HistoryView, and "No ads, ever" in PaywallView's
-/// feature list.
+/// feature list. Nobody in the EEA, the UK or Switzerland sees them either:
+/// see `AdAvailability` and `AdRegion`.
 enum AdManager {
     /// HydroDrop's real AdMob banner ad unit ID, used in release builds.
     ///
@@ -21,11 +23,6 @@ enum AdManager {
         #else
         return "ca-app-pub-5814718978331211/5842312557"
         #endif
-    }
-
-    /// Call once at launch, before any ad is requested.
-    static func start() {
-        MobileAds.shared.start(completionHandler: nil)
     }
 
     /// The only place an ad request is made. Every one asks for non-personalized ads.
@@ -45,4 +42,45 @@ enum AdManager {
     }
 
     static let nonPersonalizedParameters = ["npa": "1"]
+}
+
+/// Whether this device shows ads at all, and the one place Google's ad software starts.
+///
+/// Decided once at launch, from the App Store storefront and the device's region setting
+/// (see `AdRegion`), before anything asks Google for an ad. Until it is decided it says
+/// no, so the first banner waits a moment rather than go out to someone in a country
+/// where ads are off. The banner, the paywall's "No ads" line and the Settings upgrade
+/// card all read it, so nobody is sold the removal of ads they were never shown.
+@MainActor
+final class AdAvailability: ObservableObject {
+    static let shared = AdAvailability()
+
+    @Published private(set) var servesAds = false
+    private var hasDecided = false
+
+    private init() {}
+
+    func decide() async {
+        guard !hasDecided else { return }
+        hasDecided = true
+        #if DEBUG
+        let forced = AdRegion.debugOverride
+        #else
+        let forced: String? = nil
+        #endif
+        let storefront: String?
+        if let forced {
+            storefront = forced
+        } else {
+            storefront = await Storefront.current?.countryCode
+        }
+        let region = forced ?? Locale.current.region?.identifier
+        servesAds = AdRegion.servesAds(storefrontCountry: storefront, deviceRegion: region)
+        // Only here does the SDK start. `GADDelayInitialization` in the Info.plist stops it
+        // setting itself up at launch on its own, which it otherwise does for everyone,
+        // storage and all, whether or not the app ever calls this.
+        if servesAds {
+            _ = await MobileAds.shared.start()
+        }
+    }
 }

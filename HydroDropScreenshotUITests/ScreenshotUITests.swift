@@ -17,7 +17,10 @@ final class ScreenshotUITests: XCTestCase {
 
     func testCaptureScreenshots() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestSeedHistory"]
+        // As a US user: in the EEA, the UK and Switzerland the app shows no ads, so the
+        // Settings upgrade card and the paywall leave out "No ads", and the App Store
+        // captures would change with whatever region the simulator happens to be set to.
+        app.launchArguments = ["-UITestSeedHistory", "-AdRegion", "USA"]
         app.launch()
 
         logTodaysDrinks(app)
@@ -56,6 +59,7 @@ final class ScreenshotUITests: XCTestCase {
         // is the finished paywall, not the spinner it starts with.
         let price = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] '$'")).firstMatch
         XCTAssertTrue(price.waitForExistence(timeout: 25), "the paywall's plans never loaded")
+        XCTAssertTrue(app.staticTexts["No ads, ever"].exists, "the paywall was captured as a user in a country without ads")
         save(app.screenshot(), name: "04-paywall")
     }
 
@@ -65,7 +69,7 @@ final class ScreenshotUITests: XCTestCase {
     /// launch starts from no entitlement, so the forced one doesn't carry over.
     func testCaptureSubscriberScreenshots() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestSeedHistory", "-UITestForceSubscribed"]
+        app.launchArguments = ["-UITestSeedHistory", "-UITestForceSubscribed", "-AdRegion", "USA"]
         app.launch()
 
         // The same day as the free captures, so today's bar matches across the set.
