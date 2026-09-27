@@ -86,6 +86,8 @@ Xcode 26/27. iOS 26-only APIs, such as FoundationModels for Say it, sit behind
 - `-SimulateBottleTap <url>`: simulates tapping an NFC bottle tag.
 - World scene: `-WorldPreview <goal days> <vitality %>`, `-WorldTime dawn|day|dusk|night`,
   `-WorldWeather clear|cloudy|rain|snow` and `-WorldAllDecorations`. See `WorldDebug`.
+- `-AdRegion <country code>`: stands in for both the App Store storefront and the region
+  setting, for example `GBR` (no ads, no "No ads" on the paywall) or `USA`. See `AdRegion`.
 
 ## Screenshots
 

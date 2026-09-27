@@ -11,11 +11,14 @@ import GoogleMobileAds
 struct BannerAdView: View {
     let adUnitID: String
     @State private var adHeight: CGFloat = 50
+    @ObservedObject private var ads = AdAvailability.shared
 
     var body: some View {
         // Screenshot automation runs a Debug build, which serves Google's test ad with
         // "Test mode" printed across it. That has no place in an App Store capture.
-        if !AppSettings.isScreenshotMode {
+        // Nor is there a banner, or an empty space for one, where ads are off (see
+        // `AdRegion`): the banner view is never made, so no ad is ever asked for.
+        if !AppSettings.isScreenshotMode && ads.servesAds {
             GeometryReader { geometry in
                 BannerViewRepresentable(adUnitID: adUnitID, width: geometry.size.width, adHeight: $adHeight)
             }

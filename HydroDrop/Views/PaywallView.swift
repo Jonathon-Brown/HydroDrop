@@ -4,11 +4,14 @@ import StoreKit
 private struct PlusFeature {
     let title: String
     let icon: String
+    /// Only listed where the app shows ads at all. In the EEA, the UK and Switzerland
+    /// nobody sees them (see `AdRegion`), so removing them is nothing Plus unlocks there.
+    var isAboutAds = false
 
     static let all: [PlusFeature] = [
         // Every entry here must name something Plus actually unlocks. Basic streak
         // tracking is free on Home and History, so only the freeze belongs here.
-        .init(title: "No ads, ever", icon: "nosign"),
+        .init(title: "No ads, ever", icon: "nosign", isAboutAds: true),
         .init(title: "30-day history & trends", icon: "chart.xyaxis.line"),
         .init(title: "Apple Watch app", icon: "applewatch"),
         .init(title: "Streak freeze — protect a missed day", icon: "snowflake"),
@@ -46,6 +49,7 @@ struct PaywallView: View {
     let source: PaywallSource
 
     @ObservedObject private var store = StoreManager.shared
+    @ObservedObject private var ads = AdAvailability.shared
     @Environment(\.dismiss) private var dismiss
     @State private var selectedProductID: String?
 
@@ -226,7 +230,7 @@ struct PaywallView: View {
 
     private var featureList: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(PlusFeature.all, id: \.title) { feature in
+            ForEach(PlusFeature.all.filter { ads.servesAds || !$0.isAboutAds }, id: \.title) { feature in
                 Label(feature.title, systemImage: feature.icon)
                     .font(.subheadline.weight(.medium))
             }

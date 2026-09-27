@@ -14,6 +14,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = StoreManager.shared
+    @ObservedObject private var ads = AdAvailability.shared
     @State private var paywallSource: PaywallSource?
     @State private var showingEventCounts = false
     @State private var showingBugReport = false
@@ -238,7 +239,7 @@ struct SettingsView: View {
                     upgradeCard
                 }
                 .accessibilityLabel("Upgrade to HydroDrop+")
-                .accessibilityHint("No ads, every mascot, smart reminders and more.")
+                .accessibilityHint(upgradePitch)
                 .listRowBackground(
                     LinearGradient(
                         colors: [Color(red: 0.18, green: 0.56, blue: 0.93), Color(red: 0.12, green: 0.74, blue: 0.86)],
@@ -248,6 +249,15 @@ struct SettingsView: View {
                 )
             }
         }
+    }
+
+    /// What the upgrade card promises. "No ads" leads only where the app shows ads at all:
+    /// in the EEA, the UK and Switzerland nobody sees them (see `AdRegion`), so it would
+    /// be selling the removal of something that was never there.
+    private var upgradePitch: String {
+        ads.servesAds
+            ? "No ads, every mascot, smart reminders and more."
+            : "Every mascot, smart reminders and more."
     }
 
     /// The paid skins, fanned out, on the app's own blue: the most visible thing Plus
@@ -263,7 +273,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Upgrade to HydroDrop+")
                     .font(.headline)
-                Text("No ads, every mascot, smart reminders and more.")
+                Text(upgradePitch)
                     .font(.subheadline)
                     .opacity(0.85)
             }
