@@ -444,44 +444,12 @@ enum DuoParticipants {
     }
 }
 
-/// The duo state, kept in the App Group so that a widget can draw a duo without the
-/// app running. Holds exactly what the zone holds and nothing more personal than that.
-enum DuoCache {
-    /// The duo widget's kind, here because both the app, which reloads it, and the
-    /// widget extension, which declares it, have to agree on the spelling.
-    static let widgetKind = "DuoWidget"
-
-    private static let statesKey = "duo.states.v1"
-    private static let nameKey = "duo.myDisplayName"
-
-    /// The App Group if this build has one, this process's own defaults if not, so a
-    /// build signed without the group still has a working Duo screen.
-    static var defaults: UserDefaults { AppGroup.defaults ?? .standard }
-
-    static func load(from defaults: UserDefaults = DuoCache.defaults) -> [DuoState] {
-        guard let data = defaults.data(forKey: statesKey) else { return [] }
-        do {
-            return try JSONDecoder().decode([DuoState].self, from: data)
-        } catch {
-            Diagnostics.log("could not read the duo cache: \(error)")
-            return []
-        }
-    }
-
-    static func save(_ states: [DuoState], to defaults: UserDefaults = DuoCache.defaults) {
-        do {
-            defaults.set(try JSONEncoder().encode(states), forKey: statesKey)
-        } catch {
-            Diagnostics.log("could not write the duo cache: \(error)")
-        }
-    }
-
-    /// The first name last typed in, so a second duo does not ask for it again.
-    static func myDisplayName(in defaults: UserDefaults = DuoCache.defaults) -> String {
-        defaults.string(forKey: nameKey) ?? ""
-    }
-
-    static func setMyDisplayName(_ name: String, in defaults: UserDefaults = DuoCache.defaults) {
-        defaults.set(name, forKey: nameKey)
-    }
-}
+// The App Group cache that used to end this file, `DuoCache`, stays out of HydroCore on
+// purpose. It reads the app's App Group and logs through the app's `Diagnostics`, and
+// HydroCore imports nothing but Foundation so that the same rules can be ported to Android
+// and the server and checked against one set of vectors. It was removed with the iCloud
+// Duo and comes back in Phase 2 of Duo v2 as app-side storage, under new key names:
+// `duo.states.v2` because the v2 state has new fields, and `duo.ledger.v2` and
+// `duo.myDisplayName.v2` because `LegacyDuoCleanup` deletes the old names (decision D15).
+// The cleanup also deletes `duo.notificationsOff` and `duoInviteMoment.dismissed`, so those
+// need new names too.

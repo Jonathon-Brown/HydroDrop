@@ -1,5 +1,5 @@
 import XCTest
-@testable import HydroDrop
+@testable import HydroCore
 
 /// A nudge is small, and the rules around it are what keep it kind: only so many, never
 /// twice, never at night, and never words a stranger typed.
@@ -152,15 +152,7 @@ final class DuoNudgeTests: XCTestCase {
         XCTAssertTrue(ledger.hasSeen("k\(DuoLedger.capacity + 24)"))
     }
 
-    func testTheLedgerSurvivesBeingSaved() throws {
-        let suite = "DuoNudgeTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        var ledger = DuoCache.loadLedger(from: defaults)
-        _ = ledger.markSeen("nudge-a")
-        DuoCache.save(ledger, to: defaults)
-        XCTAssertTrue(DuoCache.loadLedger(from: defaults).hasSeen("nudge-a"))
-    }
+    // Saving the ledger was `DuoCache`'s job; its test comes back with it in Phase 2.
 
     private func plan(before: DuoState, after: DuoState, firstRead: Bool = false, ledger: inout DuoLedger, now: Date) -> [DuoAnnouncement] {
         DuoAnnouncements.plan(
@@ -311,12 +303,6 @@ final class DuoNudgeTests: XCTestCase {
         XCTAssertEqual(duos[0].statuses.count, 1)
     }
 
-    func testNotificationsAreOnUntilTurnedOff() throws {
-        let suite = "DuoNudgeTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        XCTAssertTrue(DuoCache.notificationsEnabled(in: defaults))
-        DuoCache.setNotificationsEnabled(false, in: defaults)
-        XCTAssertFalse(DuoCache.notificationsEnabled(in: defaults))
-    }
+    // The notifications-off switch was stored by `DuoCache` too; its test comes back with it
+    // in Phase 2.
 }

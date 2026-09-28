@@ -270,24 +270,6 @@ enum DuoInviteMoment {
     }
 }
 
-extension DuoCache {
-    private static let ledgerKey = "duo.ledger.v1"
-    private static let notificationsOffKey = "duo.notificationsOff"
-
-    static func loadLedger(from defaults: UserDefaults = DuoCache.defaults) -> DuoLedger {
-        DuoLedger(seen: defaults.stringArray(forKey: ledgerKey) ?? [])
-    }
-
-    static func save(_ ledger: DuoLedger, to defaults: UserDefaults = DuoCache.defaults) {
-        defaults.set(ledger.seen, forKey: ledgerKey)
-    }
-
-    /// Stored as "off" so that the default, with nothing stored, is on.
-    static func notificationsEnabled(in defaults: UserDefaults = DuoCache.defaults) -> Bool {
-        !defaults.bool(forKey: notificationsOffKey)
-    }
-
-    static func setNotificationsEnabled(_ enabled: Bool, in defaults: UserDefaults = DuoCache.defaults) {
-        defaults.set(!enabled, forKey: notificationsOffKey)
-    }
-}
+// The ledger and the notifications-off switch were stored by an extension of `DuoCache`,
+// which was removed with the iCloud Duo and comes back as app-side storage, not in
+// HydroCore. See the note at the end of DuoState.swift.

@@ -1,6 +1,5 @@
 import XCTest
-import CloudKit
-@testable import HydroDrop
+@testable import HydroCore
 
 /// A duo is two people, often in two time zones, talking through a server that is
 /// sometimes busy. None of the rules that make that work need the server to be tested:
@@ -191,7 +190,9 @@ final class DuoTests: XCTestCase {
     }
 
     func testAnythingElseInTheZoneIsNotAStatus() {
-        for name in ["duo", "nudge-2026-09-21", "owner-", "owner-yesterday", "owner-2026-13-45", "owner-2026-9-1", CKRecordNameZoneWideShare] {
+        // "cloudkit.zoneshare" is the value of CloudKit's CKRecordNameZoneWideShare, spelled
+        // out so that HydroCore's tests do not import CloudKit.
+        for name in ["duo", "nudge-2026-09-21", "owner-", "owner-yesterday", "owner-2026-13-45", "owner-2026-9-1", "cloudkit.zoneshare"] {
             XCTAssertNil(DuoRecordName.parseDayStatus(name), name)
         }
     }
@@ -412,53 +413,8 @@ final class DuoTests: XCTestCase {
         XCTAssertTrue(DuoParticipants.toRemove(from: seats, keeping: nil).isEmpty)
     }
 
-    // MARK: - When iCloud says no
-
-    private func cloudError(_ code: CKError.Code, retryAfter: Double? = nil, partial: [CKRecord.ID: NSError]? = nil) -> Error {
-        var userInfo: [String: Any] = [:]
-        if let retryAfter { userInfo[CKErrorRetryAfterKey] = retryAfter }
-        if let partial { userInfo[CKPartialErrorsByItemIDKey] = partial as NSDictionary }
-        return NSError(domain: CKErrorDomain, code: code.rawValue, userInfo: userInfo)
-    }
-
-    func testABusyServerIsRetriedWhenItSaysTo() {
-        XCTAssertEqual(DuoRetry.verdict(for: cloudError(.zoneBusy, retryAfter: 7)), .retry(after: 7))
-        XCTAssertEqual(DuoRetry.verdict(for: cloudError(.requestRateLimited, retryAfter: 42)), .retry(after: 42))
-    }
-
-    func testAServerThatDoesNotSayWhenGetsTheFallback() {
-        XCTAssertEqual(DuoRetry.verdict(for: cloudError(.zoneBusy)), .retry(after: DuoRetry.fallbackDelay))
-        XCTAssertEqual(DuoRetry.verdict(for: cloudError(.networkUnavailable)), .retry(after: DuoRetry.fallbackDelay))
-    }
-
-    func testAChangedRecordIsSentAgain() {
-        XCTAssertEqual(DuoRetry.verdict(for: cloudError(.serverRecordChanged)), .retry(after: 0))
-    }
-
-    func testAMissingZoneMeansTheDuoEnded() {
-        XCTAssertEqual(DuoRetry.verdict(for: cloudError(.zoneNotFound)), .ended)
-        XCTAssertEqual(DuoRetry.verdict(for: cloudError(.userDeletedZone)), .ended)
-    }
-
-    func testAPartialFailureIsJudgedByWhatIsInsideIt() {
-        let zone = CKRecordZone.ID(zoneName: "Duo-test", ownerName: CKCurrentUserDefaultName)
-        let first = CKRecord.ID(recordName: "owner-2026-09-20", zoneID: zone)
-        let second = CKRecord.ID(recordName: "owner-2026-09-21", zoneID: zone)
-        let busy = cloudError(.partialFailure, partial: [
-            first: cloudError(.zoneBusy, retryAfter: 3) as NSError,
-            second: cloudError(.requestRateLimited, retryAfter: 9) as NSError,
-        ])
-        XCTAssertEqual(DuoRetry.verdict(for: busy), .retry(after: 9), "the longest wait anyone asked for")
-        let gone = cloudError(.partialFailure, partial: [first: cloudError(.zoneNotFound) as NSError])
-        XCTAssertEqual(DuoRetry.verdict(for: gone), .ended)
-    }
-
-    func testAnythingElseIsNotRetried() {
-        XCTAssertEqual(DuoRetry.verdict(for: cloudError(.permissionFailure)), .fail)
-        XCTAssertEqual(DuoRetry.verdict(for: cloudError(.quotaExceeded)), .fail)
-        XCTAssertEqual(DuoRetry.verdict(for: DuoError.notADuoZone), .fail)
-        XCTAssertEqual(DuoRetry.verdict(for: DuoError.ended), .ended)
-    }
+    // The CloudKit retry tests that used to sit here (`DuoRetry`) went with the iCloud
+    // transport. Duo v2 replaces them with verdict tests for its own transport errors.
 
     // MARK: - The cache
 
@@ -489,24 +445,6 @@ final class DuoTests: XCTestCase {
         XCTAssertEqual(DuoStreak.pruned(statuses, myToday: "2026-09-21", now: instant(2026, 9, 21)).count, statuses.count)
     }
 
-    func testTheCacheSurvivesARoundTrip() throws {
-        let suite = "DuoTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-
-        XCTAssertTrue(DuoCache.load(from: defaults).isEmpty)
-        var saved = duo()
-        saved.statuses = bothMet("2026-09-20")
-        saved.changeToken = Data([1, 2, 3])
-        DuoCache.save([saved], to: defaults)
-        XCTAssertEqual(DuoCache.load(from: defaults), [saved])
-    }
-
-    func testAnUnreadableCacheIsAnEmptyOneNotACrash() throws {
-        let suite = "DuoTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set(Data("not json".utf8), forKey: "duo.states.v1")
-        XCTAssertTrue(DuoCache.load(from: defaults).isEmpty)
-    }
+    // The two `DuoCache` storage tests (a round trip, and an unreadable cache reading as
+    // empty) come back with it in Phase 2.
 }

@@ -17,3 +17,7 @@ HydroDrop.xcodeproj/
 ExportOptions.plist
 device_icon_check.png
 screenshot_*.png
+
+# Build output and editor state from running `swift test` or opening HydroCore on its own.
+HydroCore/.build/
+HydroCore/.swiftpm/
