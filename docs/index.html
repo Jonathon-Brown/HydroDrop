@@ -161,6 +161,8 @@
   .plan.best { border-color: var(--paper-text); }
   .plan .flag { align-self: flex-start; min-height: 26px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; border-radius: 999px; }
   .plan.best .flag { background: #B4500B; color: #fff; padding: 5px 12px; }
+  .plan.lifetime { grid-column: 1 / -1; min-height: 0; }
+  .plan.lifetime .flag { background: #1259B0; color: #fff; padding: 5px 12px; }
   .plan .name { margin-top: 14px; font-size: 18px; font-weight: 700; }
   .plan .price { font-family: var(--display); font-weight: 700; font-size: clamp(30px, 3vw, 44px); letter-spacing: -0.03em; line-height: 1.2; }
   .plan .per { font-size: 15px; color: var(--paper-muted); }
@@ -233,6 +235,8 @@
     .plans { gap: 12px; }
     .plan { padding: 20px 18px; border-radius: 22px; min-height: 0; }
     .plan .name { font-size: 16px; margin-top: 10px; }
+    /* Two plans share a phone's width, and at 30px "$14.99" ran 10px past the Yearly card's text box at 375px. */
+    .plan .price { font-size: clamp(21px, 6.6vw, 30px); }
     .privacy p, .split-head p, .plus .lede { font-size: 16px; }
     .final .btn-lg { width: 100%; }
     .site-footer nav { flex-direction: column; }
@@ -368,7 +372,7 @@
     <article class="mini">
       <div class="top"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#4DA3FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-8-4.8-8-10.6A4.4 4.4 0 0 1 12 7.4a4.4 4.4 0 0 1 8 2.5c0 5.8-8 10.6-8 10.6z"/></svg></div>
       <h3>Apple Health</h3>
-      <p>Optional, write-only sync with Apple Health. Off until you turn it on.</p>
+      <p>Adds your drinks to Apple Health, if you turn it on. With HydroDrop+, and only if you connect Insights, HydroDrop can read your sleep, resting heart rate, workouts and active energy.</p>
     </article>
     <article class="mini">
       <div class="top"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#4DA3FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></div>
@@ -405,6 +409,8 @@
         <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>A weekly recap every Sunday</li>
         <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Hot-day nudges from the weather</li>
         <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Live Activity on your Lock Screen</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Insights from Apple Health</li>
+        <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Seven more decorations for your droplet's world</li>
         <li><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#1259B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Four more mascots with matching app icons</li>
       </ul>
       <div class="skins">
@@ -418,9 +424,10 @@
       <div class="plans">
         <div class="plan best"><div class="flag">BEST VALUE</div><div class="name">Yearly</div><div class="price">$14.99</div><div class="per">per year</div></div>
         <div class="plan"><div class="flag"></div><div class="name">Monthly</div><div class="price">$1.99</div><div class="per">per month</div></div>
+        <div class="plan lifetime"><div class="flag">PAY ONCE</div><div class="name">Lifetime</div><div class="price">$39.99</div><div class="per">once</div></div>
       </div>
       <a class="btn btn-lg btn-dark" href="https://apps.apple.com/app/id6793399317">Download free, upgrade inside the app</a>
-      <p class="fine">Prices shown in US dollars and may vary by country or region. Payment is charged to your Apple Account. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple Account settings.</p>
+      <p class="fine">Prices shown in US dollars and may vary by country or region. Payment is charged to your Apple Account. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple Account settings. HydroDrop+ Lifetime is a one-time purchase and never renews.</p>
     </div>
   </div>
 </section>
