@@ -13,6 +13,7 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var ads = AdAvailability.shared
     @State private var paywallSource: PaywallSource?
@@ -111,6 +112,15 @@ struct SettingsView: View {
                         WeatherDataSourcesView()
                     } label: {
                         SettingsRowLabel("Apple Weather", systemImage: "cloud.sun.fill", color: .cyan)
+                    }
+                    // The privacy policy used to be linked only from the paywall, so anyone
+                    // who never opens one, such as a Lifetime owner, had no way to it in the
+                    // app. It is here for everyone, not just HydroDrop+: anyone can turn on
+                    // Apple Health sync, and a HealthKit app should link its policy in-app.
+                    Button {
+                        openURL(PaywallView.privacyURL)
+                    } label: {
+                        SettingsRowLabel("Privacy Policy", systemImage: "hand.raised.fill", color: .blue)
                     }
                 } footer: {
                     versionFooter

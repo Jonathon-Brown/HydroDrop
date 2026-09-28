@@ -4,9 +4,10 @@ import SwiftData
 
 /// Mirrors HydroDrop's drinks into Apple Health, when the user asks for it.
 ///
-/// One direction only, and one type only: HydroDrop writes dietary water and never
-/// reads anything back. That is why the authorization request asks to share and to
-/// read nothing at all, and why nothing here can see what any other app has written.
+/// One direction only: HydroDrop writes dietary water, plus dietary caffeine for anyone
+/// tracking caffeine with HydroDrop+, and this class never reads anything back. That is
+/// why its authorization request asks to read nothing at all, and why nothing here can
+/// see what any other app has written. Insights reads through HealthInsightsReader.
 ///
 /// The design is a reconciliation rather than a hook on every write. Drinks arrive
 /// from the Today screen, a notification action, the watch, and an App Intent running
