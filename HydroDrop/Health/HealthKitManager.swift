@@ -25,6 +25,11 @@ final class HealthKitManager {
 
     private let store = HKHealthStore()
     private var reconcileInFlight = false
+    /// Set by a request that arrives during a pass, which then goes round once more.
+    private var reconcileAgain = false
+    private var backgroundTime: UIBackgroundTaskIdentifier = .invalid
+    /// Set when iOS takes that time back, so the pass stops starting writes it may not finish.
+    private var backgroundTimeExpired = false
 
     /// Whether this device has Health at all. False on iPad and in some regions.
     static var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
@@ -95,13 +100,39 @@ final class HealthKitManager {
     /// is skipped, including one that was written by another of the user's devices.
     func reconcile(context: ModelContext, settings: AppSettings = .shared) async {
         guard settings.healthKitSyncEnabled, isAuthorizedToWrite else { return }
-        guard !reconcileInFlight else { return }
+        // A request that arrives mid-pass used to be dropped, so a drink saved after the
+        // running pass had fetched waited for the next foreground. It now sends the running
+        // pass round once more.
+        guard !reconcileInFlight else {
+            reconcileAgain = true
+            // A pass that has run out of background time stops going round, so it would
+            // drop this request. Fresh time lets it take this one too.
+            if backgroundTimeExpired { beginBackgroundTime() }
+            return
+        }
         reconcileInFlight = true
-        defer { reconcileInFlight = false }
+        // A pass can start as the app leaves the foreground: an undo offer ending on the way
+        // out, or a watch drink delivered in the background. Suspended between Health
+        // accepting a sample and the drink recording it, then terminated, the next pass
+        // would write that drink twice, so each pass asks for the time to finish.
+        beginBackgroundTime()
+        defer {
+            reconcileInFlight = false
+            endBackgroundTime()
+        }
+        repeat {
+            reconcileAgain = false
+            await runPass(context: context, settings: settings)
+        } while reconcileAgain && mayKeepWriting(settings) && isAuthorizedToWrite
+    }
 
+    private func runPass(context: ModelContext, settings: AppSettings) async {
+        await takeBackLeftovers(settings: settings)
         // First, so the drinks it rewrites carry their new identifiers before the pass
         // below looks for anything unwritten.
         await replaceQueuedSamples(context: context, settings: settings)
+        // Turned off mid-pass: nothing more is written until sync is back on.
+        guard mayKeepWriting(settings), isAuthorizedToWrite else { return }
 
         let start = settings.healthSyncStartDate
         let descriptor = FetchDescriptor<WaterEntry>(
@@ -112,11 +143,105 @@ final class HealthKitManager {
         // stops the predicate and the intent drifting apart.
         let pending = (try? context.fetch(descriptor))?.filter { Self.isEligible($0, since: start) } ?? []
         for batch in stride(from: 0, to: pending.count, by: Self.batchSize) {
-            let slice = Array(pending[batch..<min(batch + Self.batchSize, pending.count)])
-            await write(slice, context: context)
+            guard mayKeepWriting(settings) else { return }
+            // Checked again after the last batch's wait on Health, in which a drink can be
+            // deleted or edited.
+            let slice = pending[batch..<min(batch + Self.batchSize, pending.count)]
+                .filter { Self.isLive($0) && Self.isEligible($0, since: start) }
+            await write(Array(slice), context: context)
         }
 
+        guard mayKeepWriting(settings) else { return }
         await reconcileCaffeine(context: context, settings: settings, since: start)
+    }
+
+    /// Whether the pass may start another write to Health. Not once sync is turned off,
+    /// and not once the background time has run out: suspended between Health taking a
+    /// sample and the drink recording it, then terminated, the next pass would write that
+    /// drink twice. The one exception is a replacement whose delete has already landed
+    /// (see `replaceQueuedSamples`).
+    private func mayKeepWriting(_ settings: AppSettings) -> Bool {
+        settings.healthKitSyncEnabled && !backgroundTimeExpired
+    }
+
+    private func beginBackgroundTime() {
+        backgroundTimeExpired = false
+        guard backgroundTime == .invalid else { return }
+        backgroundTime = UIApplication.shared.beginBackgroundTask(withName: "Apple Health sync") { [weak self] in
+            MainActor.assumeIsolated {
+                self?.backgroundTimeExpired = true
+                self?.endBackgroundTime()
+            }
+        }
+    }
+
+    private func endBackgroundTime() {
+        guard backgroundTime != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTime)
+        backgroundTime = .invalid
+    }
+
+    /// A drink as its sample records it, or nil once the drink has been deleted. Both the
+    /// sample a write builds and the check after it come from here, so they can't disagree.
+    ///
+    /// Water is what HydroDrop counts, not what was poured: a 200 mL coffee contributes
+    /// 180 mL to the day here and in Health alike, so the two never disagree.
+    static func snapshot(of entry: WaterEntry, caffeine: Bool) -> HealthSampleSnapshot? {
+        guard isLive(entry) else { return nil }
+        return HealthSampleSnapshot(
+            timestamp: entry.timestamp,
+            amount: caffeine ? entry.drinkType.caffeineMg(in: entry.amountML) : Double(entry.hydratedML)
+        )
+    }
+
+    /// Takes back out of Health the samples written for drinks that were undone, deleted
+    /// or edited while the write was waiting on Health.
+    ///
+    /// Health refuses deletes while the phone is locked, which is when a watch drink is
+    /// usually written. Every such sample then goes on `HealthTakeBackList` for a later
+    /// pass to delete. A drink that is still here is also pointed at its sample and queued
+    /// for replacement, marked as awaiting its write, so that pass writes its current
+    /// figures once the sample is out. If the user removes the sample in Health first, the
+    /// drink is still written back: the accepted cost of never leaving it out.
+    private func takeBackStaleWrites(
+        _ stale: [(entry: WaterEntry, sample: HKQuantitySample)],
+        caffeine: Bool,
+        context: ModelContext
+    ) async {
+        guard !stale.isEmpty else { return }
+        do {
+            try await store.delete(stale.map(\.sample))
+        } catch {
+            let samples = stale.map { (id: $0.sample.uuid.uuidString, drinkIsLive: Self.isLive($0.entry)) }
+            let failed = HealthFailedTakeBack(samples)
+            for (pair, sample) in zip(stale, samples) where sample.drinkIsLive {
+                if caffeine { pair.entry.caffeineSampleUUID = sample.id } else { pair.entry.healthKitSampleUUID = sample.id }
+            }
+            HealthReplacementQueue().addAwaitingWrite(failed.toReplace)
+            HealthTakeBackList().add(failed.toTakeBack, caffeine: caffeine)
+            try? context.save()
+            Diagnostics.log("could not take back \(stale.count) Health samples for drinks that changed, \(stale.count - failed.toReplace.count) with no drink left; trying again later: \(error)")
+        }
+    }
+
+    /// Deletes the samples `takeBackStaleWrites` couldn't. Waits while the phone is locked,
+    /// as replacements do, and keeps any it still can't delete.
+    private func takeBackLeftovers(
+        settings: AppSettings,
+        list: HealthTakeBackList = HealthTakeBackList()
+    ) async {
+        guard UIApplication.shared.isProtectedDataAvailable else { return }
+        for caffeine in [false, true] {
+            for sampleID in list.sampleIDs(caffeine: caffeine).sorted() {
+                guard settings.healthKitSyncEnabled else { return }
+                let deleted = caffeine
+                    ? await deleteCaffeineSample(uuidString: sampleID)
+                    : await deleteSample(uuidString: sampleID)
+                if HealthTakeBackList.isFinished(afterDeleting: deleted) {
+                    list.remove(sampleID, caffeine: caffeine)
+                }
+            }
+        }
     }
 
     /// Replaces the samples of edited drinks with their corrected figures (see
@@ -134,7 +259,7 @@ final class HealthKitManager {
     ) async {
         guard UIApplication.shared.isProtectedDataAvailable else { return }
         for sampleID in queue.sampleIDs.sorted() {
-            guard settings.healthKitSyncEnabled else { return }
+            guard mayKeepWriting(settings) else { return }
             let found: (water: WaterEntry?, caffeine: WaterEntry?)
             do {
                 found = try Self.entries(carrying: sampleID, in: context)
@@ -181,6 +306,10 @@ final class HealthKitManager {
                 try? context.save()
                 queue.remove(sampleID)
             case .rewrite:
+                // Out of time since the delete: left queued and marked, the next pass writes it.
+                // Sync turned off since the delete doesn't stop it. The old sample is already
+                // gone, and finishing puts the drink back as it is rather than leaving it out.
+                guard !backgroundTimeExpired else { return }
                 if isWater {
                     await write([entry], context: context)
                 } else {
@@ -241,8 +370,10 @@ final class HealthKitManager {
         )
         let pending = (try? context.fetch(descriptor))?.filter { Self.isCaffeineEligible($0, since: start) } ?? []
         for batch in stride(from: 0, to: pending.count, by: Self.batchSize) {
-            let slice = Array(pending[batch..<min(batch + Self.batchSize, pending.count)])
-            await writeCaffeine(slice, context: context)
+            guard mayKeepWriting(settings) else { return }
+            let slice = pending[batch..<min(batch + Self.batchSize, pending.count)]
+                .filter { Self.isLive($0) && Self.isCaffeineEligible($0, since: start) }
+            await writeCaffeine(Array(slice), context: context)
         }
     }
 
@@ -254,17 +385,17 @@ final class HealthKitManager {
     }
 
     private func writeCaffeine(_ entries: [WaterEntry], context: ModelContext) async {
-        var samplesByEntry: [(entry: WaterEntry, sample: HKQuantitySample)] = []
+        var samplesByEntry: [(entry: WaterEntry, sample: HKQuantitySample, written: HealthSampleSnapshot)] = []
         for entry in entries {
-            let milligrams = entry.drinkType.caffeineMg(in: entry.amountML)
-            let quantity = HKQuantity(unit: .gramUnit(with: .milli), doubleValue: milligrams)
+            guard let written = Self.snapshot(of: entry, caffeine: true) else { continue }
+            let quantity = HKQuantity(unit: .gramUnit(with: .milli), doubleValue: written.amount)
             let sample = HKQuantitySample(
                 type: Self.caffeineType,
                 quantity: quantity,
-                start: entry.timestamp,
-                end: entry.timestamp
+                start: written.timestamp,
+                end: written.timestamp
             )
-            samplesByEntry.append((entry, sample))
+            samplesByEntry.append((entry, sample, written))
         }
         guard !samplesByEntry.isEmpty else { return }
 
@@ -274,14 +405,21 @@ final class HealthKitManager {
             Diagnostics.log("could not write caffeine for \(samplesByEntry.count) drinks to Health: \(error)")
             return
         }
+        var stale: [(entry: WaterEntry, sample: HKQuantitySample)] = []
         for pair in samplesByEntry {
-            pair.entry.caffeineSampleUUID = pair.sample.uuid.uuidString
+            if HealthSampleSnapshot.keepsWrittenSample(pair.written, current: Self.snapshot(of: pair.entry, caffeine: true)) {
+                pair.entry.caffeineSampleUUID = pair.sample.uuid.uuidString
+            } else {
+                stale.append((pair.entry, pair.sample))
+            }
         }
         do {
             try context.save()
         } catch {
             Diagnostics.log("could not record Health caffeine sample identifiers: \(error)")
         }
+        // After the identifiers are saved, so nothing waits on Health while they aren't.
+        await takeBackStaleWrites(stale, caffeine: true, context: context)
     }
 
     /// Whether a drink belongs in Health and is not there yet.
@@ -298,19 +436,17 @@ final class HealthKitManager {
     private func write(_ entries: [WaterEntry], context: ModelContext) async {
         // Each sample's identifier exists as soon as it is constructed, so the entries
         // can be matched to their samples before the save rather than searched for after.
-        var samplesByEntry: [(entry: WaterEntry, sample: HKQuantitySample)] = []
+        var samplesByEntry: [(entry: WaterEntry, sample: HKQuantitySample, written: HealthSampleSnapshot)] = []
         for entry in entries {
-            // What HydroDrop counts, not what was poured: a 200 mL coffee contributes
-            // 180 mL to the day here and in Health alike, so the two never disagree.
-            let hydrated = entry.hydratedML
-            let quantity = HKQuantity(unit: .literUnit(with: .milli), doubleValue: Double(hydrated))
+            guard let written = Self.snapshot(of: entry, caffeine: false) else { continue }
+            let quantity = HKQuantity(unit: .literUnit(with: .milli), doubleValue: written.amount)
             let sample = HKQuantitySample(
                 type: Self.waterType,
                 quantity: quantity,
-                start: entry.timestamp,
-                end: entry.timestamp
+                start: written.timestamp,
+                end: written.timestamp
             )
-            samplesByEntry.append((entry, sample))
+            samplesByEntry.append((entry, sample, written))
         }
         guard !samplesByEntry.isEmpty else { return }
 
@@ -323,14 +459,20 @@ final class HealthKitManager {
             return
         }
 
+        var stale: [(entry: WaterEntry, sample: HKQuantitySample)] = []
         for pair in samplesByEntry {
-            pair.entry.healthKitSampleUUID = pair.sample.uuid.uuidString
+            if HealthSampleSnapshot.keepsWrittenSample(pair.written, current: Self.snapshot(of: pair.entry, caffeine: false)) {
+                pair.entry.healthKitSampleUUID = pair.sample.uuid.uuidString
+            } else {
+                stale.append((pair.entry, pair.sample))
+            }
         }
         do {
             try context.save()
         } catch {
             Diagnostics.log("could not record Health sample identifiers: \(error)")
         }
+        await takeBackStaleWrites(stale, caffeine: false, context: context)
     }
 
     // MARK: - Deleting

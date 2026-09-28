@@ -372,6 +372,12 @@ struct HomeView: View {
         // rebuilt on a settings change or a logged drink and nowhere else, so a user who
         // stopped logging stopped being reminded — exactly backwards.
         .onChange(of: scenePhase) { _, phase in
+            // Leaving the app ends the undo offer, and its drink goes to Health now
+            // rather than waiting for the next foreground.
+            if phase == .background, pendingUndo != nil {
+                clearUndo()
+                syncHealth(.leftForegroundDuringUndoOffer)
+            }
             guard phase == .active else { return }
             syncOnForeground()
         }
@@ -1009,10 +1015,16 @@ struct HomeView: View {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             pendingUndo = pending
         }
+        // Not yet: the drink can still be taken back.
+        syncHealth(.loggedWithUndoOffer)
         undoDismissal = Task { @MainActor in
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.25)) { pendingUndo = nil }
+            // The offer has run out, so the drink is staying and can go to Health. An
+            // offer replaced by a newer one is cancelled above, and the newer one's end
+            // writes everything still waiting.
+            syncHealth(.undoOfferEnded)
         }
     }
 
@@ -1049,15 +1061,15 @@ struct HomeView: View {
     /// Everything that has to catch up after the log changes in any way.
     private func afterLogChange() {
         mirrorToCompanions()
-        syncHealth()
+        syncHealth(.logChanged)
         ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
     }
 
     /// Writes anything Health is missing. Cheap and a no-op when sync is off, so it can
     /// sit on every path that changes the log rather than only the ones in this app:
     /// a drink logged by an App Intent in the widget process is picked up here.
-    private func syncHealth() {
-        guard settings.healthKitSyncEnabled else { return }
+    private func syncHealth(_ moment: HealthSyncMoment) {
+        guard moment.writesToHealth, settings.healthKitSyncEnabled else { return }
         Task { @MainActor in
             await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
         }
@@ -1127,7 +1139,7 @@ struct HomeView: View {
         sayItIsAvailable = SayIt.isAvailable
         nightOut.expireIfNeeded()
         mirrorToCompanions()
-        syncHealth()
+        syncHealth(.cameToForeground)
         applyStreakFreezeIfNeeded()
         checkWeather()
         checkWorkouts()
