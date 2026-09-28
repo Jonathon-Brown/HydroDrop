@@ -1,6 +1,7 @@
 import Foundation
 import HealthKit
 import SwiftData
+import UIKit
 
 /// Mirrors HydroDrop's drinks into Apple Health, when the user asks for it.
 ///
@@ -98,6 +99,10 @@ final class HealthKitManager {
         reconcileInFlight = true
         defer { reconcileInFlight = false }
 
+        // First, so the drinks it rewrites carry their new identifiers before the pass
+        // below looks for anything unwritten.
+        await replaceQueuedSamples(context: context, settings: settings)
+
         let start = settings.healthSyncStartDate
         let descriptor = FetchDescriptor<WaterEntry>(
             predicate: #Predicate { $0.healthKitSampleUUID == nil && $0.timestamp >= start },
@@ -112,6 +117,116 @@ final class HealthKitManager {
         }
 
         await reconcileCaffeine(context: context, settings: settings, since: start)
+    }
+
+    /// Replaces the samples of edited drinks with their corrected figures (see
+    /// `HealthEditPlan` and `HealthReplacementStep`).
+    ///
+    /// These ignore `healthSyncStartDate`: the drinks were already in Health, so correcting
+    /// them hands Health nothing it did not have. A drink deleted since its edit is let go
+    /// without touching Health, the same as a delete with sync off. Waits while the phone
+    /// is locked, since Health can't delete then and every replacement starts with one, and
+    /// stops between drinks if sync is turned off, leaving the rest queued.
+    private func replaceQueuedSamples(
+        context: ModelContext,
+        settings: AppSettings,
+        queue: HealthReplacementQueue = HealthReplacementQueue()
+    ) async {
+        guard UIApplication.shared.isProtectedDataAvailable else { return }
+        for sampleID in queue.sampleIDs.sorted() {
+            guard settings.healthKitSyncEnabled else { return }
+            let found: (water: WaterEntry?, caffeine: WaterEntry?)
+            do {
+                found = try Self.entries(carrying: sampleID, in: context)
+            } catch {
+                // A lookup that failed is not a drink that was deleted: keep the queue.
+                Diagnostics.log("could not look up an edited drink's Health sample: \(error)")
+                return
+            }
+            guard let entry = found.water ?? found.caffeine else {
+                queue.remove(sampleID)
+                continue
+            }
+            let isWater = found.water != nil
+            let wasAwaiting = queue.awaitingWrite.contains(sampleID)
+            // Marked before the delete, so a pass cut short after Health has deleted the
+            // sample isn't read next time as the user having removed it.
+            queue.markAwaitingWrite(sampleID)
+            let deleted = isWater
+                ? await deleteSample(uuidString: sampleID)
+                : await deleteCaffeineSample(uuidString: sampleID)
+            // Deleted while Health was busy: that delete retired what it pointed at, and a
+            // deleted drink can't be read.
+            guard Self.isLive(entry) else {
+                queue.remove(sampleID)
+                continue
+            }
+            let step = HealthReplacementStep(
+                deletedCount: deleted,
+                wasAwaitingWrite: wasAwaiting,
+                stillCounts: Self.replacementStillCounts(
+                    entry, water: isWater, caffeineTracked: settings.caffeineTrackingActive
+                )
+            )
+            switch step {
+            case .retryLater:
+                queue.abandonAttempt(sampleID, wasAwaiting: wasAwaiting)
+            case .letGo:
+                // Left pointing at the sample the user removed, so the ordinary pass doesn't
+                // put the drink back, and a sample only another device can see is never
+                // written a second time.
+                queue.remove(sampleID)
+            case .clear:
+                if isWater { entry.healthKitSampleUUID = nil } else { entry.caffeineSampleUUID = nil }
+                try? context.save()
+                queue.remove(sampleID)
+            case .rewrite:
+                if isWater {
+                    await write([entry], context: context)
+                } else {
+                    await writeCaffeine([entry], context: context)
+                }
+                // Still pointing at the old sample: the write failed, and the next pass
+                // writes it. Gone, or pointing elsewhere: nothing more to do for this one. If
+                // recording the new identifier failed, it stays on the drink in memory for the
+                // next save, unless a kill or a rollback of the context loses it. Health then
+                // keeps the corrected sample with nothing pointing at it, which is still better
+                // than queueing again and writing the drink a second time.
+                let current = Self.isLive(entry) ? (isWater ? entry.healthKitSampleUUID : entry.caffeineSampleUUID) : nil
+                if current != sampleID { queue.remove(sampleID) }
+            }
+        }
+    }
+
+    /// Whether an edited drink has anything of this kind to write in place of its old sample.
+    ///
+    /// Deliberately blind to `healthSyncStartDate`, unlike `isEligible`: a drink from before
+    /// sync was turned on is corrected like any other, because Health already had it.
+    /// Caffeine is written again only while it is tracked. Otherwise the old, now wrong
+    /// figure still goes, as it does when a drink is deleted.
+    static func replacementStillCounts(_ entry: WaterEntry, water: Bool, caffeineTracked: Bool) -> Bool {
+        water
+            ? entry.hydratedML > 0
+            : caffeineTracked && entry.drinkType.caffeineMg(in: entry.amountML) > 0
+    }
+
+    /// Whether a drink can still be read. One deleted while a pass waits on Health can't be.
+    static func isLive(_ entry: WaterEntry) -> Bool {
+        entry.modelContext != nil && !entry.isDeleted
+    }
+
+    /// The drinks whose water or caffeine sample has this identifier. Separate so a test
+    /// can run the very predicates the replacement uses.
+    static func entries(
+        carrying sampleID: String,
+        in context: ModelContext
+    ) throws -> (water: WaterEntry?, caffeine: WaterEntry?) {
+        let target: String? = sampleID
+        var byWater = FetchDescriptor<WaterEntry>(predicate: #Predicate { $0.healthKitSampleUUID == target })
+        byWater.fetchLimit = 1
+        var byCaffeine = FetchDescriptor<WaterEntry>(predicate: #Predicate { $0.caffeineSampleUUID == target })
+        byCaffeine.fetchLimit = 1
+        return (try context.fetch(byWater).first, try context.fetch(byCaffeine).first)
     }
 
     /// The same pass, for caffeine. Never asks for permission: a reconcile runs in the
@@ -227,31 +342,34 @@ final class HealthKitManager {
     /// there any more, on a device that never had it, simply deletes nothing.
     /// The same, for a caffeine sample. A drink that is deleted takes its caffeine out of
     /// Health with it.
-    func deleteCaffeineSample(uuidString: String?) async {
-        guard let uuidString, let uuid = UUID(uuidString: uuidString) else { return }
-        guard Self.isAvailable, isAuthorizedToWriteCaffeine else { return }
+    /// Both return how many samples they deleted, or nil if the delete couldn't be done.
+    @discardableResult
+    func deleteCaffeineSample(uuidString: String?) async -> Int? {
+        guard let uuidString, let uuid = UUID(uuidString: uuidString) else { return nil }
+        guard Self.isAvailable, isAuthorizedToWriteCaffeine else { return nil }
         let predicate = HKQuery.predicateForObjects(with: [uuid])
-        await withCheckedContinuation { continuation in
-            store.deleteObjects(of: Self.caffeineType, predicate: predicate) { _, _, error in
+        return await withCheckedContinuation { continuation in
+            store.deleteObjects(of: Self.caffeineType, predicate: predicate) { success, count, error in
                 if let error {
                     Diagnostics.log("could not delete a Health caffeine sample: \(error)")
                 }
-                continuation.resume()
+                continuation.resume(returning: success && error == nil ? count : nil)
             }
         }
     }
 
-    func deleteSample(uuidString: String?) async {
-        guard let uuidString, let uuid = UUID(uuidString: uuidString) else { return }
-        guard Self.isAvailable, isAuthorizedToWrite else { return }
+    @discardableResult
+    func deleteSample(uuidString: String?) async -> Int? {
+        guard let uuidString, let uuid = UUID(uuidString: uuidString) else { return nil }
+        guard Self.isAvailable, isAuthorizedToWrite else { return nil }
 
         let predicate = HKQuery.predicateForObjects(with: [uuid])
-        await withCheckedContinuation { continuation in
-            store.deleteObjects(of: Self.waterType, predicate: predicate) { _, _, error in
+        return await withCheckedContinuation { continuation in
+            store.deleteObjects(of: Self.waterType, predicate: predicate) { success, count, error in
                 if let error {
                     Diagnostics.log("could not delete a Health sample: \(error)")
                 }
-                continuation.resume()
+                continuation.resume(returning: success && error == nil ? count : nil)
             }
         }
     }

@@ -308,13 +308,14 @@ struct HomeView: View {
                 }
             }
             .sheet(item: $editingEntry) { entry in
-                EditEntrySheet(entry: entry) { orphanedSampleUUID in
+                EditEntrySheet(entry: entry) {
                     // The edit may have moved the drink to another day or changed what
-                    // it counts for, so everything downstream of the total is stale.
+                    // it counts for, so everything downstream of the total is stale. Any
+                    // Health samples it had are queued by the sheet and replaced by the
+                    // reconcile this starts.
                     saveContext()
                     clearUndo()
                     afterLogChange()
-                    retireHealthSample(orphanedSampleUUID)
                 } onDelete: {
                     editingEntry = nil
                     // Deleted only once the sheet has gone. SwiftUI re-renders a sheet
@@ -1062,8 +1063,8 @@ struct HomeView: View {
         }
     }
 
-    /// Removes a Health sample whose drink has been deleted or rewritten.
-    /// The same, for the caffeine a deleted drink had put in Health.
+    /// Removes the caffeine a deleted or undone drink had put in Health. An edited drink's
+    /// samples are replaced by the reconcile instead (see `HealthEditPlan`).
     private func retireCaffeineSample(_ uuid: String?) {
         guard let uuid, settings.healthKitSyncEnabled else { return }
         Task { @MainActor in
@@ -1071,6 +1072,7 @@ struct HomeView: View {
         }
     }
 
+    /// Removes the water sample of a deleted or undone drink.
     private func retireHealthSample(_ uuid: String?) {
         guard let uuid, settings.healthKitSyncEnabled else { return }
         Task { @MainActor in
