@@ -10,10 +10,9 @@ struct EditEntrySheet: View {
     @EnvironmentObject private var settings: AppSettings
 
     let entry: WaterEntry
-    /// Called after the edit lands, so the caller can save, re-arm reminders and
-    /// update the watch. Carries the Apple Health sample this edit has orphaned, if
-    /// there is one, since the entry no longer remembers it.
-    let onSave: (String?) -> Void
+    /// Called after the edit lands, so the caller can save, re-arm reminders, update the
+    /// watch and reconcile Health, which replaces any samples this edit queued.
+    let onSave: () -> Void
     /// Called instead of dismissing: the caller closes this sheet and then deletes,
     /// because a model read back after deletion is a crash.
     let onDelete: () -> Void
@@ -25,7 +24,7 @@ struct EditEntrySheet: View {
     private let openedAt = Date()
     private let originalTimestamp: Date
 
-    init(entry: WaterEntry, onSave: @escaping (String?) -> Void, onDelete: @escaping () -> Void) {
+    init(entry: WaterEntry, onSave: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.entry = entry
         self.onSave = onSave
         self.onDelete = onDelete
@@ -95,21 +94,16 @@ struct EditEntrySheet: View {
             && entry.drinkType == drinkType
             && entry.timestamp == newTimestamp
 
-        // Health only needs disturbing when something it recorded actually moved.
-        var orphanedSampleUUID: String?
-        if !isUnchanged {
-            orphanedSampleUUID = entry.healthKitSampleUUID
-            // Cleared so the next reconcile writes the corrected drink. The old sample
-            // is deleted by the caller.
-            entry.healthKitSampleUUID = nil
-            // The same goes for its caffeine, which depends on the type and the amount.
-            // Retired from here rather than handed to the caller: it is a no-op unless
-            // Health has granted caffeine, and the next reconcile writes the new figure.
-            let staleCaffeineSample = entry.caffeineSampleUUID
-            entry.caffeineSampleUUID = nil
-            Task { @MainActor in
-                await HealthKitManager.shared.deleteCaffeineSample(uuidString: staleCaffeineSample)
-            }
+        // An edit that moved something Health recorded queues the drink's samples to be
+        // replaced with the corrected figures: straight away with sync on, when sync is
+        // next turned on otherwise, with Health left exactly as it is until then. Both
+        // identifiers stay on the drink, so a delete before then can still remove what is
+        // in Health. See `HealthEditPlan`.
+        if HealthEditPlan(
+            isUnchanged: isUnchanged,
+            hasSamples: entry.healthKitSampleUUID != nil || entry.caffeineSampleUUID != nil
+        ) == .replaceSamples {
+            HealthReplacementQueue().add([entry.healthKitSampleUUID, entry.caffeineSampleUUID])
         }
 
         entry.amountML = amountML
@@ -117,12 +111,12 @@ struct EditEntrySheet: View {
         // An entry being edited may already be older than the backfill window, so the
         // clamp only applies when the user actually moved it.
         entry.timestamp = newTimestamp
-        onSave(orphanedSampleUUID)
+        onSave()
         dismiss()
     }
 }
 
 #Preview {
-    EditEntrySheet(entry: WaterEntry(amountML: 330, drinkType: .coffee), onSave: { _ in }, onDelete: {})
+    EditEntrySheet(entry: WaterEntry(amountML: 330, drinkType: .coffee), onSave: {}, onDelete: {})
         .environmentObject(AppSettings.shared)
 }

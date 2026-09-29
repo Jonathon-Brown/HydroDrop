@@ -107,6 +107,15 @@ final class WatchSessionManager: NSObject {
             followUp: .init(reminderGoalML: nil, mirrorsToWatch: true)
         )) != nil else { return }
         if let identifier { rememberSaved(identifier) }
+        // Nothing on the phone offers to undo a wrist-logged drink, so it can go to
+        // Health now rather than on the phone's next foreground. A no-op with sync off.
+        // With the phone locked, Health still takes the write and files it on unlock;
+        // only replacing an edited drink's sample, which needs a delete, waits for that.
+        if HealthSyncMoment.arrivedFromWatch.writesToHealth {
+            Task { @MainActor in
+                await HealthKitManager.shared.reconcile(context: modelContext)
+            }
+        }
     }
 
     private func hasAlreadySaved(_ identifier: String) -> Bool {

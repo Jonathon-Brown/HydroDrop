@@ -53,15 +53,19 @@ struct HealthSettingsView: View {
             Button("Add them") { backfillHealth() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every drink you have logged in HydroDrop will be added to Health as dietary water. You can remove them again in the Health app at any time.")
+            // Caffeine is only mentioned when it will actually be written: tracked, and
+            // allowed in Health's own permission sheet.
+            Text(settings.caffeineTrackingActive && HealthKitManager.shared.isAuthorizedToWriteCaffeine
+                 ? "Every drink you have logged in HydroDrop will be added to Health as dietary water, and its caffeine too. You can remove them again in the Health app at any time."
+                 : "Every drink you have logged in HydroDrop will be added to Health as dietary water. You can remove them again in the Health app at any time.")
         }
     }
 
     private var healthFooter: String {
         if settings.healthKitSyncEnabled {
-            return "New drinks are added to Health as dietary water, using the amount HydroDrop counts, so a coffee adds what it actually hydrates. Deleting or editing a drink here updates Health too. Turning this off leaves whatever is already there in place. HydroDrop reads from Health only if you connect Insights, in History."
+            return "New drinks are added to Health as dietary water, using the amount HydroDrop counts, so a coffee adds what it actually hydrates. If you track caffeine, that is added too. Deleting or editing a drink here updates Health too. Turning this off leaves whatever is already there in place. HydroDrop reads from Health only if you connect Insights, in History."
         }
-        return "Off by default. When on, the drinks you log are added to Health as dietary water. This only writes. HydroDrop reads from Health only if you connect Insights, in History, and nothing is sent to us either way."
+        return "Off by default. When on, the drinks you log are added to Health as dietary water, and their caffeine if you track it. This only writes. HydroDrop reads from Health only if you connect Insights, in History, and nothing is sent to us either way."
     }
 
     /// Turning the toggle on asks Health for permission first, and only commits the

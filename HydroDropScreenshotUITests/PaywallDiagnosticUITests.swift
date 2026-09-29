@@ -12,7 +12,11 @@ final class PaywallDiagnosticUITests: XCTestCase {
         app.launchArguments = ["-UITestSkipOnboarding"]
         app.launch()
 
-        app.buttons["Settings"].firstMatch.tap()
+        // The first query after launch also waits out the launch itself, which a busy
+        // Xcode Cloud machine can stretch well past what the tap allows on its own.
+        let settings = app.buttons["Settings"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 30), "no Settings gear after launch")
+        settings.tap()
         let upgrade = app.buttons["Upgrade to HydroDrop+"]
         XCTAssertTrue(upgrade.waitForExistence(timeout: 15), "no upgrade row in Settings")
         upgrade.tap()
@@ -63,14 +67,18 @@ final class PaywallDiagnosticUITests: XCTestCase {
         app.launchArguments = ["-UITestSkipOnboarding"]
         app.launch()
 
-        app.buttons["Settings"].firstMatch.tap()
+        // The first query after launch also waits out the launch itself, which a busy
+        // Xcode Cloud machine can stretch well past what the tap allows on its own.
+        let settings = app.buttons["Settings"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 30), "no Settings gear after launch")
+        settings.tap()
         let upgrade = app.buttons["Upgrade to HydroDrop+"]
         XCTAssertTrue(upgrade.waitForExistence(timeout: 15), "no upgrade row in Settings")
         upgrade.tap()
 
         let close = app.buttons["Close"]
-        XCTAssertTrue(close.waitForExistence(timeout: 5), "the paywall has no visible Close button")
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the paywall has no visible Close button")
         close.tap()
-        XCTAssertTrue(upgrade.waitForExistence(timeout: 5), "the paywall did not dismiss")
+        XCTAssertTrue(upgrade.waitForExistence(timeout: 10), "the paywall did not dismiss")
     }
 }

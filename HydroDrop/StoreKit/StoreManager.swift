@@ -52,6 +52,9 @@ final class StoreManager: ObservableObject {
     /// `lastErrorMessage` because nothing went wrong, so it mustn't open under the
     /// error alert's title.
     @Published var pendingApprovalMessage: String?
+    /// True while Restore is talking to the App Store. The button used to stay live, so a
+    /// double tap started two syncs whose results could land on different alerts.
+    @Published private(set) var restoreInProgress = false
 
     #if DEBUG
     /// Why the most recent load produced no plans. Surfaced on the paywall in DEBUG builds.
@@ -201,12 +204,27 @@ final class StoreManager: ObservableObject {
         }
     }
 
-    func restorePurchases() async {
+    /// Restores, and returns what the paywall should say about it, if anything. The
+    /// message goes back to the sheet that asked instead of onto this shared store, where
+    /// a restore finishing after its sheet had closed would open on the next paywall.
+    /// `wantsLifetime` is the Switch to Lifetime sheet, which closes only for Lifetime.
+    func restorePurchases(wantsLifetime: Bool = false) async -> String? {
+        guard !restoreInProgress else { return nil }
+        restoreInProgress = true
+        defer { restoreInProgress = false }
+        let before = PlusEntitlements(hasLifetime: hasLifetimeAccess, hasActiveSubscription: hasActiveSubscription)
         do {
             try await AppStore.sync()
             await refreshEntitlement()
+            let after = PlusEntitlements(hasLifetime: hasLifetimeAccess, hasActiveSubscription: hasActiveSubscription)
+            return RestoreFinding(before: before, after: after, wantsLifetime: wantsLifetime).message
+        } catch StoreKitError.userCancelled {
+            // Closing the Apple Account prompt is a choice, not a failure, the same as a
+            // cancelled purchase. It used to open "Something went wrong".
+            return nil
         } catch {
             lastErrorMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -357,6 +375,55 @@ struct PlusEntitlements: Equatable {
             case .monthly, .yearly: hasActiveSubscription = true
             case nil: continue
             }
+        }
+    }
+
+    init(hasLifetime: Bool, hasActiveSubscription: Bool) {
+        self.hasLifetime = hasLifetime
+        self.hasActiveSubscription = hasActiveSubscription
+    }
+}
+
+/// What Restore Purchases turned up.
+///
+/// Kept apart from StoreKit so it can be tested. `before` only tells a gain apart; what
+/// to say is decided by what is there afterwards. Deciding it from `before` told someone
+/// whose subscription had lapsed while the app stayed open that it "isn't affected", at
+/// the very moment the restore found it gone. Only a restore that found nothing the sheet
+/// was waiting for has anything to say: one that did closes the paywall by itself.
+enum RestoreFinding: Equatable {
+    /// Something came back that closes the sheet: Lifetime, or on the ordinary paywall a
+    /// subscription.
+    case restored
+    /// No HydroDrop+ after the restore.
+    case nothingToRestore
+    /// A subscription after the restore, but no Lifetime.
+    case noLifetimeToRestore
+    /// Lifetime was already there, so nothing could have been missing.
+    case nothingMissing
+
+    init(before: PlusEntitlements, after: PlusEntitlements, wantsLifetime: Bool = false) {
+        let gainedLifetime = after.hasLifetime && !before.hasLifetime
+        let gainedSubscription = after.hasActiveSubscription && !before.hasActiveSubscription
+        if gainedLifetime || (gainedSubscription && !wantsLifetime) {
+            self = .restored
+        } else if after.hasLifetime {
+            self = .nothingMissing
+        } else if after.hasActiveSubscription {
+            self = .noLifetimeToRestore
+        } else {
+            self = .nothingToRestore
+        }
+    }
+
+    var message: String? {
+        switch self {
+        case .restored, .nothingMissing:
+            return nil
+        case .nothingToRestore:
+            return "This Apple Account has no active HydroDrop+ subscription or Lifetime purchase. If you bought HydroDrop+ with a different Apple Account, sign in with that one and try again."
+        case .noLifetimeToRestore:
+            return "This Apple Account has no HydroDrop+ Lifetime purchase to restore. Your subscription isn't affected."
         }
     }
 }

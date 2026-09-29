@@ -1,10 +1,10 @@
 # HydroDrop
 
 A SwiftUI water-tracking app for iPhone, with widgets and an Apple Watch app. It uses
-SwiftData with CloudKit for storage, StoreKit 2 for the HydroDrop+ subscription, and an
-AdMob banner for free users. The deployment target is iOS 17, and the app is built with
-Xcode 26/27. iOS 26-only APIs, such as FoundationModels for Say it, sit behind
-`#available`.
+SwiftData with CloudKit for storage, StoreKit 2 for HydroDrop+ (monthly, yearly or
+Lifetime), and an AdMob banner for free users outside the EEA, the UK and Switzerland.
+The deployment target is iOS 17, and the app is built with Xcode 26/27. iOS 26-only APIs,
+such as FoundationModels for Say it, sit behind `#available`.
 
 ## Building
 
@@ -12,7 +12,9 @@ Xcode 26/27. iOS 26-only APIs, such as FoundationModels for Say it, sit behind
   Run `Scripts/generate.sh` after switching branches or adding files. Don't call bare
   `xcodegen`: the script also patches the scheme's StoreKit configuration, and without
   that patch the paywall comes up empty.
-- XcodeGen picks up new folders under `HydroDrop/` on its own. No project edits needed.
+- XcodeGen picks up new files and folders under `HydroDrop/` for the app target on its own.
+  The widget and watch targets list each app file they share in `project.yml`, so a file
+  they need has to be added there too.
 - Xcode Cloud runs `ci_scripts/ci_post_clone.sh`. There is no GitHub Actions CI.
 - Claude Code on the web runs on Linux, so it cannot build, run or test the app. Review
   changes carefully, and say plainly that they're unbuilt. Jonathon builds on his Mac.
@@ -54,15 +56,17 @@ Xcode 26/27. iOS 26-only APIs, such as FoundationModels for Say it, sit behind
   - `SettingsView.swift` is a short index of one-line rows, built with
     `SettingsRowLabel` and `SettingsIcon`. Each row shows its current value on the
     trailing side. The index also holds the HydroDrop+ card (`plusSection`) and the
-    version footer; long-pressing the footer opens `EventCountsView`.
+    version footer; long-pressing the footer opens `EventCountsView` in Debug and
+    TestFlight builds.
   - Detail pages live in `Views/Settings/`: Goal, Reminders, QuickAdd, Mascot,
     SmartFeatures and Health.
   - Put a new setting on its area's page. Add an index row only for a new area. Keep
     footers short, one per group.
-- **HydroDrop+ gating.** Subscribers get the real control. Everyone else gets a locked
-  row that opens `PaywallView(source:)`.
+- **HydroDrop+ gating.** Subscribers and Lifetime owners get the real control. Everyone
+  else gets a locked row that opens `PaywallView(source:)`.
   - `PaywallSource` raw values are `EventCounter` keys, so renaming one resets its count.
-  - Views check `StoreManager.isSubscribed`.
+  - Views check `StoreManager.isSubscribed`, which is true for an active subscription,
+    Lifetime, or both.
   - `EntitlementCache` is the one entitlement read that is safe off the main actor.
   - `AppSettings.*Active` combine a setting with that cached entitlement.
 - **Settings storage and the widget.** `AppSettings` syncs most settings through
@@ -74,7 +78,9 @@ Xcode 26/27. iOS 26-only APIs, such as FoundationModels for Say it, sit behind
 - Comments explain the reason behind the code in full sentences, often with the history
   ("used to…, which meant…"). Match that density and voice.
 - Commit messages have an imperative subject and a prose body explaining the reason.
-  Work lands on `main` through pull requests merged with a merge commit.
+  Work lands on `main` through pull requests merged with a merge commit. The exception is a
+  release's version bump, such as `6e5ab7f` "Bump to 1.8.1 (34)", which is pushed straight
+  to `main`.
 - The website is `docs/`, served at hydrodrop.us.
 
 ## Debug launch arguments (all compiled out of Release)
@@ -84,6 +90,9 @@ Xcode 26/27. iOS 26-only APIs, such as FoundationModels for Say it, sit behind
 - `-UITestForceSubscribed`: forces HydroDrop+ on.
 - `-UITestSkipOnboarding`: skips first-launch onboarding.
 - `-SimulateBottleTap <url>`: simulates tapping an NFC bottle tag.
+- `-ShowBottleUI`: shows the bottle tag screens on a simulator, which has no NFC.
+- `-InsightsPreview`: fills Insights with sample cards, since a simulator has no Health data.
+- `-SayItStubParser`: uses a stub parser, so the Say it sheet opens without a language model.
 - World scene: `-WorldPreview <goal days> <vitality %>`, `-WorldTime dawn|day|dusk|night`,
   `-WorldWeather clear|cloudy|rain|snow` and `-WorldAllDecorations`. See `WorldDebug`.
 - `-AdRegion <country code>`: stands in for both the App Store storefront and the region
@@ -93,8 +102,11 @@ Xcode 26/27. iOS 26-only APIs, such as FoundationModels for Say it, sit behind
 
 ### Raw captures
 
-`HydroDropScreenshotUITests/ScreenshotUITests` writes these to `screenshots/`, each
-1320×2868 on a Pro Max simulator:
+`HydroDropScreenshotUITests/ScreenshotUITests` writes these to `SCREENSHOT_OUTPUT_DIR`, or
+without it to the `screenshots/` of the checkout the tests were built from, each
+1320×2868 on a Pro Max simulator. So any full local test run rewrites that checkout's
+tracked captures: restore them from git unless you meant to recapture. The command
+below sets the folder through xcodebuild's `TEST_RUNNER_` prefix:
 
 | File | Screen |
 |---|---|
@@ -140,11 +152,20 @@ To rebuild one:
 `docs/screenshots/today.jpg` and `history.jpg` are made from `01-today` and
 `02-history`, scaled to 600×1303 and saved as JPEG at quality 92.
 
-## Open threads (as of 2026-09-24)
+## Open threads (as of 2026-09-29)
 
-- `feature/lifetime-paywall` (the HydroDrop+ Lifetime purchase, aimed at 1.8/1.9)
-  exists only on the Mac. There may also be a stash named `lifetime paywall WIP`.
-  After `main` is merged into it:
-  - re-apply that branch's Settings changes in the new `plusSection`;
-  - update the `isSubscribed` checks in `Views/Settings/` if what grants Plus changed;
-  - recapture `04-paywall` and rebuild `04-skins`.
+- 1.8 is live. 1.8.1 (34), built from `main` at `6e5ab7f`, was submitted on 2026-09-29 and
+  releases automatically once approved.
+- The next upload:
+  - Its build number is 35 or higher. Read the highest build from the App Store Connect API
+    before `Scripts/release.sh bump`, because build numbers only go up across every version.
+  - Uploading through Xcode's signed-in account has failed since 2026-09-27, so builds 32 to
+    34 went up with the App Store Connect API key, each with Jonathon's OK for that upload.
+    Ask whether Xcode's account works again before using the key.
+- Duo v2 Phase 1 is on `feature/hydrocore`, pushed, with no PR yet. It waited for 1.8.1 to be
+  built, which it now is. Ask Jonathon before opening its PR. `release/1.8` (build 31, with
+  the iCloud Duo) is kept as the source for Duo code: don't change or delete it.
+- Known for 1.9: the Health edit queue (`HealthReplacementQueue` in
+  `Health/HealthEditPlan.swift`) is kept per device. An edit made on a device with Health
+  sync off is corrected only when sync is turned on there. The durable fix needs the pending
+  replacement on the synced model, which is a CloudKit schema change.
