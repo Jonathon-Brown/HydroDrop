@@ -198,6 +198,17 @@ final class DuoTests: XCTestCase {
         }
     }
 
+    /// The server stores no day before 2000 (final design §6.0), so neither does a phone.
+    /// Any year the calendar could write used to pass, 0001-01-01 included.
+    func testADayBeforeTheYear2000IsNotADay() {
+        for text in ["1999-12-31", "0001-01-01", "0000-01-01"] {
+            XCTAssertFalse(DuoStreak.isDayKey(text), text)
+            XCTAssertNil(DuoRecordName.parseDayStatus("owner-\(text)"), text)
+        }
+        XCTAssertTrue(DuoStreak.isDayKey("2000-01-01"))
+        XCTAssertEqual(DuoRecordName.parseDayStatus("partner-2000-01-01")?.day, "2000-01-01")
+    }
+
     // The zone-name test went with `DuoRecordName`'s zone helpers: Duo v2 has no zones.
 
     // MARK: - What is shared

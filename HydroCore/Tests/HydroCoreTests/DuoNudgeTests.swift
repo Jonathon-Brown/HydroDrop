@@ -82,6 +82,24 @@ final class DuoNudgeTests: XCTestCase {
         XCTAssertNil(DuoRecordName.parseDayStatus("nudge-\(UUID().uuidString)"))
     }
 
+    /// The wire's pattern (final design §6.6), matched against the whole id. The NUL cases
+    /// used to pass, because `UUID(uuidString:)` stops reading at a U+0000.
+    func testANudgeIDIsTheWholePatternAndNothingMore() {
+        let uuid = "3B9E1C2A-0000-4000-8000-00000000ABCD"
+        for name in ["nudge-\(uuid)", "nudge-\(uuid.lowercased())", "nudge-00000000-0000-0000-0000-000000000000"] {
+            XCTAssertTrue(DuoNudge.isNudgeRecordName(name), name)
+        }
+        let rejected = [
+            "nudge-\(uuid)\u{0}", "nudge-\(uuid)\u{0}junk", "nudge-{\(uuid)}", "nudge-" + uuid.replacingOccurrences(of: "-", with: ""),
+            "nudge-\(uuid)\n", "nudge-\(uuid)\r\n", "nudge-\(uuid) ", " nudge-\(uuid)", "NUDGE-\(uuid)",
+            "nudge-3B9E1C2A\u{2010}0000-4000-8000-00000000ABCD", "nudge-3B9E1C2A-0000-4000-8000-00000000ABC\u{FF10}",
+            "nudge-\(uuid)\u{0301}", "nudge-\(uuid)0",
+        ]
+        for name in rejected {
+            XCTAssertFalse(DuoNudge.isNudgeRecordName(name), name.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " "))
+        }
+    }
+
     // MARK: - Rate limit
 
     func testThreeNudgesADayAndThenNoMore() {

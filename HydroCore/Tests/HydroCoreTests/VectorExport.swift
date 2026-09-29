@@ -26,10 +26,10 @@ import XCTest
 /// Every case also carries a stated answer (`spec`) that the computed one is checked
 /// against, so the export doubles as a check that the rules still say what was meant:
 /// the final design's answer where it gives one, and a hand-worked answer for the cases
-/// HydroCore adds (ids starting HC, and the cases the Phase 1 errata add). Where the
-/// computed answer differs from the design on purpose, the design is wrong and the
-/// correction is one of the Phase 1 errata: X9b (erratum 1) and X1.edge.unpruned
-/// (erratum 6) are the cases here.
+/// HydroCore adds (ids starting HC, and the cases the Phase 1 errata add). The computed
+/// answer used to differ from the design on purpose for X9b (erratum 1) and
+/// X1.edge.unpruned (erratum 6), where the design was wrong; the errata have since been
+/// folded into the design, which now gives the same answers.
 ///
 /// `fn` names the Swift function that produced the answer. A port implements the same
 /// rule under its own name; `in` holds every input the function reads, including the
@@ -395,6 +395,12 @@ enum Vectors {
         out.append(kv18)
         out.append(current("KV18.current", kept120, myRole: .partner, myToday: "2026-09-25", now: "2026-09-25T18:00:00Z", spec: 100))
         out.append(edge("HC.edge.short", bothMet(days(endingOn: "2026-09-25", count: 20)), myRole: .owner, myToday: "2026-09-25", now: "2026-09-25T18:00:00Z", spec: false))
+        // A cache last pruned the day before starts a day before the window, and a break
+        // on that day is before the window: still "100+". Judging by the earliest status
+        // instead would say false here (final design §8.5).
+        let prunedYesterday = DuoStreak.pruned(bothMet(days(endingOn: "2026-09-24", count: 130)), myToday: "2026-09-24", now: instant("2026-09-24T18:00:00Z"))
+        let staleCache = (prunedYesterday + bothMet(["2026-09-25"])).filter { !($0.day == "2026-06-17" && $0.role == .partner) }
+        out.append(edge("HC.edge.staleCache", staleCache, myRole: .owner, myToday: "2026-09-25", now: "2026-09-25T18:00:00Z", spec: true))
 
         // X3: the server's daily prune, with the date in the last time zone on Earth.
         let x3now = "2026-09-25T12:05:00Z"
@@ -522,9 +528,10 @@ enum Vectors {
 
     static let duoID = UUID(uuidString: "11111111-2222-4333-8444-555555555555")!
 
-    static func duo(joined: Bool = true, ended: Bool = false, statuses: [DuoDayStatus] = [], nudges: [DuoNudge] = []) -> DuoState {
+    static func duo(joined: Bool = true, ended: Bool = false, statuses: [DuoDayStatus] = [], nudges: [DuoNudge] = [],
+                    partnerName: String = "Sam") -> DuoState {
         DuoState(id: duoID, zoneName: "Duo-\(duoID.uuidString)", zoneOwnerName: "owner", myRole: .owner, createdAt: epoch,
-                 ownerDisplayName: "Jo", partnerDisplayName: "Sam", ownerSkin: "classic", partnerSkin: "forest",
+                 ownerDisplayName: "Jo", partnerDisplayName: partnerName, ownerSkin: "classic", partnerSkin: "forest",
                  statuses: sorted(statuses), shareURL: nil, partnerHasJoined: joined, endedAt: ended ? instant("2026-09-20T00:00:00Z") : nil,
                  changeToken: nil, nudges: nudges)
     }
@@ -579,11 +586,26 @@ enum Vectors {
                               expect: .int(DuoNudgeRules.sentToday(by: .owner, nudges: late, now: instant(at), calendar: calendar("Asia/Tokyo"))),
                               spec: .int(expected)))
         }
-        // KV2: what counts as a nudge's id.
+        // KV2: what counts as a nudge's id, which is the wire's pattern matched against the
+        // whole id (final design §6.6), with no version or variant check.
         let uuid = "3B9E1C2A-0000-4000-8000-00000000ABCD"
-        for (suffix, name, expected) in [("upper", "nudge-\(uuid)", true), ("lower", "nudge-\(uuid.lowercased())", true),
-                                         ("mixed", "nudge-3b9E1C2a-0000-4000-8000-00000000abCD", true), ("empty", "nudge-", false),
-                                         ("notUUID", "nudge-not-a-uuid", false), ("prefixCase", "NUDGE-\(uuid)", false)] {
+        let ids: [(String, String, Bool)] = [
+            ("upper", "nudge-\(uuid)", true), ("lower", "nudge-\(uuid.lowercased())", true),
+            ("mixed", "nudge-3b9E1C2a-0000-4000-8000-00000000abCD", true), ("empty", "nudge-", false),
+            ("notUUID", "nudge-not-a-uuid", false), ("prefixCase", "NUDGE-\(uuid)", false),
+            ("nilUUID", "nudge-00000000-0000-0000-0000-000000000000", true),
+            ("braces", "nudge-{\(uuid)}", false),
+            ("noHyphens", "nudge-3B9E1C2A00004000800000000000ABCD", false),
+            ("trailingNewline", "nudge-\(uuid)\n", false), ("trailingSpace", "nudge-\(uuid) ", false),
+            ("trailingCRLF", "nudge-\(uuid)\r\n", false),
+            // Something before the prefix, so a port whose pattern isn't anchored at the start
+            // fails here rather than passing every case.
+            ("leadingSpace", " nudge-\(uuid)", false), ("leadingLetter", "xnudge-\(uuid)", false),
+            ("nul", "nudge-\(uuid)\u{0}", false),
+            ("unicodeHyphen", "nudge-3B9E1C2A\u{2010}0000-4000-8000-00000000ABCD", false),
+            ("fullwidthDigit", "nudge-3B9E1C2A-0000-4000-8000-00000000ABC\u{FF10}", false),
+        ]
+        for (suffix, name, expected) in ids {
             out.append(Vector(id: "KV2.\(suffix)", fn: "DuoNudge.isNudgeRecordName", input: ["name": .string(name)],
                               expect: .bool(DuoNudge.isNudgeRecordName(name)), spec: .bool(expected)))
         }
@@ -639,6 +661,52 @@ enum Vectors {
                         now: "2026-09-21T15:00:00Z", spec: [], specLedger: [goalKey]).0)
         out.append(plan("V13.plan.e", before: beforeMet, after: afterMet, isFirstRead: true, ledger: [], myToday: "2026-09-21",
                         now: "2026-09-21T15:00:00Z", spec: [], specLedger: []).0)
+
+        // The rest are on V13.plan.a's duo, read at the same moment.
+        func sipWithMe(_ key: String, title: String = "Sam nudged you") -> JSON {
+            ["key": .string(key), "title": .string(title), "body": "Sip with me?", "actionable": true]
+        }
+        func arrived(_ id: String, _ nudges: [DuoNudge], spec: JSON, specLedger: [String]) -> Vector {
+            plan(id, before: duo(), after: duo(nudges: nudges), isFirstRead: false, ledger: [],
+                 myToday: "2026-09-21", now: "2026-09-21T15:00:00Z", spec: spec, specLedger: specLedger).0
+        }
+
+        // New nudges are announced in the order they were sent, ties in the order `after`
+        // lists them (a stable sort), and that order decides which ones the cap of three
+        // passes over (final design §6.4).
+        let tied = ["b", "a"].map { nudge("nudge-\($0)", .partner, .sipWithMe, "2026-09-21T14:00:00Z") }
+        out.append(arrived("HC.plan.tie", tied, spec: [sipWithMe("nudge-b"), sipWithMe("nudge-a")], specLedger: ["nudge-b", "nudge-a"]))
+        let tiedFour = ["d", "c", "b", "a"].map { nudge("nudge-\($0)", .partner, .sipWithMe, "2026-09-21T14:00:00Z") }
+        out.append(arrived("HC.plan.tieCap", tiedFour, spec: [sipWithMe("nudge-d"), sipWithMe("nudge-c"), sipWithMe("nudge-b")],
+                           specLedger: ["nudge-d", "nudge-c", "nudge-b", "nudge-a"]))
+
+        // Both ends of the announce window count (final design §8.2): five minutes ahead
+        // of this phone's clock and twelve hours old are announced, and a second past
+        // either is only marked seen.
+        let edges: [(String, String, Bool)] = [("HC.plan.skewEdge", "2026-09-21T15:05:00Z", true), ("HC.plan.skewPast", "2026-09-21T15:05:01Z", false),
+                                               ("HC.plan.ageEdge", "2026-09-21T03:00:00Z", true), ("HC.plan.agePast", "2026-09-21T02:59:59Z", false)]
+        for (id, sentAt, isAnnounced) in edges {
+            out.append(arrived(id, [nudge("nudge-a", .partner, .sipWithMe, sentAt)],
+                               spec: isAnnounced ? [sipWithMe("nudge-a")] : [], specLedger: ["nudge-a"]))
+        }
+
+        // The cap of three counts the partner's nudges from my today that were already
+        // cached, announced or not (the ledger here has neither), and then each one
+        // announced now (final design §9.2).
+        let cached = [nudge("nudge-c1", .partner, .waterBreak, "2026-09-21T09:00:00Z"), nudge("nudge-c2", .partner, .waterBreak, "2026-09-21T10:00:00Z")]
+        let newOnes = [nudge("nudge-n1", .partner, .waterBreak, "2026-09-21T14:00:00Z"), nudge("nudge-n2", .partner, .waterBreak, "2026-09-21T14:30:00Z")]
+        out.append(plan("HC.plan.capCountsCached", before: duo(nudges: cached), after: duo(nudges: cached + newOnes), isFirstRead: false, ledger: [],
+                        myToday: "2026-09-21", now: "2026-09-21T15:00:00Z",
+                        spec: [["key": "nudge-n1", "title": "Sam nudged you", "body": "Water break?", "actionable": true]],
+                        specLedger: ["nudge-n1", "nudge-n2"]).0)
+
+        // A title uses the partner's name as it was given, without cleaning it again, since
+        // the server's name is already clean, and an empty name reads "Your partner"
+        // (final design §9.2).
+        for (id, name, title) in [("HC.plan.nameAsCached", "Sam\u{200B}", "Sam\u{200B} nudged you"), ("HC.plan.nameEmpty", "", "Your partner nudged you")] {
+            out.append(plan(id, before: duo(partnerName: name), after: duo(nudges: [arrival], partnerName: name), isFirstRead: false, ledger: [],
+                            myToday: "2026-09-21", now: "2026-09-21T15:00:00Z", spec: [sipWithMe("nudge-a", title: title)], specLedger: ["nudge-a"]).0)
+        }
         return out
     }
 
@@ -669,11 +737,20 @@ enum Vectors {
             hold("V13.hold.g", "2026-09-21T02:00:00Z", start: 1320, end: 360, zone: "UTC", spec: nil),
             hold("V13.hold.h", "2026-09-21T12:00:00Z", start: 1320, end: 360, zone: "UTC", spec: "2026-09-21T22:00:00Z"),
             hold("V13.hold.i", "2026-09-21T03:00:00Z", start: 480, end: 480, zone: "UTC", spec: nil),
-            // X9: New York. X9b follows the design's rule, not its table (Phase 1 errata, 1).
+            // X9: New York. X9b opens when the gap ends, 07:00Z; the design's table used to
+            // say 07:30Z, against its own rule, until Phase 1 erratum 1 corrected it. X9d and
+            // X9e are a window of 02:30-03:00 that the gap swallows whole: the opening is
+            // strictly after the arrival, so arriving on the jump waits for the next day,
+            // and arriving the second before opens at the jump, once the window has closed.
             hold("X9a", "2027-03-14T06:30:00Z", start: 480, end: 1320, zone: "America/New_York", spec: "2027-03-14T12:00:00Z"),
             hold("X9b", "2027-03-14T06:30:00Z", start: 150, end: 1320, zone: "America/New_York", spec: "2027-03-14T07:00:00Z"),
             hold("X9c", "2026-11-01T04:30:00Z", start: 90, end: 1320, zone: "America/New_York", spec: "2026-11-01T05:30:00Z"),
-            // KV7: Los Angeles and London on both clock changes.
+            hold("X9d", "2027-03-14T07:00:00Z", start: 150, end: 180, zone: "America/New_York", spec: "2027-03-15T06:30:00Z"),
+            hold("X9e", "2027-03-14T06:59:59Z", start: 150, end: 180, zone: "America/New_York", spec: "2027-03-14T07:00:00Z"),
+            // KV7: Los Angeles and London on both clock changes, then the design's "KV7
+            // (added)" row: changes that aren't an hour on the hour (Lord Howe's half hour,
+            // Troll's two hours, Nuuk's gap that ends at midnight, the Chatham Islands'
+            // change at 02:45) and arrivals in a repeated time after its first reading.
             hold("KV7.la.forward.before", "2026-03-08T09:30:00Z", start: 480, end: 1320, zone: "America/Los_Angeles", spec: "2026-03-08T15:00:00Z"),
             hold("KV7.la.forward.after", "2026-03-08T10:30:00Z", start: 480, end: 1320, zone: "America/Los_Angeles", spec: "2026-03-08T15:00:00Z"),
             hold("KV7.la.gap", "2026-03-08T09:00:00Z", start: 150, end: 1320, zone: "America/Los_Angeles", spec: "2026-03-08T10:00:00Z"),
@@ -682,8 +759,7 @@ enum Vectors {
             hold("KV7.london.forward.after", "2026-03-29T01:30:00Z", start: 480, end: 1320, zone: "Europe/London", spec: "2026-03-29T07:00:00Z"),
             hold("KV7.london.gap", "2026-03-29T00:30:00Z", start: 90, end: 1320, zone: "Europe/London", spec: "2026-03-29T01:00:00Z"),
             hold("KV7.london.twice", "2026-10-24T23:30:00Z", start: 90, end: 1320, zone: "Europe/London", spec: "2026-10-25T00:30:00Z"),
-            // Phase 1 errata, 4: changes that aren't an hour on the hour, and arrivals in a
-            // repeated hour after its first reading.
+            // Phase 1 erratum 4, which that row now holds.
             hold("KV7.lordHowe.gap", "2026-10-03T12:30:00Z", start: 130, end: 1320, zone: "Australia/Lord_Howe", spec: "2026-10-03T15:30:00Z"),
             hold("KV7.troll.gap", "2026-03-28T23:30:00Z", start: 60, end: 1320, zone: "Antarctica/Troll", spec: "2026-03-29T01:00:00Z"),
             hold("KV7.nuuk.gap", "2026-03-28T20:00:00Z", start: 1390, end: 420, zone: "America/Nuuk", spec: "2026-03-29T01:00:00Z"),
@@ -744,14 +820,27 @@ enum Vectors {
             // A prepended character and the space after it are one character as a person
             // sees it, so the 24th can end in a space; trimming is by code point.
             clean("KV6.cutAfterAPrepend", String(repeating: "a", count: 23) + "\u{0D4E} x", String(repeating: "a", count: 23) + "\u{0D4E}"),
+            // A joiner and the letter before it are one character as a person sees it, so
+            // the 24th can end on a joiner whose next letter didn't fit; it goes, so that
+            // cleaning a cleaned name changes nothing.
+            clean("KV6.cutAfterAJoiner", String(repeating: "a", count: 23) + "b\u{200D}c", String(repeating: "a", count: 23) + "b"),
+            // The same with U+200C, which also joins the letter before it into one cluster, so
+            // a port that drops only a final U+200D fails here.
+            clean("KV6.cutAfterANonJoiner", String(repeating: "a", count: 23) + "b\u{200C}c", String(repeating: "a", count: 23) + "b"),
+            // Trimming is by code point, so a mark left first keeps no letter before it; the
+            // server's check refuses such a name (§11.5).
+            clean("KV6.leadingMark", " \u{0301}Sam", "\u{0301}Sam"),
+            clean("KV6.unassigned", "\u{0378}Sam", "Sam"),
         ]
     }
 
     // MARK: Day keys
 
     static func dayKeys() -> [Vector] {
+        // The last three are the year rule (final design §6.0): 2000 or later.
         let cases: [(String, Bool)] = [("2026-02-30", false), ("2026-02-29", false), ("2028-02-29", true), ("2026-9-1", false),
-                                       ("+026-09-01", false), ("0000-01-01", false), ("\u{FF12}\u{FF10}\u{FF12}\u{FF16}-09-01", false), ("2026-09-01T00", false)]
+                                       ("+026-09-01", false), ("0000-01-01", false), ("\u{FF12}\u{FF10}\u{FF12}\u{FF16}-09-01", false), ("2026-09-01T00", false),
+                                       ("1999-12-31", false), ("2000-01-01", true), ("0001-01-01", false)]
         return cases.enumerated().map { index, row in
             Vector(id: "KV5.\(index + 1)", fn: "DuoStreak.isDayKey", input: ["text": .string(row.0)],
                    expect: .bool(DuoStreak.isDayKey(row.0)), spec: .bool(row.1))

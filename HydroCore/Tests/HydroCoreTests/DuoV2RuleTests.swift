@@ -4,10 +4,10 @@ import XCTest
 /// The rules Duo v2's server design added to the ones the iCloud version already had: a
 /// kept window of 100 days, a coverage start for a reinstalled phone, quiet hours by the
 /// clock, and one way of cleaning a name. The cases include the final design's vectors
-/// X1, X3, X5, X9a and X9c, X12, KV6 and KV7, with X9b corrected (see below) and the step
-/// order of the name rule changed (see `DuoState.cleanedName`), plus neighbouring cases.
-/// They reach the Android app and the server once they are exported to the shared
-/// vectors file.
+/// X1, X3, X5, X9a-e, X12, KV6 and KV7, plus neighbouring cases. X9b and the name rule's
+/// step order used to differ from the design, which the Phase 1 errata corrected (see
+/// below and `DuoState.cleanedName`). They reach the Android app and the server once they
+/// are exported to the shared vectors file.
 final class DuoV2RuleTests: XCTestCase {
     private var utc: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
@@ -106,6 +106,19 @@ final class DuoV2RuleTests: XCTestCase {
                        "a break that could still be corrected is kept, and only the 100-day cap applies")
     }
 
+    /// A phone prunes its cache when it applies a fetch, so a cache last pruned yesterday
+    /// can start a day before today's window. A break on that extra day is before the
+    /// window and doesn't stop "100+" (final design §8.5; vector HC.edge.staleCache).
+    func testACacheLastPrunedYesterdayStillReachesTheEdge() {
+        let yesterday = DuoStreak.pruned(bothMet(days(endingOn: "2026-09-24", count: 130)), myToday: "2026-09-24",
+                                         now: instant("2026-09-24T18:00:00Z"))
+        let cache = (yesterday + bothMet(["2026-09-25"])).filter { !($0.day == "2026-06-17" && $0.role == .partner) }
+        XCTAssertEqual(cache.map(\.day).min(), "2026-06-17", "a day before today's window, which starts on 06-18")
+        let now = instant("2026-09-25T18:00:00Z")
+        XCTAssertTrue(DuoStreak.reachedRetentionEdge(statuses: cache, myRole: .owner, myToday: "2026-09-25", now: now))
+        XCTAssertEqual(DuoStreak.current(statuses: cache, myRole: .owner, myToday: "2026-09-25", now: now), 100)
+    }
+
     // MARK: - What a phone publishes
 
     /// X5: the last week is judged against the goal as it stands now.
@@ -194,9 +207,9 @@ final class DuoV2RuleTests: XCTestCase {
                        instant("2026-03-29T07:00:00Z"), "and from 02:30 BST")
     }
 
-    /// A start that the clocks skip opens when the gap ends. The design's vector X9b gives
-    /// 07:30Z for the first case; its own rule (final design §8.4) and the Android vectors
-    /// (KV7) give the end of the gap, 07:00Z, which is what this follows.
+    /// A start that the clocks skip opens when the gap ends. The design's vector X9b used
+    /// to give 07:30Z for the first case, against its own rule (final design §8.4) and the
+    /// Android vectors (KV7); Phase 1 erratum 1 corrected it to the end of the gap, 07:00Z.
     func testAStartInsideTheGapOpensWhenTheGapEnds() {
         let twoThirty = 150, ten = 22 * 60
         XCTAssertEqual(DuoQuietHours.holdUntil(instant("2027-03-14T06:30:00Z"), startMinutes: twoThirty, endMinutes: ten, calendar: calendar("America/New_York")),
@@ -205,6 +218,21 @@ final class DuoV2RuleTests: XCTestCase {
                        instant("2026-03-08T10:00:00Z"), "03:00 PDT")
         XCTAssertEqual(DuoQuietHours.holdUntil(instant("2026-03-29T00:30:00Z"), startMinutes: 90, endMinutes: ten, calendar: calendar("Europe/London")),
                        instant("2026-03-29T01:00:00Z"), "02:00 BST, since 01:30 never happens")
+    }
+
+    /// X9d and X9e: a window of 02:30-03:00 that the gap swallows whole. The opening is
+    /// always strictly after the arrival, so arriving on the jump itself waits for the next
+    /// day, and arriving the second before it opens at the jump, when the window has in
+    /// fact already closed (the server's fire-time check then defers once more).
+    func testAWindowTheGapSwallowsOpensAtTheJumpOrTheNextDay() {
+        let newYork = calendar("America/New_York")
+        for arrival in ["2027-03-14T07:00:00Z", "2027-03-14T06:59:59Z"] {
+            XCTAssertFalse(DuoQuietHours.isAwake(instant(arrival), startMinutes: 150, endMinutes: 180, calendar: newYork), arrival)
+        }
+        XCTAssertEqual(DuoQuietHours.holdUntil(instant("2027-03-14T07:00:00Z"), startMinutes: 150, endMinutes: 180, calendar: newYork),
+                       instant("2027-03-15T06:30:00Z"), "02:30 EDT the next day, not the jump it arrived on")
+        XCTAssertEqual(DuoQuietHours.holdUntil(instant("2027-03-14T06:59:59Z"), startMinutes: 150, endMinutes: 180, calendar: newYork),
+                       instant("2027-03-14T07:00:00Z"), "the jump, a second later")
     }
 
     /// Not every clock change is an hour on the hour. The expected instants were worked
@@ -303,5 +331,50 @@ final class DuoV2RuleTests: XCTestCase {
 
         let persian = "می\u{200C}خواهم"
         XCTAssertEqual(DuoState.cleanedName(persian), persian, "the non-joiner is part of the spelling")
+
+        XCTAssertEqual(DuoState.cleanedName(" \u{0301}Sam"), "\u{0301}Sam",
+                       "trimming is by code point, so a mark with no letter before it stays; the server's check refuses it")
+    }
+
+    /// A joiner belongs to the character before it as a person sees it, so a cut at 24
+    /// can end on one whose next letter fell past the cut. The joiner used to stay there,
+    /// last in the name, and the server's check refuses a name that ends on one.
+    func testACutThatEndsOnAJoinerDropsIt() {
+        let a23 = String(repeating: "a", count: 23)
+        XCTAssertEqual(DuoState.cleanedName(a23 + "b\u{200D}c"), a23 + "b")
+        XCTAssertEqual(DuoState.cleanedName(a23 + "b\u{200C}c"), a23 + "b")
+        XCTAssertEqual(DuoState.cleanedName(a23 + "\u{0D4E}\u{200D}c"), a23 + "\u{0D4E}", "and after a prepended character")
+        XCTAssertEqual(DuoState.cleanedName(String(repeating: "a", count: 22) + "b\u{200D}c"),
+                       String(repeating: "a", count: 22) + "b\u{200D}c", "a joiner that fits with its letter stays")
+    }
+
+    /// Cleaning a cleaned name changes nothing (final design §8.8), so the server, which
+    /// cleans what a phone already cleaned, stores what the phone showed. It used to fail
+    /// for a name cut just after a joiner, the case above: the first cleaning kept the
+    /// joiner at the end and the second dropped it.
+    ///
+    /// Every short tail of a set of awkward characters is tried after 21 to 24 letters, so
+    /// the cut falls on each of them. The results are compared code point by code point,
+    /// because Swift's `==` treats strings that only differ in composition as equal.
+    func testCleaningACleanedNameChangesNothing() {
+        let pieces = ["b", " ", "\u{200D}", "\u{200C}", "\u{200B}", "\u{0301}", "\u{0D4E}", "\u{1F468}", "\n"]
+        var names = ["  Sam \n", "a\r\nb", "\u{200B} Sam", "a \u{202E} b", "e\u{200B}\u{0301}", " \u{200D} ", "a\u{200C}\u{200C}b",
+                     "\u{0DC1}\u{0DCA}\u{200D}\u{0DBB}\u{0DD3}", "\u{AC00}\u{11A8}", "\u{0C95}\u{0CCA}\u{0CD5}", "e\u{0301}\u{1100}\u{1176}",
+                     "\u{0F40}\u{0301}\u{0F73}", " \u{0301}Sam", String(repeating: "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", count: 12)]
+        for letters in 21...24 {
+            for first in pieces {
+                for second in pieces {
+                    for third in pieces {
+                        names.append(String(repeating: "a", count: letters) + first + second + third + "c")
+                    }
+                }
+            }
+        }
+        for name in names {
+            let once = DuoState.cleanedName(name)
+            let twice = DuoState.cleanedName(once)
+            XCTAssertEqual(Array(twice.unicodeScalars), Array(once.unicodeScalars),
+                           "cleaning \(name.unicodeScalars.map { String($0.value, radix: 16) }) a second time changed it")
+        }
     }
 }

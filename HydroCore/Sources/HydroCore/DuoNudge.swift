@@ -55,8 +55,19 @@ struct DuoNudge: Codable, Equatable, Identifiable {
         DuoNudge(id: recordPrefix + UUID().uuidString, fromRole: role, presetID: preset.rawValue, createdAt: now)
     }
 
+    /// Whether `name` is a nudge's id: the wire's pattern (final design §6.6), matched
+    /// against the whole of it. That is lowercase `nudge-` and a UUID written 8-4-4-4-12 in
+    /// hex digits of either case, with no version or variant check. The server and the
+    /// Android app match the same pattern, so all three agree on every id.
+    ///
+    /// It used to hand everything after the prefix to `UUID(uuidString:)`, which stops
+    /// reading at a U+0000, so an id with a NUL after the UUID, and anything at all after
+    /// that NUL, was taken for a nudge's. The pattern is matched code point by code point,
+    /// as JavaScript's and Kotlin's regular expressions match it, with no canonical
+    /// equivalence, so all three give the same answer on every input.
     static func isNudgeRecordName(_ name: String) -> Bool {
-        name.hasPrefix(recordPrefix) && UUID(uuidString: String(name.dropFirst(recordPrefix.count))) != nil
+        let pattern = #/nudge-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/#
+        return name.wholeMatch(of: pattern.matchingSemantics(.unicodeScalar)) != nil
     }
 }
 

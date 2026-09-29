@@ -173,7 +173,8 @@ struct DuoState: Codable, Equatable, Identifiable {
     /// private-use and unassigned characters, except a joiner between two letters or
     /// marks; turn every run of spaces into one; trim; compose again; keep the first 24
     /// characters as a person sees them (grapheme clusters, so an emoji or an accented
-    /// letter is one); trim once more.
+    /// letter is one); trim once more, and drop a joiner the cut left at the end. Cleaning
+    /// a cleaned name changes nothing (final design §8.8).
     ///
     /// It used to split on newlines and join with a space, which turned a pasted
     /// "a\r\nb" into "a  b" with two spaces, and it left zero-width and right-to-left
@@ -190,8 +191,8 @@ struct DuoState: Codable, Equatable, Identifiable {
     /// Persian, U+200D in Sinhala (as in ශ්‍රී) and other Indic scripts. Dropping them there
     /// silently respells the name. Anywhere else, at an edge, next to a space or on their
     /// own, they spell nothing and would leave an invisible name, so they go. The server's
-    /// name check allows them in the same places (Phase 1 errata, amending §11.5), and it
-    /// rejects emoji whatever cleaning keeps.
+    /// name check allows them in the same places (§11.5, as Phase 1 erratum 2 amended it),
+    /// and it rejects emoji whatever cleaning keeps.
     static func cleanedName(_ raw: String) -> String {
         let lineBreaksAndTabs: Set<UInt32> = [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x85, 0x2028, 0x2029]
         let joiners: Set<UInt32> = [0x200C, 0x200D]
@@ -235,8 +236,18 @@ struct DuoState: Codable, Equatable, Identifiable {
         let trimmed = String(spaced).trimmingCharacters(in: CharacterSet(charactersIn: " "))
         // Cutting at 24 can end on the space before a word that didn't fit, so what is
         // left is trimmed once more.
+        //
+        // It can also end on a joiner. A joiner belongs to the character before it as a
+        // person sees it, so when the letter after it falls past the cut, the joiner is
+        // kept and ends the name. The cut used to stop there, which meant 23 × "a" +
+        // "b\u{200D}c" came out as 23 × "a" + "b\u{200D}", a name the server's check
+        // refuses and that cleaning a second time turns into 23 × "a" + "b". So a final
+        // joiner goes too. A joiner is only ever kept between two letters or marks, so
+        // there is no space before it for the trim to have missed.
         let cut = String(composed(trimmed).prefix(maximumNameLength))
-        return cut.trimmingCharacters(in: CharacterSet(charactersIn: " "))
+        var ending = cut.trimmingCharacters(in: CharacterSet(charactersIn: " ")).unicodeScalars
+        if let last = ending.last, joiners.contains(last.value) { ending.removeLast() }
+        return String(ending)
     }
 
     private static func isLetterOrMark(_ scalar: Unicode.Scalar?) -> Bool {
@@ -261,9 +272,16 @@ struct DuoState: Codable, Equatable, Identifiable {
     /// one odd character from leaving the rest of the name uncomposed, and comparing
     /// decompositions avoids Swift's `==`, which gets some Tibetan vowel signs wrong.
     ///
-    /// Three Tibetan vowel signs are split into their two parts by hand first. NFC never
-    /// contains them, and Foundation leaves them whole when they follow combining marks
-    /// of another script, which ICU does not.
+    /// Three Tibetan vowel signs, U+0F73, U+0F75 and U+0F81, are split into their two
+    /// parts by hand first. NFC never contains them. Foundation does split them, but after
+    /// a combining mark of a higher class, Tibetan marks included, it leaves the two halves
+    /// where the sign was instead of moving them in front of that mark as NFC's ordering
+    /// requires: U+0F40 U+0301 U+0F73 comes out as U+0F40 U+0301 U+0F71 U+0F72, where NFC
+    /// (and ICU) give U+0F40 U+0F71 U+0F72 U+0301, and U+0F40 U+0F80 U+0F73 as U+0F40
+    /// U+0F80 U+0F71 U+0F72, where NFC gives U+0F40 U+0F71 U+0F80 U+0F72. Split beforehand,
+    /// the halves are ordinary marks and are put in order. This comment used to say
+    /// Foundation left the signs whole after marks of another script, which was not what
+    /// happens.
     static func composed(_ text: String) -> String {
         let alwaysSplit: [UInt32: [UInt32]] = [0x0F73: [0x0F71, 0x0F72], 0x0F75: [0x0F71, 0x0F74], 0x0F81: [0x0F71, 0x0F80]]
         var split = String.UnicodeScalarView()
@@ -310,12 +328,23 @@ enum DuoStreak {
         return calendar
     }()
 
-    /// Whether `text` is a real day, written the way `DayKey` writes one. Calendars are
-    /// forgiving about a thirteenth month, so the day is written back out and compared.
+    /// Whether `text` is a real day, written the way `DayKey` writes one, in the year 2000
+    /// or later. Calendars are forgiving about a thirteenth month, so the day is written
+    /// back out and compared.
+    ///
+    /// The year is the wire's rule (final design §6.0 and §8.4): the server stores no
+    /// earlier day, so a phone that kept one would be counting a day nobody else has. This
+    /// used to accept any year the calendar could write, which meant 1999-12-31 and even
+    /// 0001-01-01 were read as days.
     static func isDayKey(_ text: String) -> Bool {
-        guard text.count == 10, let date = DayKey.date(from: text, calendar: arithmetic) else { return false }
-        return DayKey.key(for: date, calendar: arithmetic) == text
+        guard text.count == 10, let date = DayKey.date(from: text, calendar: arithmetic),
+              DayKey.key(for: date, calendar: arithmetic) == text else { return false }
+        // Written back out the same, so the calendar's year is the one in the text.
+        return arithmetic.component(.year, from: date) >= earliestYear
     }
+
+    /// The first year a day key can be in.
+    static let earliestYear = 2000
 
     /// Whether `day` is over everywhere, so nobody can still be living through it.
     static func isOverEverywhere(_ day: String, now: Date) -> Bool {
@@ -372,9 +401,16 @@ enum DuoStreak {
     /// what they all agree on.
     ///
     /// This is true when the walk back from today reaches the window's first day without
-    /// the streak breaking and something is known about that day or before it. On pruned
-    /// statuses, the only kind the apps show, that is the same as the walk reaching the
-    /// earliest status unbroken with the earliest status on the window's first day.
+    /// the streak breaking, that day itself judged, and something is known about that day
+    /// or before it; a break before that day doesn't matter (final design §8.5). On
+    /// statuses pruned at the same `myToday`, that is the same as the walk reaching the
+    /// earliest status unbroken with the earliest status on the window's first day. But a
+    /// cache last pruned the day before can start a day earlier than the window, and there
+    /// the two differ. This comment used to say they were the same on any pruned statuses,
+    /// which they aren't: 130 both-met days pruned on 2026-09-24, then both met on 09-25
+    /// and read on 09-25, start on 06-17; without the partner's 06-17 the streak still
+    /// reaches the window's first day, 06-18, unbroken, so this is true, while "the
+    /// earliest status, unbroken" would say false (vector HC.edge.staleCache).
     static func reachedRetentionEdge(statuses all: [DuoDayStatus], myRole: DuoRole, myToday: String, now: Date) -> Bool {
         let statuses = plausible(all, myToday: myToday)
         guard let edge = retentionStart(myToday: myToday),
