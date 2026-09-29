@@ -111,13 +111,14 @@ echo "Paywall honesty (2.3.1)"
 # skin, registered via ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES and switched
 # by AppIconManager.
 #
-# The three below are written and wired up, but every one of them depends on
-# something that cannot be exercised without a device and a real account: a
-# notification that only fires on a Sunday, a WeatherKit service that needs the
-# capability enabled on the App ID, and a Live Activity that needs the system
-# permission. Until each has been seen working on hardware, the paywall must not
-# promise it. Remove a line here in the same change that adds it to
-# PaywallView.PlusFeature.all, and not before.
+# The paywall must not promise any of these yet. The two duo lines are for a
+# feature taken out of the app in 1.8, so they must never be claimed. Workout-aware
+# suggestions haven't been seen working on hardware. The rest are in the app
+# (bottle tags and caffeine since 1.7, World decorations and Health insights since
+# 1.8) but aren't on the paywall's list. The weekly recap, hot-day suggestions and
+# the Live Activity used to sit here too, until each was seen working on a device.
+# Remove a line here in the same change that adds it to PaywallView.PlusFeature.all,
+# and not before.
 UNSHIPPED=(
   "Unlimited bottle tags"
   "Caffeine"
@@ -134,7 +135,7 @@ if [[ -f "$PAYWALL" ]]; then
   PAYWALL_CODE=$(grep -vE '^[[:space:]]*(//|\*|/\*)' "$PAYWALL")
   for claim in ${UNSHIPPED[@]+"${UNSHIPPED[@]}"}; do
     if printf '%s\n' "$PAYWALL_CODE" | grep -qi "$claim"; then
-      fail "paywall still advertises '$claim' — not in the binary"
+      fail "paywall advertises '$claim', which isn't cleared for the paywall yet (see UNSHIPPED)"
       FOUND_UNSHIPPED=1
     fi
   done

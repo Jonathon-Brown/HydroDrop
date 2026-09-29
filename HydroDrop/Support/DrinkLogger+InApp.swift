@@ -41,9 +41,10 @@ extension DrinkLogger {
 
     /// Writes the drink and then tells everything in the app that renders it.
     ///
-    /// The undo toast and the Apple Health reconcile are not here: both belong to the
-    /// Today screen, which owns the toast's state and already reconciles Health on a
-    /// change or a foreground. Callers that want either do it with the returned value.
+    /// The undo toast and the Apple Health write are not here. Today owns the toast and
+    /// writes to Health once the drink has settled, when its undo offer ends; the watch
+    /// path writes as soon as a drink arrives (see `HealthSyncMoment`). Anything else,
+    /// such as a notification action, reaches Health on the app's next foreground.
     @discardableResult
     static func logInApp(
         amountML: Int,

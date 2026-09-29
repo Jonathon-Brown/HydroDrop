@@ -52,11 +52,17 @@ struct PaywallView: View {
     @ObservedObject private var ads = AdAvailability.shared
     @Environment(\.dismiss) private var dismiss
     @State private var selectedProductID: String?
+    /// What this sheet's own restore found, if it has anything to say. Kept here, not on
+    /// the shared store, so a restore that finishes after the sheet closes can't open its
+    /// message on the next paywall.
+    @State private var restoreMessage: String?
 
     // Apple's standard EULA. If you supply your own Terms of Use, replace this
     // URL here AND in the App Store Connect metadata field.
     private static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
-    private static let privacyURL = URL(string: "https://hydrodrop.us/privacy.html")!
+    // Settings links here too, so the policy stays reachable for people who never see a
+    // paywall again once they have HydroDrop+.
+    static let privacyURL = URL(string: "https://hydrodrop.us/privacy.html")!
 
     private var yearlyProduct: Product? {
         store.products.first { $0.id == StoreManager.PlusProductID.yearly.rawValue }
@@ -134,9 +140,23 @@ struct PaywallView: View {
                     }
 
                     Button("Restore Purchases") {
-                        Task { await store.restorePurchases() }
+                        Task { restoreMessage = await store.restorePurchases(wantsLifetime: isSwitchingToLifetime) }
                     }
                     .font(.footnote)
+                    .disabled(store.restoreInProgress || store.purchaseInProgress)
+                    // On the button itself, a third view, so it never competes with the
+                    // error and approval alerts.
+                    .alert(
+                        "Nothing to restore",
+                        isPresented: Binding(
+                            get: { restoreMessage != nil },
+                            set: { if !$0 { restoreMessage = nil } }
+                        )
+                    ) {
+                        Button("OK", role: .cancel) { restoreMessage = nil }
+                    } message: {
+                        Text(restoreMessage ?? "")
+                    }
 
                     // Rendered unconditionally, outside every load-state branch, so App
                     // Review sees the Terms of Use and Privacy Policy links (3.1.2(c))
@@ -418,7 +438,7 @@ struct PaywallView: View {
             }
         }
         .buttonStyle(.borderedProminent)
-        .disabled(selectedProduct == nil || store.purchaseInProgress)
+        .disabled(selectedProduct == nil || store.purchaseInProgress || store.restoreInProgress)
     }
 }
 
