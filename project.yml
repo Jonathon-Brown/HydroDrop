@@ -14,6 +14,10 @@ packages:
   GoogleMobileAds:
     url: https://github.com/googleads/swift-package-manager-google-mobile-ads.git
     from: 12.0.0
+  # The rules the app, the widgets, the Watch app, the Duo server and the Android app all
+  # have to agree on. A local package, so it has no entry in Dependencies/Package.resolved.
+  HydroCore:
+    path: HydroCore
 fileGroups:
   - HydroDrop/StoreKit
 targets:
@@ -137,6 +141,7 @@ targets:
       - target: HydroDropWidgets
         embed: true
       - package: GoogleMobileAds
+      - package: HydroCore
   # The widget extension compiles a handful of the app's own files rather than taking
   # a dependency on a framework: the set is small, and every one of them is a value
   # type or a pure SwiftUI view with no reference back into the app.
@@ -155,7 +160,6 @@ targets:
       - path: HydroDrop/Models/DrinkType.swift
       - path: HydroDrop/Models/MeasurementSystem.swift
       - path: HydroDrop/Models/MascotSkin.swift
-      - path: HydroDrop/Models/DayKey.swift
       - path: HydroDrop/Views/MascotView.swift
       - path: HydroDrop/Support/Diagnostics.swift
       - path: HydroDrop/Models/StreakCalculator.swift
@@ -180,6 +184,8 @@ targets:
         MARKETING_VERSION: "1.8.1"
         CURRENT_PROJECT_VERSION: "34"
         SKIP_INSTALL: "YES"
+    dependencies:
+      - package: HydroCore
 
   HydroDrop Watch App:
     type: application
@@ -190,7 +196,7 @@ targets:
       - path: HydroDrop/StoreKit/StoreManager.swift
       - path: HydroDrop/Models/MeasurementSystem.swift
       - path: HydroDrop/Models/MascotSkin.swift
-      - path: HydroDrop/Models/DayKey.swift
+      - path: HydroDrop/Shared/HydroCoreImport.swift
       - path: HydroDrop/StoreKit/EntitlementCache.swift
     info:
       path: HydroDrop Watch App/Info.plist
@@ -211,6 +217,9 @@ targets:
         MARKETING_VERSION: "1.8.1"
         CURRENT_PROJECT_VERSION: "34"
         SKIP_INSTALL: "YES"
+    dependencies:
+      - package: HydroCore
+
   HydroDropTests:
     type: bundle.unit-test
     platform: iOS
@@ -255,6 +264,7 @@ schemes:
       targets:
         - HydroDropTests
         - HydroDropScreenshotUITests
+        - package: HydroCore/HydroCoreTests
     profile:
       config: Release
     analyze:

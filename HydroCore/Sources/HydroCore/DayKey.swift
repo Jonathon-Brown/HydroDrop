@@ -8,9 +8,12 @@ import Foundation
 /// London gives `23:00Z` the day before, so an exact-match lookup misses and the
 /// freeze silently stops protecting the streak. A `2026-08-20` string means the same
 /// day everywhere, which is what the streak rules are actually about.
-enum DayKey {
+///
+/// It lives in HydroCore because the Duo rules there are written in day keys, and it is
+/// public because the app, the widgets and the Watch app all use it from outside the package.
+public enum DayKey {
     /// The day `date` falls on, e.g. "2026-08-20".
-    static func key(for date: Date, calendar: Calendar = .current) -> String {
+    public static func key(for date: Date, calendar: Calendar = .current) -> String {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
         return String(
             format: "%04d-%02d-%02d",
@@ -21,7 +24,7 @@ enum DayKey {
     }
 
     /// The day before `date`, or nil if the calendar can't express it.
-    static func previousDayKey(before date: Date, calendar: Calendar = .current) -> String? {
+    public static func previousDayKey(before date: Date, calendar: Calendar = .current) -> String? {
         guard let previous = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: date)) else {
             return nil
         }
@@ -29,25 +32,25 @@ enum DayKey {
     }
 
     /// The day before `dayKey`, derived without leaving day-key space.
-    static func previousDayKey(before dayKey: String, calendar: Calendar = .current) -> String? {
+    public static func previousDayKey(before dayKey: String, calendar: Calendar = .current) -> String? {
         guard let date = date(from: dayKey, calendar: calendar) else { return nil }
         return previousDayKey(before: date, calendar: calendar)
     }
 
     /// The day after `dayKey`, derived without leaving day-key space.
-    static func nextDayKey(after dayKey: String, calendar: Calendar = .current) -> String? {
+    public static func nextDayKey(after dayKey: String, calendar: Calendar = .current) -> String? {
         guard let date = date(from: dayKey, calendar: calendar),
               let next = calendar.date(byAdding: .day, value: 1, to: date) else { return nil }
         return key(for: next, calendar: calendar)
     }
 
     /// The month a day belongs to, e.g. "2026-08". Used for the monthly freeze allowance.
-    static func monthKey(for date: Date, calendar: Calendar = .current) -> String {
+    public static func monthKey(for date: Date, calendar: Calendar = .current) -> String {
         String(key(for: date, calendar: calendar).prefix(7))
     }
 
     /// The month portion of a day key.
-    static func month(ofDayKey dayKey: String) -> String {
+    public static func month(ofDayKey dayKey: String) -> String {
         String(dayKey.prefix(7))
     }
 
@@ -55,7 +58,7 @@ enum DayKey {
     ///
     /// Note that in timezones which start daylight saving at midnight the requested
     /// time doesn't exist, so this is the *start of that day*, which may be 01:00.
-    static func date(from dayKey: String, calendar: Calendar = .current) -> Date? {
+    public static func date(from dayKey: String, calendar: Calendar = .current) -> Date? {
         let parts = dayKey.split(separator: "-")
         guard parts.count == 3,
               let year = Int(parts[0]),
