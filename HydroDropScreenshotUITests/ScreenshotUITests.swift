@@ -8,10 +8,18 @@ final class ScreenshotUITests: XCTestCase {
 
     /// Where captures are written when running locally. CI has no such path, so the run
     /// there relies on the attachments instead of failing on a write it can't do.
+    ///
+    /// Without `SCREENSHOT_OUTPUT_DIR` this used to be the main checkout's `screenshots/`,
+    /// spelled out in full, so a test run in any worktree rewrote that checkout's tracked
+    /// captures, where another session may be working. It is now the `screenshots/` of the
+    /// checkout these tests were built from.
     private var outputDirectory: String? {
         ProcessInfo.processInfo.environment["SCREENSHOT_OUTPUT_DIR"]
             ?? (ProcessInfo.processInfo.environment["CI"] == nil
-                ? "/Users/jonathonbrown/Developer/HydroDrop/screenshots"
+                ? URL(fileURLWithPath: #filePath)
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("screenshots").path
                 : nil)
     }
 
@@ -40,12 +48,12 @@ final class ScreenshotUITests: XCTestCase {
         save(app.screenshot(), name: "01-today")
 
         app.tabBars.buttons["History"].tap()
-        XCTAssertTrue(app.staticTexts["Last 7 days"].waitForExistence(timeout: 5), "history chart didn't appear")
+        XCTAssertTrue(app.staticTexts["Last 7 days"].waitForExistence(timeout: 10), "history chart didn't appear")
         save(app.screenshot(), name: "02-history")
 
         // Settings is a sheet now, opened from the gear in the corner of each tab.
         app.buttons["Settings"].firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "settings didn't appear")
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), "settings didn't appear")
         save(app.screenshot(), name: "03-settings")
 
         // The paywall, for the mascots image, opened the way a free user meets it: from
@@ -53,7 +61,7 @@ final class ScreenshotUITests: XCTestCase {
         app.buttons["Done"].tap()
         app.tabBars.buttons["Today"].tap()
         let moreLooks = app.buttons["More looks"]
-        XCTAssertTrue(moreLooks.waitForExistence(timeout: 5), "no More looks link on Today")
+        XCTAssertTrue(moreLooks.waitForExistence(timeout: 10), "no More looks link on Today")
         moreLooks.tap()
         // The plans load after the sheet appears. Waiting for a price means the capture
         // is the finished paywall, not the spinner it starts with.
@@ -83,21 +91,33 @@ final class ScreenshotUITests: XCTestCase {
         save(app.screenshot(), name: "05-history-plus")
     }
 
-    /// Today's two quick adds, on top of the seeded week.
+    /// Today's two quick adds, on top of the seeded week. Both tests call this straight
+    /// after `app.launch()`, so its first wait is also the wait for the launch.
     private func logTodaysDrinks(_ app: XCUIApplication) {
+        // A seeded launch rebuilds the store, starts the ad SDK and draws the World from
+        // its first frame, and the subscriber launch then re-lays out Today as HydroDrop+
+        // turns on. This used to be one 5-second wait for the 200 mL button, which Xcode
+        // Cloud run 54 missed on a docs-only merge, blaming imperial units that a seeded
+        // launch can't have. Waiting for the launch first, with room to spare, keeps a
+        // slow launch apart from a missing button, and costs a passing run nothing.
+        XCTAssertTrue(
+            app.tabBars.buttons["Today"].waitForExistence(timeout: 30),
+            "the app never showed its tab bar after launch"
+        )
+
         // These taps are the screenshot: if the buttons aren't there, the capture is of
         // an empty Today screen and the run should say so rather than quietly succeed.
         let button200 = app.buttons["200 mL"]
-        XCTAssertTrue(button200.waitForExistence(timeout: 5), "no 200 mL quick-add button — is the app in imperial?")
+        XCTAssertTrue(button200.waitForExistence(timeout: 10), "no 200 mL quick-add button")
         button200.tap()
 
         let button330 = app.buttons["330 mL"]
-        XCTAssertTrue(button330.waitForExistence(timeout: 3), "no 330 mL quick-add button")
+        XCTAssertTrue(button330.waitForExistence(timeout: 10), "no 330 mL quick-add button")
         button330.tap()
 
         // The seeded day plus both taps: the total on screen has to reflect them.
         XCTAssertTrue(
-            app.staticTexts["530 mL"].waitForExistence(timeout: 3),
+            app.staticTexts["530 mL"].waitForExistence(timeout: 10),
             "today's total didn't add up to the two quick adds"
         )
 
