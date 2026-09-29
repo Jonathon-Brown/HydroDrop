@@ -62,7 +62,9 @@ struct DuoNudge: Codable, Equatable, Identifiable {
 
 /// Who may send a nudge, and when.
 enum DuoNudgeRules {
-    /// Nudges one person can send one duo in one of their own days.
+    /// Nudges one person can send one duo in one of their own days. The server can set
+    /// a lower number for a device it trusts less, and says so in `GET /me`, so
+    /// `verdict` takes the limit as a parameter with this as the default.
     static let dailyLimit = 3
     /// A nudge older than this is history. It is kept off the screen, never announced,
     /// and cleared out of the zone by whoever sent it.
@@ -88,6 +90,7 @@ enum DuoNudgeRules {
         for duo: DuoState,
         partnerStatus: DuoDayStatus?,
         now: Date,
+        dailyLimit: Int = DuoNudgeRules.dailyLimit,
         calendar: Calendar = .current
     ) -> Verdict {
         guard !duo.hasEnded, !duo.isPending else { return .nobodyToNudge }
@@ -249,14 +252,72 @@ enum DuoQuietHours {
 
     /// When to show something that arrived at `date`: nil for now, or the next time the
     /// window opens.
+    ///
+    /// The window opens at a time on the clock, so this is the next instant after
+    /// `date` at which the clock in `calendar`'s time zone reads the window's start.
+    /// On the day the clocks go forward, a start that doesn't exist (02:30 when 02:00
+    /// jumps to 03:00) opens at the first instant after the gap, 03:00. On the day they
+    /// go back, a start that happens twice opens at the first of the two that is still
+    /// ahead: the earlier one normally, the later one for something that arrives in the
+    /// repeated hour after the first has passed. The server defers pushes by the same
+    /// rule, and the Android app holds its own notifications by it.
+    ///
+    /// It used to add the start as elapsed minutes to midnight, which on the day the
+    /// clocks go forward opened an 08:00 window at 09:00. `Calendar.nextDate(matching:)`
+    /// isn't a fix on its own: it handles the one-hour change on the hour that New York,
+    /// Los Angeles and London have, but on Lord Howe Island's half-hour change, Troll's
+    /// two-hour one and Nuuk's gap that crosses midnight it skipped to the next day, and a
+    /// nudge held that long is never announced; on the Chatham Islands' change at 02:45 it
+    /// opened a quarter of an hour late. So the opening is worked out here from the time
+    /// zone's offsets.
     static func holdUntil(_ date: Date, startMinutes: Int, endMinutes: Int, calendar: Calendar = .current) -> Date? {
         guard !isAwake(date, startMinutes: startMinutes, endMinutes: endMinutes, calendar: calendar) else { return nil }
         let start = min(max(startMinutes, 0), minutesPerDay - 1)
-        let startOfDay = calendar.startOfDay(for: date)
-        let today = calendar.date(byAdding: .minute, value: start, to: startOfDay) ?? date
-        if today > date { return today }
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? date.addingTimeInterval(86_400)
-        return calendar.date(byAdding: .minute, value: start, to: tomorrow) ?? tomorrow
+        var local = Calendar(identifier: .gregorian)
+        local.timeZone = calendar.timeZone
+        let today = local.dateComponents([.year, .month, .day], from: date)
+        for daysAhead in 0...2 {
+            if let opening = opening(on: today, daysAhead: daysAhead, atMinute: start, in: calendar.timeZone, after: date) {
+                return opening
+            }
+        }
+        // Not reachable for any real time zone, but a closed window must never read as
+        // open, so this still holds for a day rather than returning nil.
+        return date.addingTimeInterval(TimeInterval(minutesPerDay * 60))
+    }
+
+    /// The first instant after `date` at which the clock in `zone` reads `minute` minutes
+    /// past midnight, `daysAhead` days after the local date `day`. If that time happens
+    /// twice it is the first of the two still ahead; if it doesn't happen at all, the
+    /// first instant after the gap. Nil if that day's opening has already passed.
+    private static func opening(on day: DateComponents, daysAhead: Int, atMinute minute: Int, in zone: TimeZone, after date: Date) -> Date? {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        guard let midnight = utc.date(from: DateComponents(year: day.year, month: day.month, day: day.day)),
+              let target = utc.date(byAdding: .day, value: daysAhead, to: midnight) else { return nil }
+        // The wall-clock time wanted, written as if it were UTC.
+        let wall = target.addingTimeInterval(TimeInterval(minute * 60))
+
+        // Every offset in force within a couple of days of it: one normally, two across a
+        // change. An instant is a real reading of the wall-clock time if the zone's offset
+        // at that instant is the one that produced it.
+        let offsets = Set((-2...2).map { zone.secondsFromGMT(for: wall.addingTimeInterval(TimeInterval($0 * 86_400))) })
+        let candidates = offsets.map { wall.addingTimeInterval(TimeInterval(-$0)) }
+        let readings = candidates.filter { wall.timeIntervalSince($0) == TimeInterval(zone.secondsFromGMT(for: $0)) }
+        // Only the gap search below is for a time that never happens. A time that does
+        // happen but has passed on this day means the next day's opening, not the gap's.
+        if !readings.isEmpty { return readings.filter { $0 > date }.min() }
+
+        // The time falls in a gap. The clock reads earlier than it at the earliest
+        // candidate and later than it at the latest, so find the first second at which it
+        // reads at least that: the instant the clocks jumped forward.
+        guard var before = candidates.min(), var after = candidates.max() else { return nil }
+        func reading(_ instant: Date) -> Date { instant.addingTimeInterval(TimeInterval(zone.secondsFromGMT(for: instant))) }
+        while after.timeIntervalSince(before) > 1 {
+            let middle = Date(timeIntervalSince1970: ((before.timeIntervalSince1970 + after.timeIntervalSince1970) / 2).rounded(.down))
+            if reading(middle) >= wall { after = middle } else { before = middle }
+        }
+        return after > date ? after : nil
     }
 }
 

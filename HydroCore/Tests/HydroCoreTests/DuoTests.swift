@@ -3,7 +3,8 @@ import XCTest
 
 /// A duo is two people, often in two time zones, talking through a server that is
 /// sometimes busy. None of the rules that make that work need the server to be tested:
-/// which days count, what a record is called, when to write, and who is allowed in.
+/// which days count, what a record is called, when to write, and how many duos anyone
+/// can have.
 final class DuoTests: XCTestCase {
     private var utc: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
@@ -189,7 +190,7 @@ final class DuoTests: XCTestCase {
         XCTAssertEqual(parsed.day, "2026-09-21")
     }
 
-    func testAnythingElseInTheZoneIsNotAStatus() {
+    func testAnythingElseIsNotAStatus() {
         // "cloudkit.zoneshare" is the value of CloudKit's CKRecordNameZoneWideShare, spelled
         // out so that HydroCore's tests do not import CloudKit.
         for name in ["duo", "nudge-2026-09-21", "owner-", "owner-yesterday", "owner-2026-13-45", "owner-2026-9-1", "cloudkit.zoneshare"] {
@@ -197,15 +198,7 @@ final class DuoTests: XCTestCase {
         }
     }
 
-    func testOnlyADuosZoneIsEverRecognised() {
-        let id = UUID()
-        XCTAssertEqual(DuoRecordName.zoneName(for: id), "Duo-\(id.uuidString)")
-        XCTAssertEqual(DuoRecordName.duoID(fromZoneName: DuoRecordName.zoneName(for: id)), id)
-        // The zone SwiftData mirrors the drink log into, the default zone, and a near miss.
-        for zone in ["com.apple.coredata.cloudkit.zone", "_defaultZone", "Duo-", "Duo-not-a-uuid", "duo-\(id.uuidString)"] {
-            XCTAssertNil(DuoRecordName.duoID(fromZoneName: zone), zone)
-        }
-    }
+    // The zone-name test went with `DuoRecordName`'s zone helpers: Duo v2 has no zones.
 
     // MARK: - What is shared
 
@@ -360,7 +353,7 @@ final class DuoTests: XCTestCase {
         let id = UUID()
         return DuoState(
             id: id,
-            zoneName: DuoRecordName.zoneName(for: id),
+            zoneName: "Duo-\(id.uuidString)",
             zoneOwnerName: "owner",
             myRole: .owner,
             createdAt: instant(2026, 9, 1),
@@ -394,24 +387,9 @@ final class DuoTests: XCTestCase {
         XCTAssertFalse(DuoLimit.canAddDuo(existing: three, isSubscribed: false))
     }
 
-    // MARK: - A duo is two people
-
-    private typealias Seat = DuoParticipants.Participant
-
-    func testNobodyIsRemovedWhileTheInviteIsStillOpen() {
-        let seats = [Seat(id: "0", isOwner: true, hasAccepted: true), Seat(id: "1", isOwner: false, hasAccepted: false), Seat(id: "2", isOwner: false, hasAccepted: false)]
-        XCTAssertTrue(DuoParticipants.toRemove(from: seats, keeping: nil).isEmpty)
-    }
-
-    func testOnceSomeoneAcceptsEveryoneElseIsRemoved() {
-        let seats = [Seat(id: "0", isOwner: true, hasAccepted: true), Seat(id: "1", isOwner: false, hasAccepted: false), Seat(id: "2", isOwner: false, hasAccepted: true), Seat(id: "3", isOwner: false, hasAccepted: true)]
-        XCTAssertEqual(DuoParticipants.toRemove(from: seats, keeping: nil), ["1", "3"], "the first to accept stays")
-    }
-
-    func testTheOwnerIsNeverRemoved() {
-        let seats = [Seat(id: "0", isOwner: true, hasAccepted: true), Seat(id: "1", isOwner: false, hasAccepted: true)]
-        XCTAssertTrue(DuoParticipants.toRemove(from: seats, keeping: nil).isEmpty)
-    }
+    // The three `DuoParticipants` tests (nobody removed while the invite is open, the first
+    // to accept stays, the owner is never removed) went with it: the server enforces the
+    // same "exactly two, first to join wins" rule when an invite is redeemed.
 
     // The CloudKit retry tests that used to sit here (`DuoRetry`) went with the iCloud
     // transport. Duo v2 replaces them with verdict tests for its own transport errors.

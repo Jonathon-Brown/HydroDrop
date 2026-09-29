@@ -24,7 +24,7 @@ final class DuoNudgeTests: XCTestCase {
         let id = UUID(uuidString: "11111111-2222-4333-8444-555555555555")!
         return DuoState(
             id: id,
-            zoneName: DuoRecordName.zoneName(for: id),
+            zoneName: "Duo-\(id.uuidString)",
             zoneOwnerName: "owner",
             myRole: myRole,
             createdAt: at(1, 9),
@@ -105,6 +105,17 @@ final class DuoNudgeTests: XCTestCase {
             .allowed(remaining: 3),
             "my partner's nudges and my own from yesterday are not mine from today"
         )
+    }
+
+    /// The server can give a device it trusts less a lower limit, and says so in
+    /// `GET /me`. The phone keeps to whatever it was told.
+    func testALowerLimitFromTheServerIsKeptTo() {
+        let now = at(21, 15)
+        XCTAssertEqual(DuoNudgeRules.verdict(for: duo(), partnerStatus: nil, now: now, dailyLimit: 1, calendar: calendar), .allowed(remaining: 1))
+        let sent = [nudge("a", from: .owner, at(21, 9))]
+        XCTAssertEqual(DuoNudgeRules.verdict(for: duo(nudges: sent), partnerStatus: nil, now: now, dailyLimit: 1, calendar: calendar), .limitReached)
+        XCTAssertEqual(DuoNudgeRules.verdict(for: duo(nudges: sent), partnerStatus: nil, now: now, calendar: calendar), .allowed(remaining: 2),
+                       "without a limit from the server it is still three")
     }
 
     func testNoNudgingSomeoneWhoHasAlreadyMetTheirGoal() {

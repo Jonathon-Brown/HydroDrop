@@ -4,9 +4,8 @@ import Foundation
 // type with no CloudKit in it, so the app, the tests and later a widget can all read a
 // duo without being able to reach the network.
 
-/// Which side of a duo someone is on. The owner is whoever sent the invite, and the
-/// duo's records live in a zone in their iCloud. It carries no rank: both sides see and
-/// do exactly the same things.
+/// Which side of a duo someone is on. The owner is whoever sent the invite. It carries no
+/// rank: both sides see and do exactly the same things.
 enum DuoRole: String, Codable, CaseIterable {
     case owner
     case partner
@@ -37,30 +36,22 @@ struct DuoDayStatus: Codable, Equatable {
     }
 }
 
-/// How records and zones are named.
+/// How a day's status is named.
 ///
 /// A day's status is named after whose it is and which day, so writing it twice is
 /// writing the same record twice: an upsert, never a duplicate, however many times a
-/// retry or a second device repeats it.
+/// retry or a second device repeats it. The names outlived the iCloud records they were
+/// made for: Duo v2 keeps them as the keys of the per-day version map that decides whose
+/// write is newer (final design §14).
+///
+/// This used to name each duo's CloudKit zone too (`Duo-<uuid>`) and the one `Duo`
+/// record in it, and turned a zone name back into a duo. Duo v2 has no zones, so those
+/// are gone.
 enum DuoRecordName {
-    static let zonePrefix = "Duo-"
-    /// The one `Duo` record in each zone.
-    static let duo = "duo"
-
-    static func zoneName(for id: UUID) -> String { zonePrefix + id.uuidString }
-
-    /// The duo a zone belongs to, or nil for any zone that is not a duo's. Every write
-    /// and every delete goes through this first, which is what keeps this layer out of
-    /// the zone SwiftData mirrors into.
-    static func duoID(fromZoneName zoneName: String) -> UUID? {
-        guard zoneName.hasPrefix(zonePrefix) else { return nil }
-        return UUID(uuidString: String(zoneName.dropFirst(zonePrefix.count)))
-    }
-
     static func dayStatus(role: DuoRole, day: String) -> String { "\(role.rawValue)-\(day)" }
 
-    /// Reads a status record's name back. Nil for anything else in the zone, including
-    /// record types a newer version of the app may add later.
+    /// Reads a status's name back. Nil for any other key, including ones a newer version
+    /// of the app may add later.
     static func parseDayStatus(_ recordName: String) -> (role: DuoRole, day: String)? {
         guard let dash = recordName.firstIndex(of: "-"),
               let role = DuoRole(rawValue: String(recordName[..<dash])) else { return nil }
@@ -173,10 +164,123 @@ struct DuoState: Codable, Equatable, Identifiable {
         }
     }
 
-    /// A first name as it is stored: trimmed, one line, and short enough for the card.
+    /// A first name as it is stored: one line, no invisible characters, and short enough
+    /// for the card. Empty means no name, which is shown as "Your partner".
+    ///
+    /// The server, the Android app and this one all clean a name the same way, step for
+    /// step, and the server's result is the one everybody displays. The steps, in order:
+    /// compose to NFC; turn tabs and line breaks into spaces; drop control, format,
+    /// private-use and unassigned characters, except a joiner between two letters or
+    /// marks; turn every run of spaces into one; trim; compose again; keep the first 24
+    /// characters as a person sees them (grapheme clusters, so an emoji or an accented
+    /// letter is one).
+    ///
+    /// It used to split on newlines and join with a space, which turned a pasted
+    /// "a\r\nb" into "a  b" with two spaces, and it left zero-width and right-to-left
+    /// override characters in. Those let a name look like someone else's or run
+    /// backwards across the card.
+    ///
+    /// Invisible characters are dropped before spaces are collapsed and trimmed, not
+    /// after. The other way round, a zero-width space next to a real one survived as a
+    /// stray space: "\u{200B} Sam" came out as " Sam". Composing again at the end rejoins
+    /// a letter and its accent that had something invisible between them.
+    ///
+    /// The two joiners, U+200C and U+200D, are format characters but are kept between two
+    /// letters or marks, because there they are part of how a name is spelled: U+200C in
+    /// Persian, U+200D in Sinhala (as in ශ්‍රී) and other Indic scripts. Dropping them there
+    /// silently respells the name. Anywhere else, at an edge, next to a space or on their
+    /// own, they spell nothing and would leave an invisible name, so they go. The server's
+    /// name check allows them in the same places (Phase 1 errata, amending §11.5), and it
+    /// rejects emoji whatever cleaning keeps.
     static func cleanedName(_ raw: String) -> String {
-        let oneLine = raw.components(separatedBy: .newlines).joined(separator: " ")
-        return String(oneLine.trimmingCharacters(in: .whitespaces).prefix(maximumNameLength))
+        let lineBreaksAndTabs: Set<UInt32> = [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x85, 0x2028, 0x2029]
+        let joiners: Set<UInt32> = [0x200C, 0x200D]
+
+        var visible: [Unicode.Scalar] = []
+        for scalar in composed(raw).unicodeScalars {
+            if lineBreaksAndTabs.contains(scalar.value) {
+                visible.append(" ")
+                continue
+            }
+            switch scalar.properties.generalCategory {
+            case .control, .privateUse, .unassigned:
+                continue
+            case .format where !joiners.contains(scalar.value):
+                continue
+            default:
+                visible.append(scalar)
+            }
+        }
+
+        var spelled = String.UnicodeScalarView()
+        for (index, scalar) in visible.enumerated() {
+            if joiners.contains(scalar.value) {
+                let next = index + 1 < visible.count ? visible[index + 1] : nil
+                guard isLetterOrMark(spelled.last), isLetterOrMark(next) else { continue }
+            }
+            spelled.append(scalar)
+        }
+
+        var spaced = String.UnicodeScalarView()
+        var lastWasSpace = false
+        for scalar in spelled {
+            if scalar.value == 0x20 || scalar.properties.generalCategory == .spaceSeparator {
+                if !lastWasSpace { spaced.append(" ") }
+                lastWasSpace = true
+            } else {
+                spaced.append(scalar)
+                lastWasSpace = false
+            }
+        }
+        let trimmed = String(spaced).trimmingCharacters(in: CharacterSet(charactersIn: " "))
+        return String(composed(trimmed).prefix(maximumNameLength))
+    }
+
+    private static func isLetterOrMark(_ scalar: Unicode.Scalar?) -> Bool {
+        switch scalar?.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+             .nonspacingMark, .spacingMark, .enclosingMark:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// `text` in NFC, the composed form every side compares names in.
+    ///
+    /// Foundation's own NFC gets a few inputs wrong: it leaves 가 followed by a trailing
+    /// ㄱ (U+AC00 U+11A8) apart instead of making 각 (U+AC01), misses a Kannada
+    /// composition, and turns an Old Hangul pair into a different syllable. Decomposing
+    /// first fixes the first two. For the third, each character, as a person sees it, is
+    /// composed on its own and the result kept only if it decomposes back to exactly what
+    /// the original does; otherwise that one character is kept as written, which is what
+    /// ICU (the server and Android) does with it. Checking character by character keeps
+    /// one odd character from leaving the rest of the name uncomposed, and comparing
+    /// decompositions avoids Swift's `==`, which gets some Tibetan vowel signs wrong.
+    ///
+    /// Three Tibetan vowel signs are split into their two parts by hand first. NFC never
+    /// contains them, and Foundation leaves them whole when they follow combining marks
+    /// of another script, which ICU does not.
+    static func composed(_ text: String) -> String {
+        let alwaysSplit: [UInt32: [UInt32]] = [0x0F73: [0x0F71, 0x0F72], 0x0F75: [0x0F71, 0x0F74], 0x0F81: [0x0F71, 0x0F80]]
+        var split = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            if let parts = alwaysSplit[scalar.value] {
+                split.append(contentsOf: parts.compactMap(Unicode.Scalar.init))
+            } else {
+                split.append(scalar)
+            }
+        }
+
+        var result = String.UnicodeScalarView()
+        for character in String(split) {
+            let piece = String(character)
+            let candidate = piece.decomposedStringWithCanonicalMapping.precomposedStringWithCanonicalMapping
+            let keepsMeaning = Array(candidate.decomposedStringWithCanonicalMapping.unicodeScalars)
+                == Array(piece.decomposedStringWithCanonicalMapping.unicodeScalars)
+            result.append(contentsOf: (keepsMeaning ? candidate : piece).unicodeScalars)
+        }
+        return String(result)
     }
 
     static let maximumNameLength = 24
@@ -253,15 +357,45 @@ enum DuoStreak {
     /// play no part here.
     static func current(statuses all: [DuoDayStatus], myRole: DuoRole, myToday: String, now: Date) -> Int {
         let statuses = plausible(all, myToday: myToday)
+        guard let earliest = statuses.map(\.day).min() else { return 0 }
+        return walk(statuses, down: earliest, myRole: myRole, myToday: myToday, now: now).streak
+    }
 
+    /// Whether the streak reaches back to the start of the kept window, which is when a
+    /// card or widget shows "100+ days" rather than a number.
+    ///
+    /// Every phone keeps the same 100-day window (see `pruned`), and the server a day or
+    /// two more, so a streak longer than that can't be counted by anyone, and "100+" is
+    /// what they all agree on.
+    ///
+    /// This is true when the walk back from today reaches the window's first day without
+    /// the streak breaking and something is known about that day or before it. On pruned
+    /// statuses, the only kind the apps show, that is the same as the walk reaching the
+    /// earliest status unbroken with the earliest status on the window's first day.
+    static func reachedRetentionEdge(statuses all: [DuoDayStatus], myRole: DuoRole, myToday: String, now: Date) -> Bool {
+        let statuses = plausible(all, myToday: myToday)
+        guard let edge = retentionStart(myToday: myToday),
+              let earliest = statuses.map(\.day).min(), earliest <= edge else { return false }
+        return !walk(statuses, down: edge, myRole: myRole, myToday: myToday, now: now).broke
+    }
+
+    /// The walk both of the above share: back from the newest day anyone has, one day at
+    /// a time, down to and including `floor`, stopping at the first day that ends the
+    /// streak.
+    private static func walk(
+        _ statuses: [DuoDayStatus],
+        down floor: String,
+        myRole: DuoRole,
+        myToday: String,
+        now: Date
+    ) -> (streak: Int, broke: Bool) {
         let met = Dictionary(grouping: statuses.filter(\.goalMet), by: \.day)
             .mapValues { Set($0.map(\.role)) }
-        guard let earliest = statuses.map(\.day).min() else { return 0 }
         let newest = max(myToday, statuses.map(\.day).max() ?? myToday)
 
         var streak = 0
         var cursor: String? = newest
-        while let day = cursor, day >= earliest {
+        while let day = cursor, day >= floor {
             let metBy = met[day] ?? []
             if metBy.count == DuoRole.allCases.count {
                 streak += 1
@@ -270,11 +404,11 @@ enum DuoStreak {
                 let allCouldStill = waitingOn.allSatisfy {
                     isStillOpen(day, for: $0, statuses: statuses, myRole: myRole, myToday: myToday, now: now)
                 }
-                if !allCouldStill { break }
+                if !allCouldStill { return (streak, true) }
             }
             cursor = DayKey.previousDayKey(before: day, calendar: arithmetic)
         }
-        return streak
+        return (streak, false)
     }
 
     /// How recently a partner's status for my yesterday must have been written to be
@@ -311,38 +445,69 @@ enum DuoStreak {
     /// day, so the last week is republished when it changes. Nothing older ever is.
     static let correctionWindowDays = 7
 
+    /// How many days of statuses anyone keeps: both phones and the server, the same
+    /// number, so that they all show the same streak. The privacy page states it, and
+    /// the server reads it from `RETENTION_DAYS` (decision D9).
+    static let retentionDays = 100
+
+    /// The first day of the kept window: `myToday` and the 99 days before it.
+    static func retentionStart(myToday: String) -> String? {
+        guard let today = DayKey.date(from: myToday, calendar: arithmetic),
+              let start = arithmetic.date(byAdding: .day, value: -(retentionDays - 1), to: today) else { return nil }
+        return DayKey.key(for: start, calendar: arithmetic)
+    }
+
     /// Drops what can no longer matter: everything before the most recent day that
-    /// ended the streak for good, once that day is too old to be corrected. Keeps the
-    /// cache the size of the streak rather than the size of the friendship.
+    /// ended the streak for good, once that day is too old to be corrected, and
+    /// everything older than the kept window of `retentionDays`. Keeps the cache the
+    /// size of the streak rather than the size of the friendship, and nothing older than
+    /// 100 days of anybody's goals.
+    ///
+    /// The server runs the same rule each day with the date in the last time zone on
+    /// Earth as `myToday`. That date is never later than any phone's, so the server never
+    /// drops a day a phone still counts; it holds the same window or a day or two more.
     static func pruned(_ statuses: [DuoDayStatus], myToday: String, now: Date) -> [DuoDayStatus] {
         guard let today = DayKey.date(from: myToday, calendar: arithmetic),
               let cutoffDate = arithmetic.date(byAdding: .day, value: -(correctionWindowDays + 2), to: today),
+              let windowStart = retentionStart(myToday: myToday),
               let earliest = statuses.map(\.day).min() else { return statuses }
         let cutoff = DayKey.key(for: cutoffDate, calendar: arithmetic)
         let met = Dictionary(grouping: statuses.filter(\.goalMet), by: \.day)
             .mapValues { Set($0.map(\.role)) }
 
+        var kept = statuses
         var cursor: String? = cutoff
         while let day = cursor, day >= earliest {
             if (met[day] ?? []).count < DuoRole.allCases.count, isOverEverywhere(day, now: now) {
-                return statuses.filter { $0.day >= day }
+                kept = statuses.filter { $0.day >= day }
+                break
             }
             cursor = DayKey.previousDayKey(before: day, calendar: arithmetic)
         }
-        return statuses
+        return kept.filter { $0.day >= windowStart }
     }
 }
 
-/// What this device should write, worked out by comparing the log with what iCloud is
-/// already known to hold.
+/// What this device should write, worked out by comparing the log with what the server
+/// is already known to hold.
 ///
 /// There is no queue of writes to lose. Whatever could not be sent, because the phone
 /// was offline or the app was closed, is simply still different the next time this
 /// runs, and is sent then.
 enum DuoOutbox {
+    /// A `coverageStart` earlier than any real day, for callers that know the log goes
+    /// back as far as it needs to.
+    static let coveredForever = "0000-01-01"
+
     /// - Parameters:
     ///   - totalsByDay: hydrating mL per day from the log, as `StreakCalculator` groups it.
-    ///   - known: what the duo's zone is known to hold.
+    ///   - known: what the server is known to hold for this duo.
+    ///   - coverageStart: the first day this phone's log can speak for: the earlier of
+    ///     the day this install first ran and the day of the oldest drink in the log.
+    ///     Before it, a day can only be raised, never lowered, because an empty day
+    ///     there means this phone wasn't keeping a log yet, not that nobody drank.
+    ///     Without it, reinstalling the app and opening the duo before the log came back
+    ///     from iCloud would publish a week of empty days over a partner's shared streak.
     static func unsent(
         role: DuoRole,
         totalsByDay: [String: Int],
@@ -350,6 +515,7 @@ enum DuoOutbox {
         known: [DuoDayStatus],
         myToday: String,
         now: Date,
+        coverageStart: String = coveredForever,
         calendar: Calendar = .current
     ) -> [DuoDayStatus] {
         guard let today = DayKey.date(from: myToday, calendar: calendar) else { return [] }
@@ -362,7 +528,10 @@ enum DuoOutbox {
         return days.compactMap { day in
             let wanted = DuoProgress.status(role: role, day: day, totalML: totalsByDay[day] ?? 0, goalML: goalML, now: now)
             if let existing = known.first(where: { $0.role == role && $0.day == day }) {
-                return existing.saysTheSame(as: wanted) ? nil : wanted
+                if existing.saysTheSame(as: wanted) { return nil }
+                let isDowngrade = wanted.progressBucket <= existing.progressBucket
+                if day != myToday, day < coverageStart, isDowngrade { return nil }
+                return wanted
             }
             // Today is always written, even empty: it tells a partner that yesterday is
             // over for me. An empty day in the past says nothing a missing record does not.
@@ -371,7 +540,7 @@ enum DuoOutbox {
     }
 }
 
-/// Spaces writes out. However fast drinks are logged, iCloud hears about it at most
+/// Spaces writes out. However fast drinks are logged, the server hears about it at most
 /// once every thirty seconds, and it hears the latest state, not every step on the way.
 struct DuoWriteCoalescer {
     static let minimumInterval: TimeInterval = 30
@@ -426,23 +595,10 @@ enum DuoLimit {
     }
 }
 
-/// Owner-side rule for who stays in a share: the first person to accept, and nobody
-/// else. A duo is two people.
-enum DuoParticipants {
-    struct Participant: Equatable {
-        var id: String
-        var isOwner: Bool
-        var hasAccepted: Bool
-    }
-
-    /// Who should be removed from the share. Nobody, until someone has accepted; then
-    /// everyone who is neither the owner nor that first partner, invited or not.
-    static func toRemove(from participants: [Participant], keeping partnerID: String?) -> [String] {
-        let others = participants.filter { !$0.isOwner }
-        guard let kept = partnerID ?? others.first(where: \.hasAccepted)?.id else { return [] }
-        return others.filter { $0.id != kept }.map(\.id)
-    }
-}
+// `DuoParticipants`, which trimmed an iCloud share down to the owner and the first
+// person to accept it, used to sit here. A duo is still exactly two people and the first
+// to join still wins, but in Duo v2 the server enforces that when an invite is redeemed,
+// in one conditional write, so no phone has to tidy up after the fact.
 
 // The App Group cache that used to end this file, `DuoCache`, stays out of HydroCore on
 // purpose. It reads the app's App Group and logs through the app's `Diagnostics`, and
