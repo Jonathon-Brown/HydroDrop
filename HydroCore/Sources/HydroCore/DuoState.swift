@@ -173,7 +173,7 @@ struct DuoState: Codable, Equatable, Identifiable {
     /// private-use and unassigned characters, except a joiner between two letters or
     /// marks; turn every run of spaces into one; trim; compose again; keep the first 24
     /// characters as a person sees them (grapheme clusters, so an emoji or an accented
-    /// letter is one).
+    /// letter is one); trim once more.
     ///
     /// It used to split on newlines and join with a space, which turned a pasted
     /// "a\r\nb" into "a  b" with two spaces, and it left zero-width and right-to-left
@@ -233,7 +233,10 @@ struct DuoState: Codable, Equatable, Identifiable {
             }
         }
         let trimmed = String(spaced).trimmingCharacters(in: CharacterSet(charactersIn: " "))
-        return String(composed(trimmed).prefix(maximumNameLength))
+        // Cutting at 24 can end on the space before a word that didn't fit, so what is
+        // left is trimmed once more.
+        let cut = String(composed(trimmed).prefix(maximumNameLength))
+        return cut.trimmingCharacters(in: CharacterSet(charactersIn: " "))
     }
 
     private static func isLetterOrMark(_ scalar: Unicode.Scalar?) -> Bool {

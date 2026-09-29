@@ -20,7 +20,15 @@ let package = Package(
     ],
     targets: [
         .target(name: "HydroCore"),
-        .testTarget(name: "HydroCoreTests", dependencies: ["HydroCore"]),
+        // The shared vectors file ships inside the test bundle, because Xcode Cloud runs
+        // tests on a machine that has the built bundle but not the source checkout.
+        .testTarget(
+            name: "HydroCoreTests",
+            dependencies: ["HydroCore"],
+            path: "Tests",
+            sources: ["HydroCoreTests"],
+            resources: [.copy("Vectors")]
+        ),
     ],
     swiftLanguageVersions: [.v5]
 )

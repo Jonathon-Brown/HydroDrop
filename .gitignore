@@ -8,7 +8,9 @@ xcuserdata/
 
 # XcodeGen-generated project (regenerate with `xcodegen generate` from project.yml)
 HydroDrop.xcodeproj/
-.tools/
+# The xcodegen download. Written without a trailing slash so that it also covers the
+# `.tools` symlink a worktree makes to the main checkout's copy (see CLAUDE.md).
+.tools
 
 # macOS
 .DS_Store

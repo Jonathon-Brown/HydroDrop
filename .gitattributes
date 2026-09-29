@@ -1,0 +1,4 @@
+# The shared Duo vectors file is hashed byte for byte (HydroCore/Tests/Vectors/SHA256),
+# and the other repositories may check that hash line by line, so git must never
+# convert either file's line endings on checkout.
+HydroCore/Tests/Vectors/* -text
