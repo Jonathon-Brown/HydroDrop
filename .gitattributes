@@ -1,4 +1,5 @@
-# The shared Duo vectors file is hashed byte for byte (HydroCore/Tests/Vectors/SHA256),
-# and the other repositories may check that hash line by line, so git must never
-# convert either file's line endings on checkout.
+# Both files are pinned by a SHA-256 of their exact bytes (HydroCore/Tests/Vectors/SHA256),
+# which the server and Android repositories also check, so git must never convert their
+# line endings. Diff and merge stay textual so that rule changes can be reviewed; the
+# HydroCore tests catch a merge that leaves the file and its hash out of step.
 HydroCore/Tests/Vectors/* -text

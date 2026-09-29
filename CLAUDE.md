@@ -15,6 +15,20 @@ such as FoundationModels for Say it, sit behind `#available`.
 - XcodeGen picks up new files and folders under `HydroDrop/` for the app target on its own.
   The widget and watch targets list each app file they share in `project.yml`, so a file
   they need has to be added there too.
+- `HydroCore/`, at the repo root, is a local Swift package holding what the server and
+  the Android app must agree on: `DayKey` and the Duo Streaks rules. It imports only
+  Foundation, so anything the app, widgets or watch use from it has to be `public`.
+  `HydroDrop/Shared/HydroCoreImport.swift` re-exports it, so a new target that needs it
+  compiles that file and adds `package: HydroCore` in `project.yml`. Its tests run in the
+  HydroDrop scheme, or with `swift test` in `HydroCore/`.
+- `HydroCore/Tests/Vectors/duo-vectors-v1.json` and its `SHA256` are shared with the server
+  and the Android app, and a test fails when the rules stop matching them. After a
+  deliberate rule change, run `HYDROCORE_WRITE_VECTORS=1 swift test --filter VectorExport`
+  in `HydroCore/`, commit both files, and update the other two implementations. Some
+  answers also depend on the runtime's time zone and Unicode data, so if the check fails
+  after Xcode Cloud moves to a new simulator image, look at the case the failure names
+  rather than regenerating: a regenerated file would hand that runtime's answer to the
+  server and Android.
 - Xcode Cloud runs `ci_scripts/ci_post_clone.sh`. There is no GitHub Actions CI.
 - Claude Code on the web runs on Linux, so it cannot build, run or test the app. Review
   changes carefully, and say plainly that they're unbuilt. Jonathon builds on his Mac.

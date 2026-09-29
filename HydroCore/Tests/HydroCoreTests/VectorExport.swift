@@ -1,4 +1,8 @@
+// CryptoKit is Apple-only. Guarded so the rule tests still build where it's missing, such
+// as a Linux toolchain; only the hash check needs it.
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import XCTest
 @testable import HydroCore
 
@@ -38,7 +42,8 @@ import XCTest
 /// (KV11), `handled` (KV12, X14), FCM parsing (KV13), totals by day and the Health Connect
 /// exclusion (KV14, X10), error mapping (KV15), null names and unknown skins (KV16),
 /// sequence gaps (KV17), idempotent replays (KV20), and the server's own behaviour (X6,
-/// X7, X8, X11, X13, X15). They are added as Phase 2 and the server write those functions.
+/// X7, X8, X11, X13, X15). They will be added when Phase 2 and the server write those
+/// functions.
 final class VectorExport: XCTestCase {
     /// Where a regenerated file is written: the source checkout. Only used on the Mac.
     private static let sourceFolder = URL(fileURLWithPath: #filePath)
@@ -68,28 +73,54 @@ final class VectorExport: XCTestCase {
             // A file whose answers disagree with their stated ones would pass on to the
             // other two implementations as if it were right, so it isn't written.
             guard (testRun?.failureCount ?? 0) == 0 else { return }
+            guard let hash = Self.sha256(fresh) else {
+                return XCTFail("regenerate on a Mac: the file's SHA256 needs CryptoKit")
+            }
             try FileManager.default.createDirectory(at: Self.sourceFolder, withIntermediateDirectories: true)
             try fresh.write(to: Self.sourceFolder.appendingPathComponent("duo-vectors-v1.json"))
-            try Data("\(Self.sha256(fresh))  duo-vectors-v1.json\n".utf8).write(to: Self.sourceFolder.appendingPathComponent("SHA256"))
+            try Data("\(hash)  duo-vectors-v1.json\n".utf8).write(to: Self.sourceFolder.appendingPathComponent("SHA256"))
             return
         }
         let committed = try Data(contentsOf: Self.bundled("duo-vectors-v1", "json"))
         XCTAssertTrue(committed == fresh, """
-            duo-vectors-v1.json no longer matches what the rules compute. If the change is \
-            deliberate, run `HYDROCORE_WRITE_VECTORS=1 swift test --filter VectorExport` in \
-            HydroCore and commit both files; the server and the Android app must then take \
-            the new file too.
+            duo-vectors-v1.json no longer matches what the rules compute\(Self.firstDifference(committed, fresh)). \
+            If the change is deliberate, run `HYDROCORE_WRITE_VECTORS=1 swift test --filter \
+            VectorExport` in HydroCore and commit both files; the server and the Android app \
+            must then take the new file too.
             """)
     }
 
     func testTheRecordedHashMatchesTheFile() throws {
         let committed = try Data(contentsOf: Self.bundled("duo-vectors-v1", "json"))
+        guard let hash = Self.sha256(committed) else {
+            throw XCTSkip("CryptoKit isn't available here, so the hash can't be checked")
+        }
         let recorded = try String(contentsOf: Self.bundled("SHA256", nil), encoding: .utf8).split(separator: " ").first.map(String.init)
-        XCTAssertEqual(recorded, Self.sha256(committed), "SHA256 must be the hash of duo-vectors-v1.json")
+        XCTAssertEqual(recorded, hash, "SHA256 must be the hash of duo-vectors-v1.json")
     }
 
-    private static func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    private static func sha256(_ data: Data) -> String? {
+        #if canImport(CryptoKit)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        #else
+        return nil
+        #endif
+    }
+
+    /// Where the committed file and the computed one first part, naming the case. Some
+    /// answers depend on the runtime's time zone rules and Unicode tables as well as on
+    /// HydroCore, so a red run on a new Xcode Cloud image has to say which case moved.
+    private static func firstDifference(_ committed: Data, _ fresh: Data) -> String {
+        let old = String(decoding: committed, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+        let new = String(decoding: fresh, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, (was, now)) in zip(old, new).enumerated() where was != now {
+            let id = now.range(of: "\"id\":\"").flatMap { start -> String? in
+                let rest = now[start.upperBound...]
+                return rest.firstIndex(of: "\"").map { String(rest[..<$0]) }
+            }
+            return " at line \(index + 1)" + (id.map { ", case \($0)" } ?? "")
+        }
+        return " (the file has \(old.count) lines, the rules give \(new.count))"
     }
 }
 
