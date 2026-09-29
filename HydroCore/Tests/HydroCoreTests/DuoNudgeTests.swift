@@ -15,13 +15,13 @@ final class DuoNudgeTests: XCTestCase {
     }
 
     private func duo(
+        id: UUID = UUID(uuidString: "11111111-2222-4333-8444-555555555555")!,
         myRole: DuoRole = .owner,
         nudges: [DuoNudge] = [],
         statuses: [DuoDayStatus] = [],
         joined: Bool = true,
         ended: Bool = false
     ) -> DuoState {
-        let id = UUID(uuidString: "11111111-2222-4333-8444-555555555555")!
         return DuoState(
             id: id,
             zoneName: "Duo-\(id.uuidString)",
@@ -242,6 +242,20 @@ final class DuoNudgeTests: XCTestCase {
         XCTAssertEqual(first.first?.body, "Your turn. Keep the flame going.")
         XCTAssertEqual(first.first?.isActionable, false)
         XCTAssertTrue(plan(before: before, after: after, ledger: &ledger, now: now).isEmpty)
+    }
+
+    /// The default duo's id is all digits, which reads the same in either case, so this one
+    /// has letters in it. The key is the server's lowercase spelling (decision D25), which
+    /// is what the Android app names its notification after.
+    func testTheGoalMetKeySpellsTheDuoIDInLowercase() {
+        let id = UUID(uuidString: "6D2A0C3E-5B7F-4A91-8C2D-3E4F5A6B7C8D")!
+        let before = duo(id: id, statuses: [status(.partner, "2026-09-21", met: false, at: at(21, 12))])
+        let after = duo(id: id, statuses: [status(.partner, "2026-09-21", met: true, at: at(21, 15))])
+        var ledger = DuoLedger()
+
+        let key = "met|6d2a0c3e-5b7f-4a91-8c2d-3e4f5a6b7c8d|2026-09-21"
+        XCTAssertEqual(plan(before: before, after: after, ledger: &ledger, now: at(21, 15)).map(\.key), [key])
+        XCTAssertEqual(ledger.seen, [key])
     }
 
     func testTheWordingKnowsWhenWeHaveBothMadeIt() {

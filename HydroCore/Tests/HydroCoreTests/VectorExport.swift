@@ -37,13 +37,13 @@ import XCTest
 ///
 /// Some of the design's vectors can't be generated yet, because the function they pin
 /// doesn't exist in Swift in the form Duo v2 needs: the invite-code and link parser (KV1),
-/// the duo id's case in ledger keys (KV3, which changes when ids come from the server),
-/// RFC 3339 handling (KV4), rejected days (KV10), `ver` handling
-/// (KV11), `handled` (KV12, X14), FCM parsing (KV13), totals by day and the Health Connect
-/// exclusion (KV14, X10), error mapping (KV15), null names and unknown skins (KV16),
-/// sequence gaps (KV17), idempotent replays (KV20), and the server's own behaviour (X6,
-/// X7, X8, X11, X13, X15). They will be added when Phase 2 and the server write those
-/// functions.
+/// RFC 3339 handling (KV4), rejected days (KV10), `ver` handling (KV11), `handled` (KV12,
+/// X14), FCM parsing (KV13), totals by day and the Health Connect exclusion (KV14, X10),
+/// error mapping (KV15), null names and unknown skins (KV16), sequence gaps (KV17),
+/// idempotent replays (KV20), and the server's own behaviour (X6, X7, X8, X11, X13, X15).
+/// They will be added when Phase 2 and the server write those functions. KV3, the duo
+/// id's case in ledger keys, used to be on this list too, because the design left the
+/// case open until duo ids came from the server; decision D25 settled it as lowercase.
 final class VectorExport: XCTestCase {
     /// Where a regenerated file is written: the source checkout. Only used on the Mac.
     private static let sourceFolder = URL(fileURLWithPath: #filePath)
@@ -608,6 +608,18 @@ enum Vectors {
         for (suffix, name, expected) in ids {
             out.append(Vector(id: "KV2.\(suffix)", fn: "DuoNudge.isNudgeRecordName", input: ["name": .string(name)],
                               expect: .bool(DuoNudge.isNudgeRecordName(name)), spec: .bool(expected)))
+        }
+        // KV3: the duo id in a goal-met ledger key is written lowercase, the server's
+        // spelling, whatever case it arrives in, so the Android app's notification tag
+        // matches the key without folding case (decision D25). The day goes in verbatim.
+        let duoIDs: [(String, String, String)] = [
+            ("upper", "6D2A0C3E-5B7F-4A91-8C2D-3E4F5A6B7C8D", "met|6d2a0c3e-5b7f-4a91-8c2d-3e4f5a6b7c8d|2026-09-24"),
+            ("lower", "6d2a0c3e-5b7f-4a91-8c2d-3e4f5a6b7c8d", "met|6d2a0c3e-5b7f-4a91-8c2d-3e4f5a6b7c8d|2026-09-24"),
+            ("mixed", "6d2A0c3E-5b7F-4a91-8C2d-3e4F5a6B7c8D", "met|6d2a0c3e-5b7f-4a91-8c2d-3e4f5a6b7c8d|2026-09-24"),
+        ]
+        for (suffix, id, expected) in duoIDs {
+            out.append(Vector(id: "KV3.\(suffix)", fn: "DuoLedger.goalKey", input: ["duoID": .string(id), "day": "2026-09-24"],
+                              expect: .string(DuoLedger.goalKey(duoID: UUID(uuidString: id)!, day: "2026-09-24")), spec: .string(expected)))
         }
         return out
     }

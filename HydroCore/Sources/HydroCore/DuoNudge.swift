@@ -148,7 +148,17 @@ struct DuoLedger: Equatable {
         seen.removeAll { $0 == key }
     }
 
-    static func goalKey(duoID: UUID, day: String) -> String { "met|\(duoID.uuidString)|\(day)" }
+    /// The key a partner's goal-met moment is recorded under, `met|<duo id>|<day>`, with the
+    /// duo id in lowercase. That is how the server spells a duo id (final design §5) and how
+    /// FCM's `duo` field carries it, so the Android app can tag its notification
+    /// `hydrodrop.duo.` plus this key and still match it without folding case (decision
+    /// D25, vectors KV3).
+    ///
+    /// It used to write `uuidString`, which is uppercase, because an iCloud duo's id was
+    /// made on the phone. Duo v2 ids come from the server in lowercase. The v2 ledger
+    /// starts empty under `duo.ledger.v2` (decision D15), so no key written the old way is
+    /// ever compared with a new one, and nothing has to be migrated.
+    static func goalKey(duoID: UUID, day: String) -> String { "met|\(duoID.uuidString.lowercased())|\(day)" }
 }
 
 /// Something to tell the user about a duo.
