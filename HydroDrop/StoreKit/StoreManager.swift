@@ -76,6 +76,11 @@ final class StoreManager: ObservableObject {
     private var renewalReadGeneration = 0
 
     private init() {
+        // A launch that ignores purchases starts free, rather than from the cache of them.
+        if Self.isIgnoringPurchases {
+            isSubscribed = false
+            EntitlementCache.isPlusActive = false
+        }
         transactionListener = listenForTransactionUpdates()
         #if os(iOS)
         // The watch reads only `isSubscribed`, so it skips renewal tracking and the App
@@ -239,6 +244,21 @@ final class StoreManager: ObservableObject {
         #endif
     }
 
+    /// Debug-only hook so UI tests can run as a free user on a simulator that holds
+    /// StoreKit test purchases. A Lifetime bought on one by hand, while trying the
+    /// paywall, used to turn the free screenshot run into a Lifetime owner's and fail it.
+    /// With it set the app reads no purchases at all: no entitlements, no renewal state,
+    /// and nothing from the cache at launch. Compiled out of Release like the forced
+    /// subscription above, so a shipping build can't be launched into ignoring what
+    /// someone paid for.
+    private static var isIgnoringPurchases: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-UITestIgnorePurchases")
+        #else
+        false
+        #endif
+    }
+
     private func refreshEntitlement() async {
         if Self.isScreenshotModeForcingSubscription {
             // Seed the cache too, or the forced entitlement disagrees with everything
@@ -251,11 +271,14 @@ final class StoreManager: ObservableObject {
         }
         // Read every entitlement rather than stopping at lifetime: a subscription held
         // alongside it may still renew, and Settings has to know to offer the way out.
+        // A UI test ignoring purchases reads none, so the app sees a free user.
         var ownedProductIDs: [String] = []
-        for await result in Transaction.currentEntitlements {
-            if let transaction = try? checkVerified(result),
-               transaction.revocationDate == nil {
-                ownedProductIDs.append(transaction.productID)
+        if !Self.isIgnoringPurchases {
+            for await result in Transaction.currentEntitlements {
+                if let transaction = try? checkVerified(result),
+                   transaction.revocationDate == nil {
+                    ownedProductIDs.append(transaction.productID)
+                }
             }
         }
         let entitlements = PlusEntitlements(productIDs: ownedProductIDs)
@@ -295,6 +318,9 @@ final class StoreManager: ObservableObject {
     /// Nil when the App Store can't be asked. False when there's no subscription to ask
     /// about, which also keeps the network out of it for anyone who never subscribed.
     private func readSubscriptionWillRenew() async -> Bool? {
+        // Otherwise a subscription left on the simulator would still read as renewing, and
+        // the paywall would warn this "free" user that Lifetime doesn't cancel it.
+        if Self.isIgnoringPurchases { return false }
         // The group comes from the subscriber's own transaction, so the same code works
         // against the App Store and the local StoreKit configuration, whose ids differ.
         var groupID: String?

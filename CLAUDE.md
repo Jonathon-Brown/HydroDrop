@@ -102,6 +102,9 @@ such as FoundationModels for Say it, sit behind `#available`.
 - `-UITestSeedHistory`: a fresh on-disk store with a seeded week of drinks. It also
   resets the cached entitlement, turns on `AppSettings.isScreenshotMode` and hides ads.
 - `-UITestForceSubscribed`: forces HydroDrop+ on.
+- `-UITestIgnorePurchases`: ignores the simulator's StoreKit purchases, so the app runs as
+  a free user even on a simulator where test purchases were made. The free-user UI tests
+  use it.
 - `-UITestSkipOnboarding`: skips first-launch onboarding.
 - `-SimulateBottleTap <url>`: simulates tapping an NFC bottle tag.
 - `-ShowBottleUI`: shows the bottle tag screens on a simulator, which has no NFC.
