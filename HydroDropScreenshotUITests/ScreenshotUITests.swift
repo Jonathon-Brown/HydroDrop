@@ -28,7 +28,13 @@ final class ScreenshotUITests: XCTestCase {
         // As a US user: in the EEA, the UK and Switzerland the app shows no ads, so the
         // Settings upgrade card and the paywall leave out "No ads", and the App Store
         // captures would change with whatever region the simulator happens to be set to.
-        app.launchArguments = ["-UITestSeedHistory", "-AdRegion", "USA"]
+        // In daylight too: the World follows the clock, so a run in the evening drew
+        // Today, and the sky behind the paywall, at dusk or at night. And as a free user
+        // whatever the simulator holds: a Lifetime bought on one by hand, while trying the
+        // paywall, used to make this run a Lifetime owner's and fail it at History.
+        app.launchArguments = [
+            "-UITestSeedHistory", "-UITestIgnorePurchases", "-AdRegion", "USA", "-WorldTime", "day",
+        ]
         app.launch()
 
         logTodaysDrinks(app)
@@ -45,6 +51,14 @@ final class ScreenshotUITests: XCTestCase {
         // Scrolling brings up the scroll indicator down the right edge, which takes a
         // moment to fade and otherwise ends up in the capture.
         if swipes > 0 { sleep(2) }
+        // Only a free user's Today links to the other mascots. Stop here, before the first
+        // capture, if the app came up as a HydroDrop+ user after all, rather than write a
+        // subscriber's Today and time out later waiting for History's seven days.
+        XCTAssertTrue(
+            app.buttons["More looks"].waitForExistence(timeout: 5),
+            "The app launched as a HydroDrop+ user, not a free one. -UITestIgnorePurchases "
+                + "should hide the simulator's StoreKit test purchases: check that StoreManager still reads it."
+        )
         save(app.screenshot(), name: "01-today")
 
         app.tabBars.buttons["History"].tap()
@@ -68,7 +82,37 @@ final class ScreenshotUITests: XCTestCase {
         let price = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] '$'")).firstMatch
         XCTAssertTrue(price.waitForExistence(timeout: 25), "the paywall's plans never loaded")
         XCTAssertTrue(app.staticTexts["No ads, ever"].exists, "the paywall was captured as a user in a country without ads")
+
+        // The plans, Lifetime among them, sit below the feature list, so a capture of the
+        // paywall as it opens showed none of them. Scroll until they rest just above the
+        // bottom edge, which on a Pro Max keeps the title and the four mascots in view.
+        // No higher: the bar fades whatever scrolls under it, and any higher takes the
+        // title into that fade. The big droplet above the title is left as a faint glow
+        // under the bar, since hiding it means scrolling the title away too.
+        let plans = app.buttons.matching(NSPredicate(
+            format: "label CONTAINS 'per month' OR label CONTAINS 'per year' OR label ENDSWITH 'once'"
+        ))
+        XCTAssertEqual(plans.count, 3, "the paywall didn't offer Monthly, Yearly and Lifetime")
+        let lowestPlanEdge = { (0..<plans.count).map { plans.element(boundBy: $0).frame.maxY }.max() ?? 0 }
+        let screenBottom = app.windows.firstMatch.frame.maxY
+        scrollUp(app, by: lowestPlanEdge() - (screenBottom - 20))
+        for index in 0..<plans.count {
+            let plan = plans.element(boundBy: index)
+            XCTAssertTrue(plan.isHittable && plan.frame.maxY <= screenBottom, "\(plan.label) isn't fully on screen")
+        }
+        // The scroll brought up the scroll indicator, as on Today; let it fade first.
+        sleep(2)
         save(app.screenshot(), name: "04-paywall")
+    }
+
+    /// Drags the frontmost scroll view's content up by `points`: slowly, and held at the
+    /// end, so it stops where it's put instead of flinging on. A scroll view lets a finger
+    /// travel about 10 points before the content moves, so the drag goes that much further.
+    private func scrollUp(_ app: XCUIApplication, by points: CGFloat) {
+        guard points > 0 else { return }
+        let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.7))
+        let end = start.withOffset(CGVector(dx: 0, dy: -(points + 10)))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.5)
     }
 
     /// History as a HydroDrop+ subscriber sees it: thirty days rather than seven, and no
@@ -77,7 +121,7 @@ final class ScreenshotUITests: XCTestCase {
     /// launch starts from no entitlement, so the forced one doesn't carry over.
     func testCaptureSubscriberScreenshots() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestSeedHistory", "-UITestForceSubscribed", "-AdRegion", "USA"]
+        app.launchArguments = ["-UITestSeedHistory", "-UITestForceSubscribed", "-AdRegion", "USA", "-WorldTime", "day"]
         app.launch()
 
         // The same day as the free captures, so today's bar matches across the set.
