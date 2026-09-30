@@ -61,11 +61,15 @@ struct HealthSettingsView: View {
         }
     }
 
+    /// Both versions mention other devices. An edit reaches Health through whichever device
+    /// wrote the drink there, even when this one has sync off (see `HealthWrittenRecord`), and
+    /// a device with sync on adds drinks logged on the others. A delete made with sync off
+    /// never reaches Health, because the deleted drink leaves nothing behind to act on.
     private var healthFooter: String {
         if settings.healthKitSyncEnabled {
-            return "New drinks are added to Health as dietary water, using the amount HydroDrop counts, so a coffee adds what it actually hydrates. If you track caffeine, that is added too. Deleting or editing a drink here updates Health too. Turning this off leaves whatever is already there in place. HydroDrop reads from Health only if you connect Insights, in History."
+            return "New drinks are added to Health as dietary water, using the amount HydroDrop counts, so a coffee adds what it actually hydrates. If you track caffeine, that is added too. Deleting or editing a drink updates Health too, including an edit made on another of your devices. Turning this off stops this device writing to Health and leaves whatever is already there in place. HydroDrop reads from Health only if you connect Insights, in History."
         }
-        return "Off by default. When on, the drinks you log are added to Health as dietary water, and their caffeine if you track it. This only writes. HydroDrop reads from Health only if you connect Insights, in History, and nothing is sent to us either way."
+        return "Off by default. When on, the drinks you log are added to Health as dietary water, and their caffeine if you track it. If another of your devices has this on, it adds the drinks you log here and updates Health when you edit one, but deleting a drink here leaves it in Health. HydroDrop reads from Health only if you connect Insights, in History, and nothing is sent to us either way."
     }
 
     /// Turning the toggle on asks Health for permission first, and only commits the
@@ -94,6 +98,9 @@ struct HealthSettingsView: View {
                 // everything logged before it.
                 settings.healthSyncStartDate = Date()
                 settings.healthKitSyncEnabled = true
+                // Edits to samples this device owns, or claimed while sync was off, are
+                // corrected now. Samples another device owns wait for it, or for a week.
+                HealthKitManager.shared.requestPendingScan()
                 await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
             case .denied:
                 settings.healthKitSyncEnabled = false

@@ -35,7 +35,10 @@ such as FoundationModels for Say it, sit behind `#available`.
 - Releasing:
   - `Scripts/release.sh` handles `status`, `bump`, `archive`, `export` and `upload`.
   - `Scripts/preflight.sh` checks for past App Review rejection causes, including a bare
-    ad `Request()`. Every ad request has to go through `AdManager.makeRequest()`.
+    ad `Request()`. Every ad request has to go through `AdManager.makeRequest()`. It also
+    checks that CloudKit's Production schema has every stored property of every `@Model`,
+    which needs a CloudKit management token saved once with
+    `xcrun cktool save-token --type management`.
   - Both stop before App Review submission, which is always done by hand.
 
 ## Working with Jonathon's Mac
@@ -182,7 +185,10 @@ To rebuild one:
 - Duo v2 Phase 1 is on `feature/hydrocore`, pushed, with no PR yet. It waited for 1.8.1 to be
   built, which it now is. Ask Jonathon before opening its PR. `release/1.8` (build 31, with
   the iCloud Duo) is kept as the source for Duo code: don't change or delete it.
-- Known for 1.9: the Health edit queue (`HealthReplacementQueue` in
-  `Health/HealthEditPlan.swift`) is kept per device. An edit made on a device with Health
-  sync off is corrected only when sync is turned on there. The durable fix needs the pending
-  replacement on the synced model, which is a CloudKit schema change.
+- 1.9 moves the Health edit queue onto the synced drink: `WaterEntry` gains `healthSyncID`,
+  `healthWaterWritten` and `healthCaffeineWritten` (see `Health/HealthWrittenRecord.swift`).
+  An edit made on any device is replaced by the sample's owner (the device that wrote it, or
+  that claimed a pre-1.9 sample), and another device takes over after a week. The CloudKit
+  Production schema must have the three fields before any 1.9 build goes to TestFlight, or
+  iCloud sync of new drinks stalls. The design and its decisions are in the vault note
+  "HydroDrop 1.9 Health edits across devices".

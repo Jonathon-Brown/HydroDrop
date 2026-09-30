@@ -35,6 +35,29 @@ final class WaterEntry {
     /// exist without the other. Optional for the same reason as the fields above.
     var caffeineSampleUUID: String?
 
+    /// The identifier this drink's Health samples are written under, as sync identifiers
+    /// `<healthSyncID>.water` and `<healthSyncID>.caffeine`. Health replaces a lower version
+    /// of the same identifier instead of adding a second sample, so writing the same drink
+    /// again on one device never leaves two there. Whether Health merges two devices'
+    /// samples across iCloud has never been tested, which is why only a sample's owner
+    /// replaces it (see `HealthWrittenRecord`).
+    ///
+    /// Set in the initialiser, never as a default here: a property default can become the
+    /// schema's default, and every drink from before 1.9 would then share one identifier,
+    /// so a newer version of one drink's sample would replace another's. Nil for those
+    /// drinks, and for any logged on a device still on 1.8.1, until they are first written
+    /// (see `HealthKitManager.newHealthSyncID`).
+    var healthSyncID: String?
+
+    /// What Health holds for this drink's water, as a `HealthWrittenRecord` string: which
+    /// sample, the figures it was written with, and which device looks after it. Synced,
+    /// so an edit made on any device reaches the sample's owner. Optional for the same
+    /// reason as the fields above.
+    var healthWaterWritten: String?
+
+    /// The same, for the caffeine sample.
+    var healthCaffeineWritten: String?
+
     /// How much of this drink counts towards the daily goal. Totals, streaks and the
     /// history chart are all built from this rather than from `amountML`.
     var hydratedML: Int {
@@ -45,5 +68,6 @@ final class WaterEntry {
         self.amountML = amountML
         self.timestamp = timestamp
         self.drinkTypeRawValue = drinkType.rawValue
+        self.healthSyncID = UUID().uuidString
     }
 }

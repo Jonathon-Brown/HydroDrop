@@ -89,7 +89,7 @@ struct HealthTakeBackList {
 
 /// What a failed take-back leaves to do. Every sample goes on `HealthTakeBackList`, so it is
 /// deleted even if its drink's identifier is lost. A drink that is still here is also
-/// queued for replacement, so its current figures are written once the sample is out.
+/// marked for replacement, so its current figures are written once the sample is out.
 struct HealthFailedTakeBack: Equatable {
     let toTakeBack: [String]
     let toReplace: [String]
@@ -101,10 +101,10 @@ struct HealthFailedTakeBack: Equatable {
 }
 
 extension HealthReplacementQueue {
-    /// Queues samples that may already be out of Health, so the replacement writes their
-    /// drinks even when its own delete finds nothing.
+    /// Marks samples that may already be out of Health, so the replacement writes their
+    /// drinks even when its own delete finds nothing. Their drinks' records say they are out
+    /// of date, which is what brings them to the replacement.
     func addAwaitingWrite(_ ids: [String]) {
-        add(ids)
         ids.forEach(markAwaitingWrite)
     }
 }

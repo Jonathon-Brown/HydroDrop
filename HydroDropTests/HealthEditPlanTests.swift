@@ -4,8 +4,9 @@ import XCTest
 
 /// An edited drink's Health samples used to be deleted on the spot: with sync off the water
 /// sample was stranded in Health, and with sync on a drink from before sync was turned on
-/// was deleted and never written again. Edits now queue the samples, and a reconcile
-/// replaces them in one step, deleting first and writing second.
+/// was deleted and never written again. Edits now note on the synced drink that its samples
+/// are out of date, and a reconcile replaces them in one step, deleting first and writing
+/// second.
 @MainActor
 final class HealthEditPlanTests: XCTestCase {
     // MARK: - The plan
@@ -52,7 +53,7 @@ final class HealthEditPlanTests: XCTestCase {
         XCTAssertEqual(HealthReplacementStep(deletedCount: 0, wasAwaitingWrite: true, stillCounts: false), .clear)
     }
 
-    // MARK: - The queue
+    // MARK: - This device's marks
 
     private var suiteName = ""
     private var defaults: UserDefaults!
@@ -70,22 +71,19 @@ final class HealthEditPlanTests: XCTestCase {
         try await super.tearDown()
     }
 
-    func testTheQueueRemembersBothSamplesOnceAndSkipsMissingOnes() {
-        let queue = HealthReplacementQueue(defaults: defaults)
-        queue.add(["water-1", "caffeine-1"])
-        queue.add(["water-1", nil])
-        XCTAssertEqual(queue.sampleIDs, ["water-1", "caffeine-1"])
+    /// 1.8.1's list is only ever read, to move it onto the drinks.
+    func testTheListFrom181IsReadFromItsOldKey() {
+        defaults.set(["water-1", "caffeine-1"], forKey: "health.samplesToReplace")
+        XCTAssertEqual(HealthReplacementQueue(defaults: defaults).sampleIDs, ["water-1", "caffeine-1"])
     }
 
-    /// A delete that couldn't be done takes back the mark this pass made, and the sample
-    /// stays queued for the next try.
+    /// A delete that couldn't be done takes back the mark this pass made. The drink's record
+    /// still says it is out of date, so the next pass tries again.
     func testAFailedFirstAttemptTakesBackItsOwnMark() {
         let queue = HealthReplacementQueue(defaults: defaults)
-        queue.add(["water-1"])
         queue.markAwaitingWrite("water-1")
         queue.abandonAttempt("water-1", wasAwaiting: false)
         XCTAssertEqual(queue.awaitingWrite, [])
-        XCTAssertEqual(queue.sampleIDs, ["water-1"])
     }
 
     /// An earlier pass's delete worked, so the sample is already out of Health. Losing its
@@ -93,22 +91,18 @@ final class HealthEditPlanTests: XCTestCase {
     /// and the edited drink would never be written back.
     func testAFailedRetryKeepsAnEarlierPassesMark() {
         let queue = HealthReplacementQueue(defaults: defaults)
-        queue.add(["water-1"])
         queue.markAwaitingWrite("water-1")
         queue.abandonAttempt("water-1", wasAwaiting: true)
         XCTAssertEqual(queue.awaitingWrite, ["water-1"])
-        XCTAssertEqual(queue.sampleIDs, ["water-1"])
         XCTAssertEqual(HealthReplacementStep(deletedCount: 0, wasAwaitingWrite: true, stillCounts: true), .rewrite)
     }
 
-    func testCrossingOffAlsoClearsTheAwaitingMark() {
+    func testCrossingOffClearsOnlyThatMark() {
         let queue = HealthReplacementQueue(defaults: defaults)
-        queue.add(["water-1", "water-2"])
         queue.markAwaitingWrite("water-1")
-        XCTAssertEqual(queue.awaitingWrite, ["water-1"])
+        queue.markAwaitingWrite("water-2")
         queue.remove("water-1")
-        XCTAssertEqual(queue.sampleIDs, ["water-2"])
-        XCTAssertEqual(queue.awaitingWrite, [])
+        XCTAssertEqual(queue.awaitingWrite, ["water-2"])
     }
 
     // MARK: - What an edited drink still has to write
@@ -119,17 +113,18 @@ final class HealthEditPlanTests: XCTestCase {
         let syncTurnedOn = Date(timeIntervalSinceReferenceDate: 800_000_000)
         let olderDrink = WaterEntry(amountML: 300, timestamp: syncTurnedOn.addingTimeInterval(-86_400))
         XCTAssertFalse(HealthKitManager.isEligible(olderDrink, since: syncTurnedOn))
-        XCTAssertTrue(HealthKitManager.replacementStillCounts(olderDrink, water: true, caffeineTracked: false))
+        XCTAssertTrue(HealthKitManager.replacementStillCounts(olderDrink, kind: .water))
     }
 
-    func testCaffeineIsWrittenAgainOnlyWhileTrackedAndPresent() {
+    /// Whether this device touches caffeine at all is decided first (see
+    /// `HealthKitManager.leavesCaffeineAlone`). Once it does, a drink with caffeine is written
+    /// again, and one edited to have none has its caffeine sample taken out.
+    func testCaffeineIsWrittenAgainOnlyWhileTheDrinkHasSome() {
         let coffee = WaterEntry(amountML: 250, drinkType: .coffee)
-        XCTAssertTrue(HealthKitManager.replacementStillCounts(coffee, water: false, caffeineTracked: true))
-        XCTAssertFalse(HealthKitManager.replacementStillCounts(coffee, water: false, caffeineTracked: false))
-        // Edited from a coffee to water: its caffeine sample goes and nothing replaces it.
+        XCTAssertTrue(HealthKitManager.replacementStillCounts(coffee, kind: .caffeine))
         let water = WaterEntry(amountML: 250)
-        XCTAssertFalse(HealthKitManager.replacementStillCounts(water, water: false, caffeineTracked: true))
-        XCTAssertTrue(HealthKitManager.replacementStillCounts(water, water: true, caffeineTracked: true))
+        XCTAssertFalse(HealthKitManager.replacementStillCounts(water, kind: .caffeine))
+        XCTAssertTrue(HealthKitManager.replacementStillCounts(water, kind: .water))
     }
 
     // MARK: - Finding the drink behind a queued sample

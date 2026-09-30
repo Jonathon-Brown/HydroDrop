@@ -14,6 +14,9 @@ import SwiftData
 @MainActor
 final class StoreRemoteChangeObserver {
     private let container: ModelContainer
+    /// Where the pass hands second copies of drinks in Health (see
+    /// `StoreMigration.deduplicateIfNeeded`).
+    private let retire: (StoreMigration.HealthLeftovers) -> Void
     private var observer: NSObjectProtocol?
     private var pending: DispatchWorkItem?
 
@@ -22,8 +25,9 @@ final class StoreRemoteChangeObserver {
     /// that the correction still feels immediate.
     private let debounceInterval: TimeInterval = 1.0
 
-    init(container: ModelContainer) {
+    init(container: ModelContainer, retire: @escaping (StoreMigration.HealthLeftovers) -> Void = { _ in }) {
         self.container = container
+        self.retire = retire
     }
 
     /// Begins watching for remote changes. Call once, after the app's container exists.
@@ -47,7 +51,7 @@ final class StoreRemoteChangeObserver {
         pending?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            StoreMigration.deduplicateIfNeeded(in: self.container)
+            StoreMigration.deduplicateIfNeeded(in: self.container, retire: self.retire)
         }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + debounceInterval, execute: work)

@@ -11,7 +11,8 @@ struct EditEntrySheet: View {
 
     let entry: WaterEntry
     /// Called after the edit lands, so the caller can save, re-arm reminders, update the
-    /// watch and reconcile Health, which replaces any samples this edit queued.
+    /// watch and reconcile Health, which replaces the samples this edit marked out of date
+    /// if this device owns them.
     let onSave: () -> Void
     /// Called instead of dismissing: the caller closes this sheet and then deletes,
     /// because a model read back after deletion is a crash.
@@ -94,16 +95,17 @@ struct EditEntrySheet: View {
             && entry.drinkType == drinkType
             && entry.timestamp == newTimestamp
 
-        // An edit that moved something Health recorded queues the drink's samples to be
-        // replaced with the corrected figures: straight away with sync on, when sync is
-        // next turned on otherwise, with Health left exactly as it is until then. Both
-        // identifiers stay on the drink, so a delete before then can still remove what is
-        // in Health. See `HealthEditPlan`.
+        // An edit that moved something Health recorded notes on the synced drink that its
+        // samples are out of date, before the figures change. The samples' owner, the
+        // device that wrote them or claimed them, replaces them with the corrected figures,
+        // whichever device the edit was made on, with Health left exactly as it is until
+        // then. Both identifiers stay on the drink, so a delete before then can still remove
+        // what is in Health. See `HealthEditPlan`.
         if HealthEditPlan(
             isUnchanged: isUnchanged,
-            hasSamples: entry.healthKitSampleUUID != nil || entry.caffeineSampleUUID != nil
+            hasSamples: entry.hasHealthSamplesOrRecords
         ) == .replaceSamples {
-            HealthReplacementQueue().add([entry.healthKitSampleUUID, entry.caffeineSampleUUID])
+            entry.noteHealthEdit(claimedBy: HealthKitManager.shared.claimant(for:))
         }
 
         entry.amountML = amountML
@@ -111,6 +113,8 @@ struct EditEntrySheet: View {
         // An entry being edited may already be older than the backfill window, so the
         // clamp only applies when the user actually moved it.
         entry.timestamp = newTimestamp
+        // Edited back to what Health already has: nothing is pending, and no mark is left.
+        entry.settleHealthEdit(on: HealthInstall.id)
         onSave()
         dismiss()
     }

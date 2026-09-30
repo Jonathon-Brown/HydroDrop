@@ -311,9 +311,10 @@ struct HomeView: View {
                 EditEntrySheet(entry: entry) {
                     // The edit may have moved the drink to another day or changed what
                     // it counts for, so everything downstream of the total is stale. Any
-                    // Health samples it had are queued by the sheet and replaced by the
-                    // reconcile this starts.
+                    // Health samples it had are noted as out of date by the sheet, and the
+                    // reconcile this starts replaces the ones this device wrote.
                     saveContext()
+                    HealthKitManager.shared.requestPendingScan()
                     clearUndo()
                     afterLogChange()
                 } onDelete: {
@@ -1049,13 +1050,11 @@ struct HomeView: View {
         let remaining = entries.filter { $0.modelContext != nil }
         guard !remaining.isEmpty else { return }
         // Read before the delete: once an entry is gone, so is the only record of
-        // which Health sample belonged to it.
-        let sampleUUIDs = remaining.map(\.healthKitSampleUUID)
-        let caffeineUUIDs = remaining.map(\.caffeineSampleUUID)
+        // which Health samples belonged to it.
+        let samples = remaining.flatMap(HealthSampleReference.all(of:))
         remaining.forEach(modelContext.delete)
         afterLogChange()
-        sampleUUIDs.forEach(retireHealthSample)
-        caffeineUUIDs.forEach(retireCaffeineSample)
+        retireHealthSamples(samples)
     }
 
     /// Everything that has to catch up after the log changes in any way.
@@ -1075,20 +1074,16 @@ struct HomeView: View {
         }
     }
 
-    /// Removes the caffeine a deleted or undone drink had put in Health. An edited drink's
-    /// samples are replaced by the reconcile instead (see `HealthEditPlan`).
-    private func retireCaffeineSample(_ uuid: String?) {
-        guard let uuid, settings.healthKitSyncEnabled else { return }
+    /// Removes the water and caffeine a deleted or undone drink had put in Health, found by
+    /// UUID or sync identifier, so a sample another device wrote before this one heard its
+    /// UUID goes too. An edited drink's samples are replaced by the reconcile instead (see
+    /// `HealthEditPlan`).
+    private func retireHealthSamples(_ samples: [HealthSampleReference]) {
+        guard !samples.isEmpty, settings.healthKitSyncEnabled else { return }
         Task { @MainActor in
-            await HealthKitManager.shared.deleteCaffeineSample(uuidString: uuid)
-        }
-    }
-
-    /// Removes the water sample of a deleted or undone drink.
-    private func retireHealthSample(_ uuid: String?) {
-        guard let uuid, settings.healthKitSyncEnabled else { return }
-        Task { @MainActor in
-            await HealthKitManager.shared.deleteSample(uuidString: uuid)
+            for sample in samples {
+                await HealthKitManager.shared.deleteSamples(sample.kind, uuid: sample.uuid, syncIdentifiers: sample.syncIdentifiers)
+            }
         }
     }
 
@@ -1139,6 +1134,8 @@ struct HomeView: View {
         sayItIsAvailable = SayIt.isAvailable
         nightOut.expireIfNeeded()
         mirrorToCompanions()
+        // iCloud may have brought an edit made on another device while the app was away.
+        HealthKitManager.shared.requestPendingScan()
         syncHealth(.cameToForeground)
         applyStreakFreezeIfNeeded()
         checkWeather()
@@ -1201,12 +1198,10 @@ struct HomeView: View {
         if pendingUndo?.entries.contains(where: { $0.persistentModelID == entry.persistentModelID }) == true {
             clearUndo()
         }
-        let sampleUUID = entry.healthKitSampleUUID
-        let caffeineUUID = entry.caffeineSampleUUID
+        let samples = HealthSampleReference.all(of: entry)
         modelContext.delete(entry)
         afterLogChange()
-        retireHealthSample(sampleUUID)
-        retireCaffeineSample(caffeineUUID)
+        retireHealthSamples(samples)
     }
 
     /// What can still be taken back, with the words to describe it. One drink for a

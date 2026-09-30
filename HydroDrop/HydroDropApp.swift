@@ -13,8 +13,16 @@ struct HydroDropApp: App {
 
     init() {
         container = Self.makeContainer()
-        remoteChangeObserver = StoreRemoteChangeObserver(container: container)
+        remoteChangeObserver = StoreRemoteChangeObserver(container: container, retire: Self.retireSecondCopies)
         remoteChangeObserver.start()
+        // The Health corrections 1.8.1 queued on this device move onto the synced drinks,
+        // claimed by this device if it may write to Health. Otherwise a device with sync on
+        // takes them over after a week. With sync off here too, because they are no use
+        // sitting in this device's defaults.
+        HealthReplacementQueue().moveQueuedSamplesOntoDrinks(
+            in: container.mainContext,
+            claimedBy: HealthKitManager.shared.claimant(for:)
+        )
         // Started here, not from AppSettings' own initialiser: the change handler calls
         // back into AppSettings.shared, which must already exist by then.
         AppSettings.shared.startCloudSync()
@@ -46,6 +54,14 @@ struct HydroDropApp: App {
             context: ModelContext(container),
             isShared: SharedModelContainer.isShared(container)
         )
+    }
+
+    /// Second copies of drinks in Health, found when duplicate rows are collapsed, go on
+    /// the take-back list, which the next reconcile with sync on deletes by UUID.
+    private static func retireSecondCopies(_ leftovers: StoreMigration.HealthLeftovers) {
+        let list = HealthTakeBackList()
+        list.add(leftovers.water, caffeine: false)
+        list.add(leftovers.caffeine, caffeine: true)
     }
 
     private static func entryCount(in container: ModelContainer) -> Int {
@@ -98,7 +114,7 @@ struct HydroDropApp: App {
         }
         #endif
 
-        return SharedModelContainer.makeForApp()
+        return SharedModelContainer.makeForApp(retire: retireSecondCopies)
     }
 
     var body: some Scene {

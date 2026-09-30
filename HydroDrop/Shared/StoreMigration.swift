@@ -150,16 +150,35 @@ enum StoreMigration {
         return try context.fetchCount(FetchDescriptor<WaterEntry>())
     }
 
+    /// Samples a dedupe pass found on the duplicate rows it deleted that the row it kept
+    /// doesn't point at, because the kept row already has a sample of that kind. Each is a
+    /// second copy of the drink in Apple Health, for the app to take back out.
+    struct HealthLeftovers: Equatable {
+        var water: [String] = []
+        var caffeine: [String] = []
+
+        var isEmpty: Bool { water.isEmpty && caffeine.isEmpty }
+    }
+
     /// Removes the duplicate rows the CloudKit round-trip leaves behind after a
     /// read-and-reinsert: the reinserted copies and the originals mirrored back down are
     /// distinct objects with identical field values. Groups by the fields that define a
     /// drink — `timestamp`, `amountML`, `drinkTypeRawValue` — and keeps one of each.
     ///
+    /// The row kept is the one Health knows most about. It used to be whichever came first,
+    /// so a copy with no Health identifier could outlive the one Health had, leaving that
+    /// sample in Health with no drink pointing at it and the drink written a second time.
+    /// A deleted row's samples move onto the kept row where it has none of that kind, and
+    /// any left over are handed to `retire`, which the app points at `HealthTakeBackList`.
+    ///
     /// Runs on the live, CloudKit-backed app container so the delete propagates, and runs
     /// every launch because the duplicates can arrive on a sync that lands well after the
     /// migration finished. It skips itself when the row count is unchanged since the last
     /// pass, so a launch with no new sync costs a single `fetchCount`.
-    static func deduplicateIfNeeded(in container: ModelContainer) {
+    static func deduplicateIfNeeded(
+        in container: ModelContainer,
+        retire: (HealthLeftovers) -> Void = { _ in }
+    ) {
         let context = ModelContext(container)
         let currentCount: Int
         do {
@@ -176,20 +195,32 @@ enum StoreMigration {
 
         do {
             let rows = try context.fetch(FetchDescriptor<WaterEntry>())
-            var seen = Set<String>()
-            var removed = 0
+            var groups: [String: [WaterEntry]] = [:]
+            var order: [String] = []
             for row in rows {
                 let key = "\(row.timestamp.timeIntervalSinceReferenceDate)|\(row.amountML)|\(row.drinkTypeRawValue ?? "")"
-                if seen.contains(key) {
+                if groups[key] == nil { order.append(key) }
+                groups[key, default: []].append(row)
+            }
+            var removed = 0
+            var leftovers = HealthLeftovers()
+            for key in order {
+                guard let group = groups[key], group.count > 1 else { continue }
+                let kept = keeper(of: group)
+                for row in group where row !== kept {
+                    adoptHealth(of: row, into: kept, leftovers: &leftovers)
                     context.delete(row)
                     removed += 1
-                } else {
-                    seen.insert(key)
                 }
             }
             if removed > 0 {
                 try context.save()
                 Diagnostics.log("dedupe pass removed \(removed) duplicate entries")
+            }
+            // Only once the deletes are saved: a sample handed over is taken out of Health.
+            if !leftovers.isEmpty {
+                retire(leftovers)
+                Diagnostics.log("dedupe pass left \(leftovers.water.count + leftovers.caffeine.count) second copies in Health to take back")
             }
             // Record the post-dedupe count so the next launch measures against what the
             // store actually holds now, not the inflated figure we just corrected.
@@ -197,6 +228,47 @@ enum StoreMigration {
             AppGroup.defaults?.set(settledCount, forKey: lastDedupeCountKey)
         } catch {
             Diagnostics.log("dedupe pass could not complete: \(error)")
+        }
+    }
+
+    /// The row to keep of a set of duplicates: the one that tells Health most about the
+    /// drink, or the first of those.
+    static func keeper(of group: [WaterEntry]) -> WaterEntry {
+        var best = group[0]
+        for row in group.dropFirst() where healthWeight(of: row) > healthWeight(of: best) {
+            best = row
+        }
+        return best
+    }
+
+    private static func healthWeight(of row: WaterEntry) -> Int {
+        [row.healthKitSampleUUID, row.caffeineSampleUUID, row.healthWaterWritten, row.healthCaffeineWritten]
+            .filter { $0 != nil }
+            .count
+    }
+
+    /// Moves a duplicate's samples, and the records that go with them, onto the kept row
+    /// where it has none of that kind. A different sample where it has one of its own is a
+    /// second copy of the drink in Health, and goes on `leftovers`.
+    static func adoptHealth(of row: WaterEntry, into kept: WaterEntry, leftovers: inout HealthLeftovers) {
+        if let sample = row.healthKitSampleUUID, sample != kept.healthKitSampleUUID {
+            if kept.healthKitSampleUUID == nil {
+                kept.healthKitSampleUUID = sample
+                kept.healthWaterWritten = row.healthWaterWritten
+            } else {
+                leftovers.water.append(sample)
+            }
+        }
+        if let sample = row.caffeineSampleUUID, sample != kept.caffeineSampleUUID {
+            if kept.caffeineSampleUUID == nil {
+                kept.caffeineSampleUUID = sample
+                kept.healthCaffeineWritten = row.healthCaffeineWritten
+            } else {
+                leftovers.caffeine.append(sample)
+            }
+        }
+        if kept.healthSyncID == nil {
+            kept.healthSyncID = row.healthSyncID
         }
     }
 
