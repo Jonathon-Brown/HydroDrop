@@ -182,7 +182,10 @@ To rebuild one:
 - Duo v2 Phase 1 is on `feature/hydrocore`, pushed, with no PR yet. It waited for 1.8.1 to be
   built, which it now is. Ask Jonathon before opening its PR. `release/1.8` (build 31, with
   the iCloud Duo) is kept as the source for Duo code: don't change or delete it.
-- Known for 1.9: the Health edit queue (`HealthReplacementQueue` in
-  `Health/HealthEditPlan.swift`) is kept per device. An edit made on a device with Health
-  sync off is corrected only when sync is turned on there. The durable fix needs the pending
-  replacement on the synced model, which is a CloudKit schema change.
+- 1.9 moves the Health edit queue onto the synced drink: `WaterEntry` gains `healthSyncID`,
+  `healthWaterWritten` and `healthCaffeineWritten` (see `Health/HealthWrittenRecord.swift`).
+  An edit made on any device is replaced by the sample's owner (the device that wrote it, or
+  that claimed a pre-1.9 sample), and another device takes over after a week. The CloudKit
+  Production schema must have the three fields before any 1.9 build goes to TestFlight, or
+  iCloud sync of new drinks stalls. The design and its decisions are in the vault note
+  "HydroDrop 1.9 Health edits across devices".

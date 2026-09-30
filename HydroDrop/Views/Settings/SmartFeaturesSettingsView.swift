@@ -173,6 +173,9 @@ struct SmartFeaturesSettingsView: View {
                 guard isOn, settings.healthKitSyncEnabled else { return }
                 Task { @MainActor in
                     _ = await HealthKitManager.shared.requestAuthorization(includingCaffeine: true)
+                    // Caffeine samples this device left alone while it wasn't tracking caffeine
+                    // can be corrected now.
+                    HealthKitManager.shared.requestPendingScan()
                     await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
                 }
             }

@@ -125,7 +125,6 @@ final class HealthSyncMomentTests: XCTestCase {
     func testAReplacedDrinkIsWrittenEvenAfterItsSampleIsTakenBack() {
         let queue = HealthReplacementQueue(defaults: defaults)
         queue.addAwaitingWrite(["edited"])
-        XCTAssertEqual(queue.sampleIDs, ["edited"])
         XCTAssertEqual(queue.awaitingWrite, ["edited"])
         XCTAssertEqual(HealthReplacementStep(deletedCount: 0, wasAwaitingWrite: true, stillCounts: true), .rewrite)
     }

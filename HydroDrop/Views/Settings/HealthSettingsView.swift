@@ -94,6 +94,9 @@ struct HealthSettingsView: View {
                 // everything logged before it.
                 settings.healthSyncStartDate = Date()
                 settings.healthKitSyncEnabled = true
+                // Edits to samples this device owns, or claimed while sync was off, are
+                // corrected now. Samples another device owns wait for it, or for a week.
+                HealthKitManager.shared.requestPendingScan()
                 await HealthKitManager.shared.reconcile(context: modelContext, settings: settings)
             case .denied:
                 settings.healthKitSyncEnabled = false
