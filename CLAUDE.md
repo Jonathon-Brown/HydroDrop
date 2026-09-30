@@ -109,6 +109,9 @@ such as FoundationModels for Say it, sit behind `#available`.
 - `-SayItStubParser`: uses a stub parser, so the Say it sheet opens without a language model.
 - World scene: `-WorldPreview <goal days> <vitality %>`, `-WorldTime dawn|day|dusk|night`,
   `-WorldWeather clear|cloudy|rain|snow` and `-WorldAllDecorations`. See `WorldDebug`.
+- `-HealthStep0`: the throwaway two-device test of Health sync identifiers, on an empty
+  scratch store. Remembered until its "Leave test mode" button, and while it is on, the
+  widget and App Intents refuse to open the real store. See `HealthStep0`.
 - `-AdRegion <country code>`: stands in for both the App Store storefront and the region
   setting, for example `GBR` (no ads, no "No ads" on the paywall) or `USA`. See `AdRegion`.
 

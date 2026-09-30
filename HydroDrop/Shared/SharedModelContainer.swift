@@ -50,6 +50,12 @@ enum SharedModelContainer {
     /// as an empty database: creating a store here instead would fork the user's data
     /// into a second file the app never reads.
     static func makeForExtension() -> ModelContainer? {
+        #if DEBUG
+        guard !healthStep0IsShowing else {
+            Diagnostics.log("the Health Step 0 test is installed; not opening the real store")
+            return nil
+        }
+        #endif
         guard let url = AppGroup.storeURL,
               FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
             Diagnostics.log("no shared store to open from this extension")
@@ -63,6 +69,18 @@ enum SharedModelContainer {
         Diagnostics.log("shared store would not open with iCloud from an extension; saving locally")
         return open(url: url, cloudKit: .none)
     }
+
+    #if DEBUG
+    /// Set while the debug-only Health Step 0 test (`HealthStep0`) is installed in place of
+    /// the app. A Debug build syncs with the development CloudKit environment, so while the
+    /// test runs on a real phone nothing may open the real store: the app shows the test on
+    /// a scratch store, and this stops the widget and the App Intents, which can't read the
+    /// app's own defaults. Kept in the App Group for that reason.
+    static var healthStep0IsShowing: Bool {
+        get { AppGroup.defaults?.bool(forKey: "debug.healthStep0.active") ?? false }
+        set { AppGroup.defaults?.set(newValue, forKey: "debug.healthStep0.active") }
+    }
+    #endif
 
     private static func open(url: URL?, cloudKit: ModelConfiguration.CloudKitDatabase) -> ModelContainer? {
         do {

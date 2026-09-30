@@ -12,6 +12,17 @@ struct HydroDropApp: App {
     private let remoteChangeObserver: StoreRemoteChangeObserver
 
     init() {
+        #if DEBUG
+        // The Health Step 0 test runs on an empty scratch store and starts none of the
+        // app's machinery: a Debug build on a real phone must not open the user's log,
+        // which it would sync with the development CloudKit environment. The widget and
+        // the App Intents are stopped separately (`SharedModelContainer.healthStep0IsShowing`).
+        if HealthStep0.isActive {
+            container = HealthStep0.makeScratchContainer()
+            remoteChangeObserver = StoreRemoteChangeObserver(container: container)
+            return
+        }
+        #endif
         container = Self.makeContainer()
         remoteChangeObserver = StoreRemoteChangeObserver(container: container)
         remoteChangeObserver.start()
@@ -46,6 +57,16 @@ struct HydroDropApp: App {
             context: ModelContext(container),
             isShared: SharedModelContainer.isShared(container)
         )
+    }
+
+    /// Whether the Health Step 0 test is showing instead of the app. Its scratch store is
+    /// empty, and publishing that would blank the user's real widget.
+    private static var isHealthStep0: Bool {
+        #if DEBUG
+        return HealthStep0.isActive
+        #else
+        return false
+        #endif
     }
 
     private static func entryCount(in container: ModelContainer) -> Int {
@@ -103,7 +124,15 @@ struct HydroDropApp: App {
 
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            if HealthStep0.isActive {
+                HealthStep0View()
+            } else {
+                RootTabView()
+            }
+            #else
             RootTabView()
+            #endif
         }
         .modelContainer(container)
         // A widget can fall back to an empty view while the app is backgrounded (the day
@@ -111,7 +140,7 @@ struct HydroDropApp: App {
         // foreground republishes the current state so the widget catches up without the
         // user having to log anything.
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+            guard phase == .active, !Self.isHealthStep0 else { return }
             Self.publishWidgetSnapshot(from: container)
         }
         // Does nothing on purpose. A tester's phone can still hold a refresh scheduled
