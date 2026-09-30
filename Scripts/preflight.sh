@@ -305,6 +305,66 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
+# 8. The CloudKit Production schema
+#
+# TestFlight and App Store builds sync with CloudKit's Production environment, whose schema
+# changes only when the Development schema is deployed to it by hand in CloudKit Console. A
+# build whose SwiftData models have a field Production lacks can't export any record that
+# sets it, and since 1.9 gives every new drink a healthSyncID, iCloud sync of every new
+# drink would stall. So every stored property of every @Model has to be in Production
+# before a build is uploaded.
+#
+# Needs a CloudKit management token in the login keychain, saved once with:
+#   xcrun cktool save-token --type management
+# HYDRODROP_SKIP_CLOUDKIT_SCHEMA=1 turns a failure to reach CloudKit into a warning, for a
+# run with no network or no token. A field that is missing is always a failure.
+# ---------------------------------------------------------------------------
+echo "CloudKit Production schema"
+CK_CONTAINER=$(grep -oE 'iCloud\.[A-Za-z0-9.-]+' HydroDrop/HydroDrop.entitlements 2>/dev/null | head -1)
+CK_SCHEMA_ERR=$(mktemp -t hydrodrop-ckschema)
+if [[ -z "$TEAM" || -z "$CK_CONTAINER" ]]; then
+  fail "could not find the team ID or the iCloud container to check"
+elif ! CK_SCHEMA=$(xcrun cktool export-schema --team-id "$TEAM" --container-id "$CK_CONTAINER" --environment production 2>"$CK_SCHEMA_ERR"); then
+  CK_REASON=$(head -3 "$CK_SCHEMA_ERR")
+  if [[ "${HYDRODROP_SKIP_CLOUDKIT_SCHEMA:-}" == "1" ]]; then
+    warn "could not read the Production schema of $CK_CONTAINER (skipped by HYDRODROP_SKIP_CLOUDKIT_SCHEMA)"
+  else
+    fail "could not read the Production schema of $CK_CONTAINER"
+  fi
+  [[ -n "$CK_REASON" ]] && echo "$CK_REASON" | sed 's/^/          /'
+  echo "          a CloudKit management token is needed once: xcrun cktool save-token --type management"
+else
+  CK_MISSING=""
+  for MODEL_FILE in $(grep -rlE '^@Model' HydroDrop --include='*.swift' 2>/dev/null); do
+    MODEL=$(grep -A1 -E '^@Model' "$MODEL_FILE" | grep -oE 'class [A-Za-z0-9_]+' | head -1 | awk '{print $2}')
+    [[ -z "$MODEL" ]] && continue
+    # The record type's block, from its RECORD TYPE line to the line that closes it.
+    CK_BLOCK=$(printf '%s\n' "$CK_SCHEMA" | awk -v type="CD_$MODEL" '
+      !inside && $0 ~ ("RECORD TYPE \"?" type "\"?[ (]") { inside = 1 }
+      inside { print }
+      inside && /\);?[[:space:]]*$/ && $0 !~ /RECORD TYPE/ { inside = 0 }')
+    if [[ -z "$CK_BLOCK" ]]; then
+      CK_MISSING="$CK_MISSING CD_$MODEL"
+      continue
+    fi
+    # Stored properties only: a `var name: Type` at the class's own indent, with no body.
+    # A computed property opens a brace on the same line.
+    for FIELD in $(grep -E '^    var [A-Za-z0-9_]+: [^{]+$' "$MODEL_FILE" | sed -E 's/^    var ([A-Za-z0-9_]+):.*/\1/'); do
+      printf '%s\n' "$CK_BLOCK" | grep -qE "(^|[^A-Za-z0-9_])\"?CD_${FIELD}\"?[[:space:]]" \
+        || CK_MISSING="$CK_MISSING CD_$MODEL.CD_$FIELD"
+    done
+  done
+  if [[ -n "$CK_MISSING" ]]; then
+    fail "the Production schema of $CK_CONTAINER is missing:$CK_MISSING"
+    echo "          deploy the Development schema to Production in CloudKit Console before uploading"
+  else
+    pass "every stored property of every @Model is in the Production schema of $CK_CONTAINER"
+  fi
+fi
+rm -f "$CK_SCHEMA_ERR"
+echo
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo "─────────────────────────────────────────"

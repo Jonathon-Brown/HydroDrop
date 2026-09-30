@@ -35,7 +35,10 @@ such as FoundationModels for Say it, sit behind `#available`.
 - Releasing:
   - `Scripts/release.sh` handles `status`, `bump`, `archive`, `export` and `upload`.
   - `Scripts/preflight.sh` checks for past App Review rejection causes, including a bare
-    ad `Request()`. Every ad request has to go through `AdManager.makeRequest()`.
+    ad `Request()`. Every ad request has to go through `AdManager.makeRequest()`. It also
+    checks that CloudKit's Production schema has every stored property of every `@Model`,
+    which needs a CloudKit management token saved once with
+    `xcrun cktool save-token --type management`.
   - Both stop before App Review submission, which is always done by hand.
 
 ## Working with Jonathon's Mac
