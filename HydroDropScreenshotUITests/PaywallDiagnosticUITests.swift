@@ -8,8 +8,9 @@ final class PaywallDiagnosticUITests: XCTestCase {
     func testPaywallLoadsSubscriptionOptions() throws {
         let app = XCUIApplication()
         // A fresh simulator has no history, and first-launch onboarding would sit on top
-        // of the Settings button these tests drive.
-        app.launchArguments = ["-UITestSkipOnboarding"]
+        // of the Settings button these tests drive. Only a free user has the upgrade row,
+        // so purchases the simulator holds are ignored.
+        app.launchArguments = ["-UITestSkipOnboarding", "-UITestIgnorePurchases"]
         app.launch()
 
         // The first query after launch also waits out the launch itself, which a busy
@@ -17,8 +18,7 @@ final class PaywallDiagnosticUITests: XCTestCase {
         let settings = app.buttons["Settings"].firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 30), "no Settings gear after launch")
         settings.tap()
-        let upgrade = app.buttons["Upgrade to HydroDrop+"]
-        XCTAssertTrue(upgrade.waitForExistence(timeout: 15), "no upgrade row in Settings")
+        let upgrade = try upgradeRow(in: app)
         upgrade.tap()
 
         // The fetch races a 15s timeout inside StoreManager, so allow more than that
@@ -63,8 +63,9 @@ final class PaywallDiagnosticUITests: XCTestCase {
     func testPaywallCanAlwaysBeClosed() throws {
         let app = XCUIApplication()
         // A fresh simulator has no history, and first-launch onboarding would sit on top
-        // of the Settings button these tests drive.
-        app.launchArguments = ["-UITestSkipOnboarding"]
+        // of the Settings button these tests drive. Only a free user has the upgrade row,
+        // so purchases the simulator holds are ignored.
+        app.launchArguments = ["-UITestSkipOnboarding", "-UITestIgnorePurchases"]
         app.launch()
 
         // The first query after launch also waits out the launch itself, which a busy
@@ -72,13 +73,34 @@ final class PaywallDiagnosticUITests: XCTestCase {
         let settings = app.buttons["Settings"].firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 30), "no Settings gear after launch")
         settings.tap()
-        let upgrade = app.buttons["Upgrade to HydroDrop+"]
-        XCTAssertTrue(upgrade.waitForExistence(timeout: 15), "no upgrade row in Settings")
+        let upgrade = try upgradeRow(in: app)
         upgrade.tap()
 
         let close = app.buttons["Close"]
         XCTAssertTrue(close.waitForExistence(timeout: 10), "the paywall has no visible Close button")
         close.tap()
         XCTAssertTrue(upgrade.waitForExistence(timeout: 10), "the paywall did not dismiss")
+    }
+
+    /// Settings' upgrade row, which only a free user has. A HydroDrop+ user has an "is
+    /// active" row in its place, so the wait ends on whichever turns up first, and a
+    /// subscriber stops the test at once, with that said, instead of tapping a row that
+    /// isn't there after the full timeout.
+    private func upgradeRow(in app: XCUIApplication) throws -> XCUIElement {
+        let upgrade = app.buttons["Upgrade to HydroDrop+"]
+        let active = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'HydroDrop+' AND label CONTAINS 'is active'"))
+            .firstMatch
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline, !upgrade.exists, !active.exists {
+            usleep(250_000)
+        }
+        if active.exists {
+            XCTFail(
+                "The app launched as a HydroDrop+ user, not a free one. -UITestIgnorePurchases "
+                    + "should hide the simulator's StoreKit test purchases: check that StoreManager still reads it."
+            )
+        }
+        return try XCTUnwrap(upgrade.exists ? upgrade : nil, "no upgrade row in Settings")
     }
 }
