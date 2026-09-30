@@ -281,6 +281,68 @@ final class StoreMigrationTests: XCTestCase {
 
         XCTAssertEqual(try rowCount(at: url), 5)
     }
+
+    /// The pass used to keep whichever copy came first, so a copy Health had never heard of
+    /// could outlive the one it had, leaving that sample in Health with nothing pointing at
+    /// it and the drink written a second time.
+    func testTheCopyHealthKnowsIsTheOneKept() throws {
+        let url = try targetURL()
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let written = WaterEntry(amountML: 250, timestamp: timestamp)
+        written.healthKitSampleUUID = "water-A"
+        written.healthWaterWritten = "record of water-A"
+        let container = try makeStore(at: url, rows: [WaterEntry(amountML: 250, timestamp: timestamp), written])
+
+        StoreMigration.deduplicateIfNeeded(in: container)
+
+        let rows = try ModelContext(container).fetch(FetchDescriptor<WaterEntry>())
+        XCTAssertEqual(rows.map(\.healthKitSampleUUID), ["water-A"])
+        XCTAssertEqual(rows.map(\.healthWaterWritten), ["record of water-A"])
+    }
+
+    /// Each copy knows a different kind: the kept one takes the other's sample and record,
+    /// so neither sample is left behind in Health.
+    func testADeletedCopysSampleMovesOntoTheKeptOne() throws {
+        let url = try targetURL()
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let caffeine = WaterEntry(amountML: 250, timestamp: timestamp, drinkType: .coffee)
+        caffeine.caffeineSampleUUID = "caffeine-B"
+        let water = WaterEntry(amountML: 250, timestamp: timestamp, drinkType: .coffee)
+        water.healthKitSampleUUID = "water-A"
+        water.healthWaterWritten = "record of water-A"
+        var handedOver: [StoreMigration.HealthLeftovers] = []
+        let container = try makeStore(at: url, rows: [caffeine, water])
+
+        StoreMigration.deduplicateIfNeeded(in: container) { handedOver.append($0) }
+
+        let kept = try XCTUnwrap(ModelContext(container).fetch(FetchDescriptor<WaterEntry>()).first)
+        XCTAssertEqual(try rowCount(at: url), 1)
+        XCTAssertEqual(kept.healthKitSampleUUID, "water-A")
+        XCTAssertEqual(kept.healthWaterWritten, "record of water-A")
+        XCTAssertEqual(kept.caffeineSampleUUID, "caffeine-B")
+        XCTAssertEqual(handedOver, [], "nothing is left over")
+    }
+
+    /// Both copies were written to Health: one sample stays with the kept drink, and the
+    /// other is a second copy of the drink in Health, handed over to be taken out.
+    func testASecondCopyInHealthIsHandedOver() throws {
+        let url = try targetURL()
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let first = WaterEntry(amountML: 250, timestamp: timestamp)
+        first.healthKitSampleUUID = "water-A"
+        let second = WaterEntry(amountML: 250, timestamp: timestamp)
+        second.healthKitSampleUUID = "water-B"
+        var handedOver: [StoreMigration.HealthLeftovers] = []
+        let container = try makeStore(at: url, rows: [first, second])
+
+        StoreMigration.deduplicateIfNeeded(in: container) { handedOver.append($0) }
+
+        let kept = try XCTUnwrap(ModelContext(container).fetch(FetchDescriptor<WaterEntry>()).first)
+        XCTAssertEqual(handedOver.count, 1)
+        XCTAssertEqual(handedOver.first?.water.count, 1)
+        XCTAssertNotEqual(handedOver.first?.water.first, kept.healthKitSampleUUID)
+        XCTAssertEqual(Set([kept.healthKitSampleUUID ?? ""] + (handedOver.first?.water ?? [])), ["water-A", "water-B"])
+    }
 }
 
 final class HydrationSnapshotTests: XCTestCase {

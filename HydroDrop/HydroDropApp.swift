@@ -24,7 +24,7 @@ struct HydroDropApp: App {
         }
         #endif
         container = Self.makeContainer()
-        remoteChangeObserver = StoreRemoteChangeObserver(container: container)
+        remoteChangeObserver = StoreRemoteChangeObserver(container: container, retire: Self.retireSecondCopies)
         remoteChangeObserver.start()
         // The Health corrections 1.8.1 queued on this device move onto the synced drinks,
         // claimed by this device if it may write to Health. Otherwise a device with sync on
@@ -77,6 +77,14 @@ struct HydroDropApp: App {
         #endif
     }
 
+    /// Second copies of drinks in Health, found when duplicate rows are collapsed, go on
+    /// the take-back list, which the next reconcile with sync on deletes by UUID.
+    private static func retireSecondCopies(_ leftovers: StoreMigration.HealthLeftovers) {
+        let list = HealthTakeBackList()
+        list.add(leftovers.water, caffeine: false)
+        list.add(leftovers.caffeine, caffeine: true)
+    }
+
     private static func entryCount(in container: ModelContainer) -> Int {
         let context = ModelContext(container)
         do {
@@ -127,7 +135,7 @@ struct HydroDropApp: App {
         }
         #endif
 
-        return SharedModelContainer.makeForApp()
+        return SharedModelContainer.makeForApp(retire: retireSecondCopies)
     }
 
     var body: some Scene {

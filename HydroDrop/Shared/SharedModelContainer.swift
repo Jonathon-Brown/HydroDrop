@@ -19,13 +19,17 @@ enum SharedModelContainer {
     ///
     /// Never returns nil: an app that cannot reach iCloud, or cannot reach its own App
     /// Group, is still an app that has to let you log a glass of water.
-    static func makeForApp() -> ModelContainer {
+    ///
+    /// `retire` takes the second copies in Health that collapsing duplicates turns up (see
+    /// `StoreMigration.deduplicateIfNeeded`). The app hands them to Health; this file is
+    /// also compiled into the widget, which has no business with Health.
+    static func makeForApp(retire: (StoreMigration.HealthLeftovers) -> Void = { _ in }) -> ModelContainer {
         if let url = StoreMigration.resolveStoreURL() {
             if let container = open(url: url, cloudKit: .automatic) {
                 // The read-and-reinsert leaves duplicates once CloudKit mirrors the legacy
                 // originals back down. Collapse them here, on the live synced container, so
                 // the delete propagates — and every launch, because that sync can land late.
-                StoreMigration.deduplicateIfNeeded(in: container)
+                StoreMigration.deduplicateIfNeeded(in: container, retire: retire)
                 return container
             }
             Diagnostics.log("iCloud store unavailable in the App Group, falling back to local")
