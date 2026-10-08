@@ -229,7 +229,10 @@ final class DuoFoundationAppTests: XCTestCase {
         _ = try await observed.data(for: request)
         headers["X-Request-Id"] = "9b1c2d3e4f5a6b7c-LHR"
         _ = try await observed.data(for: request)
-        XCTAssertEqual(seen.all, ["403:8f1a2b3c4d5e6f70-AMS", "403:9b1c2d3e4f5a6b7c-LHR"], "the server's own id wins when both are there")
+        headers["X-Request-Id"] = "has spaces & <tags>"
+        _ = try await observed.data(for: request)
+        XCTAssertEqual(seen.all, ["403:8f1a2b3c4d5e6f70-AMS", "403:9b1c2d3e4f5a6b7c-LHR", "403:8f1a2b3c4d5e6f70-AMS"],
+                       "the server's own id wins when both are there, and an unusable one gives way to the ray")
     }
 
     func testEveryResponseLeavesItsRequestIDAndAFailedOneLeavesNothing() async throws {

@@ -305,8 +305,11 @@ struct DuoObservedSession: DuoHTTPSession {
         if let http = response as? HTTPURLResponse {
             // Cloudflare's own block and error pages carry `CF-Ray` and no `X-Request-Id`, and the
             // server's request id is the same ray, so the one stands in for the other: a refused
-            // request then still leaves something to quote.
-            observe(http.statusCode, http.value(forHTTPHeaderField: "X-Request-Id") ?? http.value(forHTTPHeaderField: "CF-Ray"))
+            // request then still leaves something to quote. The classifier's rule is used, so an
+            // `X-Request-Id` that is there but unusable (empty, odd characters, too long) falls back
+            // too, and the id in Diagnostics is the one the error's "(ref ...)" shows.
+            observe(http.statusCode, DuoErrorClassifier.headerRequestID(xRequestID: http.value(forHTTPHeaderField: "X-Request-Id"),
+                                                                        cfRay: http.value(forHTTPHeaderField: "CF-Ray")))
         }
         return (data, response)
     }
