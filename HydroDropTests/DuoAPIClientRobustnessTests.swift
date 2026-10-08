@@ -500,8 +500,12 @@ private final class RMachineAttester: DuoAttesting, @unchecked Sendable {
     let attestFails: Bool
     private var made = 0
     private var asserted = 0
-    private(set) var ops: [Op] = []
-    private(set) var adopted: [(String, String)] = []
+    // Written from the client's tasks and read from the test, so both go through the lock; a plain
+    // `private(set) var` raced under Thread Sanitizer (found while running stage F's suite).
+    private var recordedOps: [Op] = []
+    private var recordedAdoptions: [(String, String)] = []
+    var ops: [Op] { lock.withLock { recordedOps } }
+    var adopted: [(String, String)] { lock.withLock { recordedAdoptions } }
 
     init(probe: RMachineProbe, supported: Bool, hasKey: Bool, assertFails: Bool, attestFails: Bool) {
         self.probe = probe; self.supported = supported; self.keys = hasKey ? [RWire.credential.deviceID] : []
@@ -515,10 +519,10 @@ private final class RMachineAttester: DuoAttesting, @unchecked Sendable {
         let hit = probe.event("attestNewKey")
         if hit && probe.honour { try Task.checkCancellation(); throw CancellationError() }
         return try lock.withLock {
-            if attestFails { ops.append(Op(name: "attestNewKey", hash: clientDataHash, token: nil)); throw NSError(domain: "DCErrorDomain", code: 1) }
+            if attestFails { recordedOps.append(Op(name: "attestNewKey", hash: clientDataHash, token: nil)); throw NSError(domain: "DCErrorDomain", code: 1) }
             made += 1
             let t = DuoAttestationToken(token: "QVRU\(made)", keyID: "key-\(made)", kind: .attestation)
-            ops.append(Op(name: "attestNewKey", hash: clientDataHash, token: t))
+            recordedOps.append(Op(name: "attestNewKey", hash: clientDataHash, token: t))
             return t
         }
     }
@@ -527,15 +531,15 @@ private final class RMachineAttester: DuoAttesting, @unchecked Sendable {
         let hit = probe.event("assert")
         if hit && probe.honour { try Task.checkCancellation(); throw CancellationError() }
         return try lock.withLock {
-            if assertFails || !keys.contains(deviceID) { ops.append(Op(name: "assert", hash: clientDataHash, token: nil)); throw NSError(domain: "DCErrorDomain", code: 2) }
+            if assertFails || !keys.contains(deviceID) { recordedOps.append(Op(name: "assert", hash: clientDataHash, token: nil)); throw NSError(domain: "DCErrorDomain", code: 2) }
             asserted += 1
             let t = DuoAttestationToken(token: "QVNT\(asserted)", keyID: "key-of-\(deviceID)", kind: .assertion)
-            ops.append(Op(name: "assert", hash: clientDataHash, token: t))
+            recordedOps.append(Op(name: "assert", hash: clientDataHash, token: t))
             return t
         }
     }
 
-    func adoptPendingKey(_ keyID: String, forDevice deviceID: String) { lock.withLock { adopted.append((keyID, deviceID)); keys.insert(deviceID) } }
+    func adoptPendingKey(_ keyID: String, forDevice deviceID: String) { lock.withLock { recordedAdoptions.append((keyID, deviceID)); keys.insert(deviceID) } }
     func forgetKeys(forDevice deviceID: String) { lock.withLock { _ = keys.remove(deviceID) } }
 }
 
