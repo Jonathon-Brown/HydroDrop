@@ -481,6 +481,11 @@ final class DuoServiceSupportTests: XCTestCase {
         kit.dependencies.cache.throwawayDeviceID = "some-other-device"
         XCTAssertEqual(relaunch().availability, .unknown, "the credential is not the throwaway")
         XCTAssertNil(kit.dependencies.cache.throwawayDeviceID, "a marker for a credential that is gone is dropped")
+
+        kit.dependencies.cache.throwawayDeviceID = throwaway
+        kit.identity.credential = nil
+        _ = relaunch()
+        XCTAssertEqual(kit.dependencies.cache.throwawayDeviceID, throwaway, "a credential that does not read yet may only be a locked Keychain: the marker stays")
     }
 
     func testClearingADuoTakesItsNudgeIdsOutOfTheLedger() {

@@ -106,10 +106,15 @@ final class DuoStore: ObservableObject, DuoHost {
         // credential, behind duos that belong to another member. It is still disconnected from
         // them: say so before anything reads with the stranger's bearer and ends them.
         if let throwaway = cache.throwawayDeviceID {
-            if dependencies.identity?.credential?.deviceID == throwaway {
-                if duos.contains(where: { !$0.hasEnded }) { availability = .disconnected }
-            } else {
-                cache.throwawayDeviceID = nil
+            // A credential that reads as nil may only be a Keychain that is not readable yet (a
+            // launch before the first unlock), so the marker is dropped only for a credential
+            // that reads and is some other one.
+            if let stored = dependencies.identity?.credential?.deviceID {
+                if stored == throwaway {
+                    if duos.contains(where: { !$0.hasEnded }) { availability = .disconnected }
+                } else {
+                    cache.throwawayDeviceID = nil
+                }
             }
         }
     }
