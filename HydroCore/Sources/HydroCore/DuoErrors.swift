@@ -204,6 +204,16 @@ public enum DuoTransportError: Error, Equatable, Sendable {
         default: return context?.requestID
         }
     }
+
+    /// The HTTP status of the answer, or nil for `offline`. `context` is nil for an unreadable answer,
+    /// so reading the status through it used to drop exactly the answers Diagnostics exists to explain
+    /// (a 2xx that does not decode, a WAF's 5xx), and they all read alike in the export.
+    public var httpStatus: Int? {
+        switch self {
+        case .unreadable(let status, _): return status
+        default: return context?.httpStatus
+        }
+    }
 }
 
 /// What to do after a failed request. The sync engine, the op queue and the membership

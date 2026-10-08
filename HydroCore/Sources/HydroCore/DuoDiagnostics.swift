@@ -88,7 +88,7 @@ public struct DuoDiagnostics: Codable, Equatable, Sendable {
         let record: ErrorRecord
         if let error = error as? DuoTransportError {
             record = ErrorRecord(code: error.code?.rawValue ?? (error == .offline ? "offline" : "unreadable"),
-                                 http: error.context?.httpStatus, requestID: Self.usableRequestID(error.requestID), at: now)
+                                 http: error.httpStatus, requestID: Self.usableRequestID(error.requestID), at: now)
         } else {
             record = ErrorRecord(code: "other", http: nil, requestID: nil, at: now)
         }

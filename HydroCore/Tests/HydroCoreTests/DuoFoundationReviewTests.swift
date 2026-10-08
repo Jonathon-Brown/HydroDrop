@@ -148,4 +148,19 @@ final class DuoFoundationReviewTests: XCTestCase {
         XCTAssertEqual(text(hostile), DuoUserMessage.generic, "an id off a body is the server's to write, so it is not printed unfiltered")
         XCTAssertEqual(text(nil), DuoUserMessage.generic)
     }
+
+    func testAnUnreadableAnswerKeepsItsHttpStatusInDiagnostics() {
+        // `context` is nil for an unreadable answer, and `record` used to read the status through it, so a 2xx
+        // that did not decode and a WAF's 5xx were stored alike, with no status at all.
+        var diagnostics = DuoDiagnostics()
+        diagnostics.record(DuoTransportError.unreadable(httpStatus: 502, requestID: "8c1f2a3b4c5d6e7f-LHR"), duoID: nil, now: Date())
+        XCTAssertEqual(diagnostics.recentErrors.first?.http, 502)
+        XCTAssertEqual(diagnostics.recentErrors.first?.code, "unreadable")
+        diagnostics.record(DuoTransportError.unreadable(httpStatus: 200, requestID: nil), duoID: nil, now: Date())
+        XCTAssertEqual(diagnostics.recentErrors.first?.http, 200)
+        diagnostics.record(DuoTransportError.offline, duoID: nil, now: Date())
+        XCTAssertNil(diagnostics.recentErrors.first?.http, "no answer came, so there is no status")
+        XCTAssertEqual(DuoTransportError.unreadable(httpStatus: 503, requestID: nil).httpStatus, 503)
+        XCTAssertNil(DuoTransportError.offline.httpStatus)
+    }
 }
