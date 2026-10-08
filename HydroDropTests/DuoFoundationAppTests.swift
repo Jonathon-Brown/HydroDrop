@@ -488,6 +488,14 @@ final class DuoServiceSupportTests: XCTestCase {
         XCTAssertEqual(kit.dependencies.cache.throwawayDeviceID, throwaway, "a credential that does not read yet may only be a locked Keychain: the marker stays")
     }
 
+    func testClearingADuosCardTakesEverythingOffTheScreenTheEndedNoticeToo() {
+        let kit = DuoTestKit()
+        let duo = DuoFixtures.duo(ended: true)
+        kit.store.removeNotifications(for: duo)
+        XCTAssertEqual(kit.announcer.removedIncludingEnded, [duo.id], "a Clear is the person's own act: nothing of the duo stays (§12.2)")
+        XCTAssertTrue(kit.announcer.removedFor.isEmpty, "the keep-the-ended-notice removal is for a duo the app ended by itself (D75)")
+    }
+
     func testTurningDuoNotificationsOffWithdrawsWhatIsWaitingForTheMorning() {
         let kit = DuoTestKit()
         kit.store.notificationsEnabled = false

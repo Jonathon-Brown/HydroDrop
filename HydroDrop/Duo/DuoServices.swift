@@ -200,8 +200,11 @@ protocol DuoAnnouncing: AnyObject {
     /// Whether a remote notification for the event with this ledger key is already delivered
     /// on this phone, so the local one is not a second copy (§9.5, vector X14).
     func hasDeliveredRemote(forKey key: String) async -> Bool
-    /// Removes every pending and delivered notification on this duo's thread.
+    /// Removes every pending and delivered notification on this duo's thread, except a delivered
+    /// `ended` notice (D75).
     func removeDelivered(for duoID: UUID)
+    /// The same including the `ended` notice: Clear.
+    func removeDeliveredIncludingEnded(for duoID: UUID)
     /// Removes every Duo notification there is (Delete my Duo data).
     func removeAllDelivered()
     /// Withdraws the announcements still waiting for their time (a nudge held to the morning)
@@ -212,6 +215,10 @@ protocol DuoAnnouncing: AnyObject {
 
 extension DuoAnnouncing {
     func removeAllPending() {}
+    /// Everything on this duo's thread, the pushed `ended` notice too. `removeDelivered(for:)` is
+    /// for a duo the app ends by itself and keeps that notice (D75); a Clear is the person taking
+    /// the duo off the screen on purpose (§12.2), so nothing of it stays.
+    func removeDeliveredIncludingEnded(for duoID: UUID) { removeDelivered(for: duoID) }
 }
 
 @MainActor

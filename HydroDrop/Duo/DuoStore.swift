@@ -431,6 +431,6 @@ final class DuoStore: ObservableObject, DuoHost {
     }
 
     /// Takes back every notification, waiting or delivered, on a duo's thread.
-    func removeNotifications(for duo: DuoState) { dependencies?.announcer?.removeDelivered(for: duo.id) }
+    func removeNotifications(for duo: DuoState) { dependencies?.announcer?.removeDeliveredIncludingEnded(for: duo.id) }
 }
 #endif
