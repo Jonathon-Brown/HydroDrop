@@ -200,7 +200,7 @@ final class DuoExitServiceTests: XCTestCase {
     }
 
     /// What every wipe must leave and take, checked the same way for Delete my Duo data and Start fresh.
-    private func assertWiped(_ rig: Rig, file: StaticString = #filePath, line: UInt = #line) {
+    private func assertWiped(_ rig: Rig, ageForgotten: Bool = false, file: StaticString = #filePath, line: UInt = #line) {
         let store = rig.store
         let kit = rig.kit
         XCTAssertEqual(duoKeys(kit.defaults), Set(DuoCache.keptKeys), "on disk, exactly the keys a wipe keeps", file: file, line: line)
@@ -224,8 +224,12 @@ final class DuoExitServiceTests: XCTestCase {
         XCTAssertFalse(store.hasIdentity, file: file, line: line)
         XCTAssertFalse(store.isWorking, file: file, line: line)
         // What stays.
-        XCTAssertEqual(store.ageStatus, .allowed, "the age answer is never deleted", file: file, line: line)
-        XCTAssertEqual(kit.dependencies.cache.ageStatus, .allowed, file: file, line: line)
+        // Only "Not me, start fresh" takes an allowed age answer back to unknown (a backup carries the
+        // answer to another person's phone); deleting the person's own data never does, and nothing
+        // lifts a refusal.
+        let expectedAge: DuoAgeStatus = ageForgotten ? .unknown : .allowed
+        XCTAssertEqual(store.ageStatus, expectedAge, "the age answer is deleted only by Start fresh", file: file, line: line)
+        XCTAssertEqual(kit.dependencies.cache.ageStatus, expectedAge, file: file, line: line)
         XCTAssertFalse(store.notificationsEnabled, "nor the notifications switch", file: file, line: line)
         XCTAssertTrue(kit.dependencies.cache.inviteMomentDismissed, file: file, line: line)
         XCTAssertTrue(kit.dependencies.cache.goalRaiseNoticeShown, file: file, line: line)
@@ -714,6 +718,22 @@ final class DuoExitServiceTests: XCTestCase {
         XCTAssertTrue(rig.kit.dependencies.secrets.isAgeRefused(), "D60: the refusal is in a service of its own and stays")
         XCTAssertEqual(rig.kit.secretStore.accounts(service: DuoSecrets.ageService), [DuoSecrets.ageRefusedAccount])
         XCTAssertEqual(rig.kit.secretStore.accounts(service: DuoSecrets.service), [])
+    }
+
+    func testStartFreshOnTheRestoreQuestionTakesAnAllowedAgeBackButAnOrdinaryOneDoesNot() throws {
+        // A backup carries the age answer to another person's phone: "Not me, start fresh" must ask again.
+        let restoring = makeRig()
+        XCTAssertEqual(restoring.store.recordBirthYear(1990, now: restoring.kit.clock.now), .allowed)
+        restoring.store.availability = .needsRestoreChoice(DuoRestorePrompt(partnerName: "Sam", myName: "Jo"))
+        restoring.exits.startFresh()
+        XCTAssertEqual(restoring.store.ageStatus, .unknown)
+        XCTAssertEqual(restoring.kit.dependencies.cache.ageStatus, .unknown)
+
+        // The same person starting fresh (no restore question) keeps the answer.
+        let same = makeRig()
+        XCTAssertEqual(same.store.recordBirthYear(1990, now: same.kit.clock.now), .allowed)
+        same.exits.startFresh()
+        XCTAssertEqual(same.store.ageStatus, .allowed)
     }
 
     func testAfterAWipeTheRealIdentityIsGoneAndItsLaunchSaysSo() async throws {

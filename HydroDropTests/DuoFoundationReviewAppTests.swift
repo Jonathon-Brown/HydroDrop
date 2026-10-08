@@ -363,5 +363,31 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         let left = (try? FileManager.default.contentsOfDirectory(atPath: identityFolder.path)) ?? []
         XCTAssertTrue(left.isEmpty, "the identity keeps no duo.install or duo.settled file before a tap: \(left)")
     }
+
+    func testOnlyForgettingAnAllowedAgeTakesItBackAndARefusalNeverGoes() {
+        let adult = DuoTestKit()
+        XCTAssertEqual(adult.store.recordBirthYear(1990, now: adult.clock.now), .allowed)
+        adult.store.resetLocalState()
+        XCTAssertEqual(adult.store.ageStatus, .allowed, "an ordinary wipe keeps the answer")
+        adult.store.forgetAnAllowedAge()
+        XCTAssertEqual(adult.store.ageStatus, .unknown)
+        XCTAssertEqual(DuoCache(defaults: adult.defaults).ageStatus, .unknown, "on disk too, so a backup carries nothing forward")
+
+        let child = DuoTestKit()
+        XCTAssertEqual(child.store.recordBirthYear(2020, now: child.clock.now), .refused)
+        child.store.resetLocalState()
+        child.store.forgetAnAllowedAge()
+        XCTAssertEqual(child.store.ageStatus, .refused, "a refusal is final: nothing lifts it")
+        XCTAssertEqual(DuoCache(defaults: child.defaults).ageStatus, .refused)
+    }
+
+    func testRecheckingTheAgeFindsARefusalKeptOnlyInTheKeychain() throws {
+        let kit = DuoTestKit()
+        XCTAssertEqual(kit.store.ageStatus, .unknown)
+        try DuoSecrets(store: kit.secretStore).markAgeRefused()
+        kit.store.recheckAge()
+        XCTAssertEqual(kit.store.ageStatus, .refused)
+        XCTAssertEqual(DuoCache(defaults: kit.defaults).ageStatus, .refused, "and it is written to the other place too")
+    }
 }
 #endif

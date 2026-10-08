@@ -315,6 +315,35 @@ final class SleepRecorder {
 
 // MARK: - The kit
 
+/// Every kit makes its own throwaway defaults suite, and a suite nobody removes stays on the
+/// simulator as a plist: about 400 piled up per flag-on run, and on a reused simulator the
+/// preferences daemon then stopped saving writes ("Path not accessible"), which made
+/// `StoreMigrationTests` read back a stale `store.migrationComplete`. The janitor removes the
+/// suites a test case made, and their files, when that case finishes.
+final class DuoSuiteJanitor: NSObject, XCTestObservation, @unchecked Sendable {
+    static let shared: DuoSuiteJanitor = {
+        let janitor = DuoSuiteJanitor()
+        XCTestObservationCenter.shared.addTestObserver(janitor)
+        return janitor
+    }()
+    private let lock = NSLock()
+    private var names: [String] = []
+
+    func track(_ suite: String) { lock.withLock { names.append(suite) } }
+
+    func testCaseDidFinish(_ testCase: XCTestCase) { sweep() }
+    func testBundleDidFinish(_ testBundle: Bundle) { sweep() }
+
+    private func sweep() {
+        let doomed = lock.withLock { () -> [String] in defer { names = [] }; return names }
+        for suite in doomed {
+            UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+            let file = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Preferences/\(suite).plist")
+            try? FileManager.default.removeItem(atPath: file)
+        }
+    }
+}
+
 /// A real `DuoStore` over a throwaway cache with every service a fake. A stage's test swaps
 /// the one service it is testing for the real class: `kit.dependencies.sync = DuoSyncEngine(dependencies: kit.dependencies)`.
 @MainActor
@@ -341,6 +370,7 @@ struct DuoTestKit {
     init(now: Date = Date(timeIntervalSince1970: 1_790_000_000), credential: DuoCredential? = nil, isSubscribed: Bool = false,
          secretStore: DuoMemorySecretStore = DuoMemorySecretStore()) {
         let suite = "DuoTestKit.\(UUID().uuidString)"
+        DuoSuiteJanitor.shared.track(suite)
         defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let cache = DuoCache(defaults: defaults)

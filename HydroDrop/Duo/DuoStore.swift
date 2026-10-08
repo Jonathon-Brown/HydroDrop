@@ -129,6 +129,20 @@ final class DuoStore: ObservableObject, DuoHost {
     /// written to the others (the Keychain write is `try?`, so a first failure used to leave a
     /// refusal that deleting and reinstalling the app would undo), and any invite the person was
     /// holding goes with it, since nothing is kept for someone who was refused.
+    /// Takes an "allowed" age answer back to unknown; a refusal stays. Only "Not me, start fresh"
+    /// calls this (the exit service, after its wipe): the defaults travel with a backup to another
+    /// person's phone, and a child on a hand-me-down phone restored from a parent's backup who says
+    /// "not me" used to go straight to the rules without being asked. Every other wipe keeps the
+    /// answer, as `DuoCache.keptKeys` says: the person is the same one.
+    func forgetAnAllowedAge() {
+        if cache.ageStatus == .allowed { cache.ageStatus = .unknown }
+        if ageStatus == .allowed { ageStatus = .unknown }
+    }
+
+    /// The age gate asks this when it appears, so a refusal that was kept only in the Keychain
+    /// is found even if this process started before the first unlock and said "unknown".
+    func recheckAge() { refusedNow() }
+
     @discardableResult
     private func refusedNow() -> Bool {
         let inKeychain = dependencies?.secrets.isAgeRefused() == true

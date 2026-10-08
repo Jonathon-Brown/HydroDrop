@@ -55,11 +55,19 @@ protocol DuoHost: AnyObject {
     /// old value back to disk.
     func resetLocalState()
 
+    /// Takes an "allowed" age answer back to unknown (a refusal stays). Called after "Not me, start
+    /// fresh" only; the default does nothing, so a host without an age answer needs no change.
+    func forgetAnAllowedAge()
+
     /// Counts how many times `resetLocalState()` has run. A service reads it before it sends a
     /// request and compares it after the answer: if it moved, a wipe happened while the request
     /// was out, and the answer is dropped, never written back. A late answer would otherwise
     /// resurrect a duo (and a partner's name) the person had just deleted.
     var wipeEpoch: Int { get }
+}
+
+extension DuoHost {
+    func forgetAnAllowedAge() {}
 }
 
 /// Reads the water log, which lives in SwiftData in the app. The only thing in Duo that

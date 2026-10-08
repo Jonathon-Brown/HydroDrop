@@ -292,6 +292,10 @@ final class DuoExitService: DuoExiting {
         guard exitsQueued, !restoring, dependencies.identity?.credential != nil, !dependencies.credentialIsAThrowaway,
               let ops = dependencies.ops else {
             wipeEverything()
+            // Only the restore question's "Not me, start fresh" takes an allowed age answer back: the
+            // defaults travel with a backup, so the phone may hold ANOTHER person's answer. A Start fresh
+            // from the same person (or a 401 finishing their delete, which comes through here too) keeps it.
+            if restoring { host.forgetAnAllowedAge() }
             return
         }
         // What was queued for the identity being given up (a rename, a push upload) goes now: a
