@@ -24,7 +24,11 @@ screenshot_*.png
 HydroCore/.build/
 HydroCore/.swiftpm/
 
-# Turns Duo Streaks v2 on for Debug builds from Xcode (Run and Test): a one-line
-# `DUO_V2_CONDITION = DUO_V2` (see Config/Duo.xcconfig). Local, and read by Debug only: Release
-# and archive builds use Config/Duo.Release.xcconfig, which does not include it.
+# Turns Duo Streaks v2 on for Debug builds from Xcode (Run and Test): `DUO_V2_CONDITION = DUO_V2`,
+# and for a run on a real iPhone also `DUO_ENTITLEMENTS = HydroDrop/HydroDrop.duo.entitlements`
+# (see Config/Duo.xcconfig). Local, and read by Debug only: Release and archive builds use
+# Config/Duo.Release.xcconfig, which does not include it.
 Config/Duo.local.xcconfig
+
+# Python's bytecode, from running the scripts in Scripts/ or their tests (run them with -B).
+__pycache__/

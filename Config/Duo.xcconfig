@@ -1,4 +1,13 @@
 // Whether Duo Streaks v2 is compiled in. Empty means it is not: every Duo file is wrapped in
 // `#if DUO_V2`, so nothing of it is built and nothing of it can be reached.
 DUO_V2_CONDITION =
+// The app's entitlements file (project.yml signs the app with `$(DUO_ENTITLEMENTS)`). A local
+// override or a command-line setting that turns Duo on sets it to
+// `HydroDrop/HydroDrop.duo.entitlements`, which adds App Attest. The plain file stays free of a
+// capability the provisioning profile may not carry yet, so releases from main keep signing.
+// A run on a real iPhone needs BOTH lines in `Config/Duo.local.xcconfig`,
+// `DUO_V2_CONDITION = DUO_V2` and `DUO_ENTITLEMENTS = HydroDrop/HydroDrop.duo.entitlements`: with
+// the first alone Duo is compiled in but the app is signed without App Attest, which a simulator
+// never needs and a phone does.
+DUO_ENTITLEMENTS = HydroDrop/HydroDrop.entitlements
 #include? "Duo.local.xcconfig"

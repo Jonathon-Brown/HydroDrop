@@ -33,7 +33,8 @@ such as FoundationModels for Say it, sit behind `#available`.
 - Claude Code on the web runs on Linux, so it cannot build, run or test the app. Review
   changes carefully, and say plainly that they're unbuilt. Jonathon builds on his Mac.
 - Releasing:
-  - `Scripts/release.sh` handles `status`, `bump`, `archive`, `export` and `upload`.
+  - `Scripts/release.sh` handles `status`, `bump`, `archive`, `export` and `upload`. `DUO_V2=1`
+    before `archive`, `export` or `upload` makes and checks a build with Duo Streaks (below).
   - `Scripts/preflight.sh` checks for past App Review rejection causes, including a bare
     ad `Request()`. Every ad request has to go through `AdManager.makeRequest()`. It also
     checks that CloudKit's Production schema has every stored property of every `@Model`,
@@ -98,12 +99,21 @@ such as FoundationModels for Say it, sit behind `#available`.
   calls them without the flag. Public types cannot be dropped by the optimiser, so a flag-off
   build is not byte-identical to one from `main`: about 1.8 MB larger in the app and about 3.5 MB
   in each of the widget and the Watch app, with one extra system link, `libswift_StringProcessing`,
-  from a regex literal in `DuoNudge`. Behaviour, `Info.plist`, entitlements and the privacy
-  manifest are unchanged.) Switch it on for one `xcodebuild` run with `DUO_V2_CONDITION=DUO_V2`
+  from a regex literal in `DuoNudge`. Behaviour and entitlements are unchanged, and so are the
+  built app's `Info.plist` and privacy manifest: the tracked `HydroDrop/Info.plist` and
+  `HydroDrop/PrivacyInfo.xcprivacy` are main's, and only a build with `DUO_V2` bundles
+  `HydroDrop/Duo/PrivacyInfo.xcprivacy` instead, merges in the camera string from
+  `INFOPLIST_KEY_NSCameraUsageDescription`, with Xcode's `LSRequiresIPhoneOS` beside it, and carries
+  Duo's push words (`HydroDrop/Resources/en.lproj/Localizable.strings`) in the app and the Watch
+  app (decision D77, see project.yml).) Switch it on for one `xcodebuild` run with `DUO_V2_CONDITION=DUO_V2`
   after the destination, or for Xcode's Run and Test with a gitignored `Config/Duo.local.xcconfig`
-  holding `DUO_V2_CONDITION = DUO_V2` (it takes effect without regenerating the project).
-  Release and archive builds never read that local file (they use `Config/Duo.Release.xcconfig`),
-  so an archive that ships Duo has to pass `DUO_V2_CONDITION=DUO_V2` on purpose. Screenshots and
+  holding `DUO_V2_CONDITION = DUO_V2`, and for a run on a real iPhone also
+  `DUO_ENTITLEMENTS = HydroDrop/HydroDrop.duo.entitlements`, which adds App Attest (it takes effect
+  without regenerating the project). Release and archive builds never read that local file (they
+  use `Config/Duo.Release.xcconfig`), so an archive that ships Duo says so on purpose:
+  `DUO_V2=1 Scripts/release.sh archive` passes both settings and needs version 2.0 or higher and
+  the website's Duo pages (`docs/terms.html` and a `#duo` section in `docs/privacy.html`), and
+  `export` and `upload` take the same switch. Screenshots and
   App Store captures run through the Debug test action, which does read it: pass
   `DUO_V2_CONDITION=` (empty) on the command line, or remove the file, so they come from a Duo-off
   build. Every Duo file under `HydroDrop/` and `HydroDropWidgets/` is wrapped in `#if DUO_V2`.
