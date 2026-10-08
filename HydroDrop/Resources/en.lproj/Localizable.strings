@@ -1,0 +1,48 @@
+/*
+ Duo Streaks' push notifications (final design §9.2). The server sends these keys and never
+ the words, so nothing a push carries is ever shown as it stands: iOS looks each key up here.
+ These are exactly the 26 keys the server's src/push/payload.ts puts in a push; nothing else in
+ the app reads this file, and DuoLocalizableTests holds it to that list.
+
+ A %@ is the one argument the server sends with that key: the partner's name in a title, and
+ the number of updates in the digest's body. A partner with no name gets the ".unnamed" title,
+ which has none, since an argument cannot carry a word the app would translate.
+
+ The nudge lines are DuoNudgePreset's own text, word for word.
+*/
+
+"duo.goal_met.title" = "%@ hit their goal";
+"duo.goal_met.title.unnamed" = "Your partner hit their goal";
+"duo.goal_met.body.both" = "You both made it today.";
+"duo.goal_met.body.yourturn" = "Your turn. Keep the flame going.";
+
+"duo.nudge.title" = "%@ nudged you";
+"duo.nudge.title.unnamed" = "Your partner nudged you";
+"duo.nudge.waterBreak" = "Water break?";
+"duo.nudge.sipWithMe" = "Sip with me?";
+"duo.nudge.dropletMissesYou" = "Your droplet misses you.";
+"duo.nudge.soClose" = "You are so close. One more glass?";
+"duo.nudge.cheers" = "Cheers! I just had a glass.";
+"duo.nudge.keepTheFlame" = "Let's keep our flame going.";
+"duo.nudge.halfwayCheck" = "Halfway through the day. How is the water going?";
+"duo.nudge.youHaveGotThis" = "You have got this.";
+
+"duo.digest.title" = "%@ while you were away";
+/* Awaiting Jonathon's approval: the approved title with "Your partner" for the name. */
+"duo.digest.title.unnamed" = "Your partner while you were away";
+/* Awaiting Jonathon's approval: a placeholder, since final design §9.2 gives no text. */
+"duo.digest.body" = "%@ updates";
+
+"duo.joined.body" = "Your partner joined your duo";
+
+"duo.ended.owner" = "Your duo has ended";
+"duo.ended.partner" = "Your duo has ended";
+"duo.ended.owner_deleted" = "Your duo has ended";
+"duo.ended.partner_deleted" = "Your duo has ended";
+/* Awaiting Jonathon's approval: one key serves both the 30-day silence and the 14-day unjoined end, and §7.7 quotes a sentence for each; the approved generic line until he chooses. */
+"duo.ended.inactive" = "Your duo has ended";
+/* Awaiting Jonathon's approval: no text anywhere; the approved generic line until he chooses. */
+"duo.ended.demo_expired" = "Your duo has ended";
+
+"duo.reconnected.partner" = "Your partner's new phone is connected.";
+"duo.reconnected.superseded" = "Your duo was moved to another phone. Not you? Leave & block";
