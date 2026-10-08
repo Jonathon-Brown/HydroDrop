@@ -4,3 +4,9 @@
 // A release that ships Duo says so on purpose, on the command line:
 // `DUO_V2_CONDITION=DUO_V2`.
 DUO_V2_CONDITION =
+// The app signs with `$(DUO_ENTITLEMENTS)` (project.yml), so Release needs the plain file here
+// too: left unset it is empty, and an archive would be signed with no entitlements at all, no
+// push, iCloud or HealthKit. A Duo archive also passes
+// `DUO_ENTITLEMENTS=HydroDrop/HydroDrop.duo.entitlements`, which adds App Attest;
+// `DUO_V2=1 Scripts/release.sh archive` passes both.
+DUO_ENTITLEMENTS = HydroDrop/HydroDrop.entitlements

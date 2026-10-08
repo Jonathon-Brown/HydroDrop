@@ -140,7 +140,32 @@ targets:
         ENABLE_PREVIEWS: YES
         MARKETING_VERSION: "1.8.1"
         CURRENT_PROJECT_VERSION: "34"
-        CODE_SIGN_ENTITLEMENTS: HydroDrop/HydroDrop.entitlements
+        # HydroDrop/HydroDrop.entitlements, from Config/Duo.xcconfig and Config/Duo.Release.xcconfig,
+        # unless a build that compiles Duo in sets HydroDrop/HydroDrop.duo.entitlements, which adds
+        # App Attest. The plain file stays free of a capability the provisioning profile may not
+        # carry yet, so a release without Duo signs exactly as before.
+        CODE_SIGN_ENTITLEMENTS: "$(DUO_ENTITLEMENTS)"
+        # The privacy manifest and the camera's purpose string follow DUO_V2_CONDITION, the switch
+        # that already selects the code, so a build with Duo off bundles exactly what main does
+        # (decision D77). Both manifests are in the app's sources and one is left out: main's
+        # HydroDrop/PrivacyInfo.xcprivacy without Duo, the six types of HydroDrop/Duo/ with it.
+        # The camera string is not in info.properties, which would put it in the tracked
+        # HydroDrop/Info.plist of every build; it is merged in only when GENERATE_INFOPLIST_FILE is
+        # YES, which only a Duo build sets (with NO, Xcode processes Info.plist exactly as on main
+        # and ignores INFOPLIST_KEY_ settings). Duo's push words, HydroDrop/Resources/en.lproj/
+        # Localizable.strings, are left out the same way: without Duo the app would otherwise gain
+        # an en.lproj folder main's has not, and the App Intents metadata would move into it. The
+        # file is named, not given a path, because it sits in a variant group, which a path
+        # pattern does not reach. At P7, when Duo is on by default, the plain manifest and these
+        # selection settings are deleted.
+        EXCLUDED_SOURCE_FILE_NAMES: "$(DUO_EXCLUDED_MANIFEST_$(DUO_V2_CONDITION))"
+        DUO_EXCLUDED_MANIFEST_: "*/HydroDrop/Duo/PrivacyInfo.xcprivacy Localizable.strings"
+        DUO_EXCLUDED_MANIFEST_DUO_V2: "*/HydroDrop/PrivacyInfo.xcprivacy"
+        GENERATE_INFOPLIST_FILE: "$(DUO_INFOPLIST_KEYS_$(DUO_V2_CONDITION))"
+        DUO_INFOPLIST_KEYS_: "NO"
+        DUO_INFOPLIST_KEYS_DUO_V2: "YES"
+        # Duo Streaks' in-app QR scanner, which iOS asks about when the person taps Scan.
+        INFOPLIST_KEY_NSCameraUsageDescription: "HydroDrop uses the camera only to scan a duo invite's QR code. The picture is never saved or sent."
         SKIP_INSTALL: "NO"
         INSTALL_PATH: /Applications
     dependencies:
@@ -210,6 +235,16 @@ targets:
       - path: HydroDrop/Models/MascotSkin.swift
       - path: HydroDrop/Shared/HydroCoreImport.swift
       - path: HydroDrop/StoreKit/EntitlementCache.swift
+      # Duo Streaks' push words. The server sends only keys (`duo.nudge.title`), and a push the
+      # iPhone forwards to a paired Watch is worded there, from the Watch app's own bundle, which
+      # otherwise has no strings file and would show the raw key. The folder, not the file: named
+      # directly, XcodeGen 2.46 gives the file to the app alone once it exists, and before it
+      # exists leaves the Watch target pointing at a missing file. Optional, because the folder
+      # arrives with Duo's notifications; `includes` keeps anything else in it out of the Watch.
+      - path: HydroDrop/Resources
+        optional: true
+        includes:
+          - "*.lproj/Localizable.strings"
     info:
       path: HydroDrop Watch App/Info.plist
       properties:
@@ -222,6 +257,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jonathonbrown.HydroDrop.watchkitapp
+        # The push words from HydroDrop/Resources (the source above) follow DUO_V2_CONDITION as the
+        # app's do, so a Watch app built without Duo has no strings file, as main's has none
+        # (decision D77). With Duo the setting is empty and the file stays.
+        EXCLUDED_SOURCE_FILE_NAMES: "$(DUO_EXCLUDED_STRINGS_$(DUO_V2_CONDITION))"
+        DUO_EXCLUDED_STRINGS_: "Localizable.strings"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
