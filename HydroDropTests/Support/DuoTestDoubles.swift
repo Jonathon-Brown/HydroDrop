@@ -259,6 +259,8 @@ final class FakeOpQueue: DuoOpQueueing {
     func drain() async { drains += 1 }
     func startMonitoring() {}
     func discardAll() { discards += 1; queued = [] }
+    private(set) var identityBoundDiscards = 0
+    func discardIdentityBound() { identityBoundDiscards += 1; queued.removeAll { $0.kind != .leave && $0.kind != .block } }
 }
 
 @MainActor

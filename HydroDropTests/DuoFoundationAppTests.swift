@@ -483,6 +483,41 @@ final class DuoServiceSupportTests: XCTestCase {
         XCTAssertNil(kit.dependencies.cache.throwawayDeviceID, "a marker for a credential that is gone is dropped")
     }
 
+    func testClearingADuoTakesItsNudgeIdsOutOfTheLedger() {
+        let kit = DuoTestKit()
+        var duo = DuoFixtures.duo(ended: true)
+        duo.nudges = [DuoNudge(id: "nudge-3B9E1C2A-0000-4000-8000-000000000000", fromRole: .owner, presetID: "cheers", createdAt: kit.clock.now)]
+        kit.store.upsert(duo)
+        var ledger = DuoLedger()
+        _ = ledger.markSeen("nudge-3B9E1C2A-0000-4000-8000-000000000000")
+        _ = ledger.markSeen("nudge-someone-elses")
+        kit.dependencies.cache.saveLedger(ledger)
+        kit.store.remove(duo.id)
+        XCTAssertEqual(kit.dependencies.cache.loadLedger().seen, ["nudge-someone-elses"], "its nudge ids go with it (§12.2); nothing else does")
+    }
+
+    func testOneEntryTheBuildCannotReadDoesNotTakeTheRestOfTheQueueWithIt() throws {
+        let kit = DuoTestKit()
+        let cache = kit.dependencies.cache
+        let leave = try DuoQueuedOp.leave(duoID: DuoFixtures.duoID, key: "k1", now: kit.clock.now)
+        let block = try DuoQueuedOp.block(duoID: DuoFixtures.duoID, key: "k2", now: kit.clock.now)
+        let good = try JSONSerialization.jsonObject(with: JSONEncoder().encode([leave, block])) as! [[String: Any]]
+        let damaged: [String: Any] = ["key": "bad", "kind": "someKindANewerBuildWrote"]
+        let blob = try JSONSerialization.data(withJSONObject: [good[0], damaged, good[1]])
+        kit.defaults.set(blob, forKey: DuoCache.opsKey)
+        XCTAssertEqual(cache.loadOps().map(\.key), ["k1", "k2"], "the readable entries survive, in order")
+        kit.defaults.set(Data("not json".utf8), forKey: DuoCache.opsKey)
+        XCTAssertEqual(cache.loadOps(), [], "a blob that is not a list at all is still an empty queue")
+    }
+
+    func testTheTestQueueDropsWhatBelongsToAGoneIdentityAndKeepsTheExits() throws {
+        let queue = FakeOpQueue()
+        queue.enqueue(try DuoQueuedOp.leave(duoID: DuoFixtures.duoID, key: "k1", now: Date()))
+        queue.enqueue(DuoQueuedOp(key: "rename", kind: .updateMe, method: "PATCH", path: "/me", body: Data("{}".utf8), createdAt: Date()))
+        queue.discardIdentityBound()
+        XCTAssertEqual(queue.queued.map(\.key), ["k1"])
+    }
+
     func testTheDeleteRequestedMarkerIsADateAndNothingElse() {
         let defaults = UserDefaults(suiteName: "DuoDeleteMarker.\(UUID().uuidString)")!
         let cache = DuoCache(defaults: defaults)

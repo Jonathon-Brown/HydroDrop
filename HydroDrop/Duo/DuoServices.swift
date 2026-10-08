@@ -153,6 +153,15 @@ protocol DuoOpQueueing: AnyObject {
     /// gone, so a replay could only answer 401 (a 401 `unauthenticated`, "Start fresh", Delete
     /// my Duo data).
     func discardAll()
+    /// Forgets the entries that only mean something for the identity they were made with (a
+    /// rename, a push-token upload) and keeps a leave or a block, which answer 404 under any
+    /// other member and are right under the one that was reconnected. Called when a new
+    /// identity is minted, so an old rename cannot go out under the new member.
+    func discardIdentityBound()
+}
+
+extension DuoOpQueueing {
+    func discardIdentityBound() {}
 }
 
 enum DuoPushUploadReason: Equatable {

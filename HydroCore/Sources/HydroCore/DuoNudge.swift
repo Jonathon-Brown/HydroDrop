@@ -164,6 +164,13 @@ public struct DuoLedger: Equatable, Sendable {
         seen.removeAll { $0.contains(marker) }
     }
 
+    /// A nudge is recorded under its bare id (`nudge-<UUID>`), with no duo id in the key, so
+    /// `forget(duoID:)` cannot find it. A cleared duo takes its nudges' ids with it (§12.2).
+    public mutating func forget(nudgeIDs: [String]) {
+        let ids = Set(nudgeIDs)
+        seen.removeAll { ids.contains($0) }
+    }
+
     /// The key a partner's goal-met moment is recorded under, `met|<duo id>|<day>`, with the
     /// duo id in lowercase. That is how the server spells a duo id (final design §5) and how
     /// FCM's `duo` field carries it, so the Android app can tag its notification

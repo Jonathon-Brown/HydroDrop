@@ -50,6 +50,28 @@ final class DuoFoundationReviewTests: XCTestCase {
         XCTAssertEqual(wait(1), .retry(after: DuoRetry.minimumDelay))
     }
 
+    func testAFailedDeleteNeverPromisesThatTheDuoWillCatchUp() {
+        let maintenance = DuoTransportError(code: .maintenance, context: DuoErrorContext(httpStatus: 503, requestID: "9b1c2d3e4f5a6b7c-LHR"))
+        XCTAssertTrue(DuoUserMessage.text(for: maintenance, context: .general).contains("catch up"), "an ordinary sync can say it")
+        for error in [maintenance, DuoTransportError.unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c-LHR")] {
+            let text = DuoUserMessage.text(for: error, context: .deletion)
+            XCTAssertFalse(text.contains("catch up"), "nothing is queued for a delete, so nothing will catch up: \(text)")
+            XCTAssertEqual(text, "\(DuoUserMessage.generic) (ref 9b1c2d3e4f5a6b7c-LHR)")
+        }
+        XCTAssertEqual(DuoUserMessage.text(for: DuoTransportError.offline, context: .deletion), "No connection right now. Try again in a bit.")
+    }
+
+    func testTheLedgerForgetsANudgeUnderItsBareId() {
+        var ledger = DuoLedger()
+        _ = ledger.markSeen("nudge-3B9E1C2A-0000-4000-8000-000000000000")
+        _ = ledger.markSeen("nudge-3B9E1C2A-0000-4000-8000-000000000001")
+        _ = ledger.markSeen("met|\(UUID().uuidString.lowercased())|2026-10-08")
+        ledger.forget(nudgeIDs: ["nudge-3B9E1C2A-0000-4000-8000-000000000000"])
+        XCTAssertEqual(ledger.seen.count, 2)
+        XCTAssertFalse(ledger.seen.contains("nudge-3B9E1C2A-0000-4000-8000-000000000000"))
+        XCTAssertTrue(ledger.seen.contains("nudge-3B9E1C2A-0000-4000-8000-000000000001"), "only the ids named")
+    }
+
     func testAnUnreadableRateLimitIsWaitedOutLikeAnyOther() {
         XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unreadable(httpStatus: 429, requestID: nil)), .retry(after: DuoRetry.fallbackDelay))
         XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unreadable(httpStatus: 503, requestID: nil)), .retry(after: DuoRetry.fallbackDelay))

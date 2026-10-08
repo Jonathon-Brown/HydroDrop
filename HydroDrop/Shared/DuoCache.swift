@@ -76,7 +76,20 @@ struct DuoCache {
 
     // MARK: The op queue and what is waiting for a yes
 
-    func loadOps() -> [DuoQueuedOp] { load([DuoQueuedOp].self, key: Self.opsKey) ?? [] }
+    /// Entry by entry: one this build cannot decode (a damaged one, or a kind a newer build
+    /// wrote) used to turn the whole queue into an empty one, and the next enqueue overwrote the
+    /// rest, losing a leave or a block that was waiting.
+    func loadOps() -> [DuoQueuedOp] {
+        guard let data = defaults.data(forKey: Self.opsKey) else { return [] }
+        if let all = try? JSONDecoder().decode([DuoQueuedOp].self, from: data) { return all }
+        guard let items = try? JSONDecoder().decode([DuoCache.OpSlot].self, from: data) else { return [] }
+        return items.compactMap(\.op)
+    }
+
+    private struct OpSlot: Decodable {
+        let op: DuoQueuedOp?
+        init(from decoder: Decoder) throws { op = try? DuoQueuedOp(from: decoder) }
+    }
     func saveOps(_ ops: [DuoQueuedOp]) { save(ops, key: Self.opsKey) }
 
     func loadPendingInvite() -> DuoPendingInvite? { load(DuoPendingInvite.self, key: Self.pendingInviteKey) }

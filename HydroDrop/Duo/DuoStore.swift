@@ -155,7 +155,7 @@ final class DuoStore: ObservableObject, DuoHost {
     }
 
     func remove(_ id: UUID) {
-        guard duos.contains(where: { $0.id == id }) else { return }
+        guard let removed = duos.first(where: { $0.id == id }) else { return }
         duos.removeAll { $0.id == id }
         diagnostics.forget(duoID: id)
         if usesServer {
@@ -167,6 +167,7 @@ final class DuoStore: ObservableObject, DuoHost {
             let ledger = cache.loadLedger()
             var trimmed = ledger
             trimmed.forget(duoID: id)
+            trimmed.forget(nudgeIDs: removed.allNudges.map(\.id))
             if trimmed != ledger { cache.saveLedger(trimmed) }
         }
         save()

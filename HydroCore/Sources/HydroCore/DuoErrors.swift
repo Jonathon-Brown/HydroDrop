@@ -304,6 +304,9 @@ public enum DuoMessageContext: Equatable, Sendable {
     case general
     /// A nudge, with the partner's name for "<Partner> already met their goal".
     case nudge(partner: String)
+    /// Delete my Duo data. It is online only and nothing is queued, so a line that says the duo
+    /// "will catch up" would promise something that will not happen.
+    case deletion
 }
 
 /// The words for an error, from the final design's approved table (§4.4, §6.7, §3.4). Codes
@@ -337,6 +340,7 @@ public enum DuoUserMessage {
             return "Too many tries. Wait a bit and try again."
         case .maintenance, .unreadable:
             if case .invite = context { return "Joining is paused for a few minutes. Try again soon." }
+            if case .deletion = context { return withReference(generic, error) }
             return "HydroDrop's duo service is not available right now. Your duo will catch up when it is."
         case .nameRejected:
             return "Please choose a different name."
