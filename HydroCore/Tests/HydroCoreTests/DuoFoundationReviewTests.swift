@@ -41,10 +41,20 @@ final class DuoFoundationReviewTests: XCTestCase {
         XCTAssertEqual(unknown.tier, .low)
     }
 
+    func testARetryAfterThatIsAbsurdIsNotBelieved() {
+        func wait(_ seconds: Int) -> DuoRetry.Verdict {
+            DuoRetry.verdict(for: DuoTransportError(code: .maintenance, context: DuoErrorContext(httpStatus: 503, retryAfter: seconds)))
+        }
+        XCTAssertEqual(wait(Int(Int32.max)), .retry(after: DuoRetry.maximumDelay), "a proxy's 503 cannot park the queue for decades")
+        XCTAssertEqual(wait(86_400), .retry(after: 86_400), "the server's own longest wait, a day, is honoured whole")
+        XCTAssertEqual(wait(1), .retry(after: DuoRetry.minimumDelay))
+    }
+
     func testAnUnreadableRateLimitIsWaitedOutLikeAnyOther() {
         XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unreadable(httpStatus: 429, requestID: nil)), .retry(after: DuoRetry.fallbackDelay))
         XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unreadable(httpStatus: 503, requestID: nil)), .retry(after: DuoRetry.fallbackDelay))
         XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unreadable(httpStatus: 404, requestID: nil)), .fail, "other statuses are still not retried")
+        XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unreadable(httpStatus: 204, requestID: nil)), .fail, "an unreadable 2xx is told, never retried")
     }
 
     // MARK: - Secrets and age

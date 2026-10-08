@@ -12,7 +12,7 @@ final class DuoAPIClient: DuoTransport, @unchecked Sendable {
 
     func createDevice(_ request: DuoWireCreateDeviceRequest) async throws -> DuoWireCreateDeviceResponse { try await unwired.createDevice(request) }
     func attestChallenge() async throws -> DuoWireAttestChallenge { try await unwired.attestChallenge() }
-    func rotate() async throws -> DuoWireRotateResponse { try await unwired.rotate() }
+    func rotate(as credential: DuoCredential) async throws -> DuoWireRotateResponse { try await unwired.rotate(as: credential) }
     func me() async throws -> DuoWireGetMeResponse { try await unwired.me() }
     func updateMe(_ request: DuoWireUpdateMeRequest) async throws -> DuoWireMember { try await unwired.updateMe(request) }
     func deleteMe(_ request: DuoWireDeleteMeRequest, key: DuoIdempotencyKey) async throws { try await unwired.deleteMe(request, key: key) }

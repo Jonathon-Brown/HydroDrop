@@ -11,6 +11,9 @@ extension DuoDependencies {
     /// can decide what to do next. It never shows an alert: the caller says it in words.
     @discardableResult
     func noteFailure(_ error: Error, duoID: UUID? = nil) -> DuoRetry.Verdict {
+        // A cancelled task is not a failure of the request, so it leaves nothing in Diagnostics
+        // and changes nothing about this phone's standing. The caller still gets the retry.
+        if error is CancellationError { return DuoRetry.verdict(for: error) }
         host.diagnostics.record(error, duoID: duoID, now: clock.now)
         let verdict = DuoRetry.verdict(for: error)
         switch verdict {
@@ -38,7 +41,7 @@ extension DuoDependencies {
             }
         case .retry:
             if case .maintenance = error as? DuoTransportError { host.availability = .maintenance }
-        case .ended, .fail:
+        case .ended, .fail, .cancelled:
             break
         }
         return verdict

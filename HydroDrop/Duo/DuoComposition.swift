@@ -7,12 +7,16 @@ enum DuoComposition {
     /// The parameters are what a test of the whole wiring replaces: the session, so every
     /// request can be counted; the secret store and the cache, so it touches nothing real; and
     /// the attester and DeviceCheck, which talk to Apple outside the session, so a test that
-    /// counts only HTTP could not see an attestation made before a tap. Nil builds the real one
-    /// (it needs the secrets built here, so it cannot be a default argument).
+    /// counts only HTTP could not see an attestation made before a tap; and the identity's
+    /// directory, so the files it keeps (the install day, the settled flag) land in a folder the
+    /// test owns and can look into (nil is the identity's own folder). A nil attester or
+    /// DeviceCheck builds the real one, which needs the secrets built here, so it cannot be a
+    /// default argument.
     @MainActor
     static func makeLiveStore(session: DuoHTTPSession = URLSessionHTTP(), secretStore: DuoSecretStore = KeychainDuoSecretStore(),
                               cache: DuoCache = .live, baseURL: URL = DuoConfig.baseURL,
-                              attester: DuoAttesting? = nil, deviceCheck: DuoDeviceCheckProviding? = nil) -> DuoStore {
+                              attester: DuoAttesting? = nil, deviceCheck: DuoDeviceCheckProviding? = nil,
+                              identityDirectory: URL? = nil) -> DuoStore {
         #if DEBUG
         // `-DuoPreview` draws sample duos and talks to nobody. Compiled out of Release.
         // The name after it picks a scenario (`DuoStore.previewScenarioNames`); alone it is `sample`.
@@ -35,7 +39,7 @@ enum DuoComposition {
 
         // The identity is the API client's credential and the API client is the identity's
         // transport, so the first is built before and the second is handed over after.
-        let identity = DuoIdentity(dependencies: dependencies)
+        let identity = identityDirectory.map { DuoIdentity(dependencies: dependencies, directory: $0) } ?? DuoIdentity(dependencies: dependencies)
         dependencies.identity = identity
         // Every response leaves its request id in Diagnostics (the observer hops to the main
         // actor, where the store lives, and holds the store weakly).

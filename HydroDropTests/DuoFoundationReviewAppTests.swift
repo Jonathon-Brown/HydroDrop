@@ -18,12 +18,17 @@ final class DuoReviewCountingDeviceCheck: DuoDeviceCheckProviding, @unchecked Se
 final class DuoReviewSpySecretStore: DuoSecretStore, @unchecked Sendable {
     private let lock = NSLock()
     private var written: [String] = []
+    private var removed: [String] = []
     var writes: [String] { lock.lock(); defer { lock.unlock() }; return written }
+    /// Every delete, one by one or a whole service, so a launch that clears an item it should not
+    /// touch is as visible as one that writes.
+    var deletes: [String] { lock.lock(); defer { lock.unlock() }; return removed }
     private func record(_ item: String) { lock.lock(); written.append(item); lock.unlock() }
+    private func recordDelete(_ item: String) { lock.lock(); removed.append(item); lock.unlock() }
     func read(service: String, account: String) throws -> Data? { nil }
     func write(_ data: Data, service: String, account: String, accessibility: DuoSecretAccessibility) throws { record("\(service)/\(account)") }
-    func delete(service: String, account: String) throws {}
-    func deleteAll(service: String) throws {}
+    func delete(service: String, account: String) throws { recordDelete("\(service)/\(account)") }
+    func deleteAll(service: String) throws { recordDelete("\(service)/*") }
 }
 
 /// What the independent review of the foundation found in the app target (consent, secrets and
@@ -327,8 +332,10 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         cache.saveInflight(journal)
         cache.savePushUpload(DuoPushUploadState(tokenHash: "h", environment: .sandbox, zone: "UTC", windowStart: nil, windowEnd: nil,
                                                 enabled: true, uploadedAt: now))
+        let identityFolder = FileManager.default.temporaryDirectory.appendingPathComponent("DuoBeforeATap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: identityFolder) }
         let store = DuoComposition.makeLiveStore(session: session, secretStore: secretStore, cache: cache,
-                                                 attester: attester, deviceCheck: deviceCheck)
+                                                 attester: attester, deviceCheck: deviceCheck, identityDirectory: identityFolder)
 
         store.activate(logReader: FakeLogReader())
         store.logChanged(entries: [], goalML: 2000)
@@ -350,6 +357,9 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         XCTAssertTrue(attester.assertions.isEmpty)
         XCTAssertEqual(deviceCheck.calls, 0)
         XCTAssertTrue(secretStore.writes.isEmpty, "no Keychain item is written before a tap, under any service name: \(secretStore.writes)")
+        XCTAssertTrue(secretStore.deletes.isEmpty, "no Keychain item is deleted before a tap either: \(secretStore.deletes)")
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: identityFolder.path)) ?? []
+        XCTAssertTrue(left.isEmpty, "the identity keeps no duo.install or duo.settled file before a tap: \(left)")
     }
 }
 #endif

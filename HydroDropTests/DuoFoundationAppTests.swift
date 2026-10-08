@@ -218,6 +218,20 @@ final class DuoFoundationAppTests: XCTestCase {
     }
     #endif
 
+    func testACloudflarePageThatCarriesOnlyARayStillLeavesSomethingToQuote() async throws {
+        let recording = RecordingSession()
+        let seen = SeenResponses()
+        let observed = DuoObservedSession(base: recording) { status, id in seen.add(status, id) }
+        let url = URL(string: "https://api-staging.hydrodrop.us/v1/me")!
+        var headers: [String: String] = ["CF-Ray": "8f1a2b3c4d5e6f70-AMS"]
+        recording.respond = { _ in (Data(), HTTPURLResponse(url: url, statusCode: 403, httpVersion: nil, headerFields: headers)!) }
+        let request = URLRequest(url: url)
+        _ = try await observed.data(for: request)
+        headers["X-Request-Id"] = "9b1c2d3e4f5a6b7c-LHR"
+        _ = try await observed.data(for: request)
+        XCTAssertEqual(seen.all, ["403:8f1a2b3c4d5e6f70-AMS", "403:9b1c2d3e4f5a6b7c-LHR"], "the server's own id wins when both are there")
+    }
+
     func testEveryResponseLeavesItsRequestIDAndAFailedOneLeavesNothing() async throws {
         let recording = RecordingSession()
         let seen = SeenResponses()
@@ -394,8 +408,8 @@ final class DuoCompositionTests: XCTestCase {
 
 @MainActor
 final class DuoServiceSupportTests: XCTestCase {
-    private func failure(_ code: DuoErrorCode, retryAfter: Int? = nil) -> DuoTransportError {
-        DuoTransportError(code: code, context: DuoErrorContext(httpStatus: 400, requestID: "r1", retryAfter: retryAfter))
+    private func failure(_ code: DuoErrorCode, status: Int = 400, retryAfter: Int? = nil) -> DuoTransportError {
+        DuoTransportError(code: code, context: DuoErrorContext(httpStatus: status, requestID: "r1", retryAfter: retryAfter))
     }
 
     func testAFailureIsRecordedAndActedOn() {
@@ -414,7 +428,7 @@ final class DuoServiceSupportTests: XCTestCase {
 
     func testAnUnknownIdentityIsForgottenAndAServicePauseIsNoted() {
         let kit = DuoTestKit(credential: DuoFixtures.credential())
-        XCTAssertEqual(kit.dependencies.noteFailure(failure(.unauthenticated)), .reidentify)
+        XCTAssertEqual(kit.dependencies.noteFailure(failure(.unauthenticated, status: 401)), .reidentify)
         XCTAssertEqual(kit.identity.discardCount, 1)
         XCTAssertNil(kit.identity.credential)
         XCTAssertEqual(kit.dependencies.noteFailure(failure(.maintenance)), .retry(after: DuoRetry.fallbackDelay))
@@ -440,7 +454,7 @@ final class DuoServiceSupportTests: XCTestCase {
         kit.dependencies.cache.saveInflight(journal)
         kit.dependencies.cache.savePushUpload(DuoPushUploadState(tokenHash: "h", environment: .sandbox, zone: "UTC", windowStart: nil,
                                                                  windowEnd: nil, enabled: true, uploadedAt: kit.clock.now))
-        XCTAssertEqual(kit.dependencies.noteFailure(failure(.unauthenticated), duoID: live.id), .reidentify)
+        XCTAssertEqual(kit.dependencies.noteFailure(failure(.unauthenticated, status: 401), duoID: live.id), .reidentify)
         XCTAssertNil(kit.identity.credential)
         let after = try XCTUnwrap(kit.store.duo(live.id))
         XCTAssertTrue(after.hasEnded)
@@ -455,6 +469,23 @@ final class DuoServiceSupportTests: XCTestCase {
         XCTAssertNil(kit.dependencies.cache.loadPushUpload())
         XCTAssertEqual(kit.push.clearedLast, 0, "the token row belonged to the device the server forgot: nothing to unregister")
         XCTAssertTrue(kit.store.canAddDuo(isSubscribed: false), "an ended duo takes no place, so the person can start again")
+    }
+
+    func testAnUnauthenticatedThatNeverReachedTheServerForgetsNothing() {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        let local = DuoTransportError.unauthenticated(DuoErrorContext(httpStatus: 0))
+        XCTAssertEqual(kit.dependencies.noteFailure(local), .fail)
+        XCTAssertEqual(kit.identity.discardCount, 0, "the client's own 'no credential' error is not the server forgetting this identity")
+        XCTAssertNotNil(kit.identity.credential)
+    }
+
+    func testACancelledTaskLeavesNoTraceAndChangesNothing() {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        kit.store.availability = .available
+        XCTAssertEqual(kit.dependencies.noteFailure(CancellationError()), .cancelled)
+        XCTAssertTrue(kit.store.diagnostics.recentErrors.isEmpty, "a cancelled refresh is not a failure to report")
+        XCTAssertEqual(kit.store.availability, .available)
+        XCTAssertEqual(kit.identity.discardCount, 0)
     }
 
     func testNoConnectionIsNotAnAvailabilityProblem() {
@@ -515,6 +546,92 @@ final class DuoServiceSupportTests: XCTestCase {
         XCTAssertTrue(DuoStore.makePreview(scenario: "maintenance").hasNoticeCards)
         XCTAssertFalse(DuoStore.makePreview(scenario: "sample").hasNoticeCards)
         XCTAssertEqual(DuoStore.makePreview(scenario: "nonsense").duos.count, DuoStore.makePreview().duos.count)
+    }
+}
+
+// MARK: - Redirects
+
+/// Counts the requests a stubbed network was asked for, whichever thread it was asked on.
+final class RedirectLog: @unchecked Sendable {
+    static let shared = RedirectLog()
+    private let lock = NSLock()
+    private var urls: [URL] = []
+
+    func record(_ url: URL) { lock.lock(); urls.append(url); lock.unlock() }
+    func reset() { lock.lock(); urls = []; lock.unlock() }
+    var hosts: [String] { lock.lock(); defer { lock.unlock() }; return urls.compactMap(\.host) }
+}
+
+/// Answers `api.example.test` with a 302 to another host, carrying the bearer along the way a
+/// followed redirect would, and anything else with a 200.
+final class RedirectingURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        RedirectLog.shared.record(url)
+        if url.host == "api.example.test" {
+            let target = URL(string: "https://elsewhere.example.test/collect")!
+            let response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: ["Location": target.absoluteString])!
+            var next = URLRequest(url: target)
+            next.setValue(request.value(forHTTPHeaderField: "Authorization"), forHTTPHeaderField: "Authorization")
+            client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: response)
+            // When the session's delegate declines, nothing else delivers the 302, so the stub
+            // hands it over itself, as a real server's answer would arrive. When the session
+            // follows, it stops this load at once and asks the other host, and delivering the 302
+            // as well would make a followed redirect look like a refused one: so only after a
+            // moment, and only if this load was not stopped.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self, !self.wasStopped else { return }
+                self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                self.client?.urlProtocolDidFinishLoading(self)
+            }
+        } else {
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data("followed".utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    private let stoppedLock = NSLock()
+    private var stopped = false
+    private var wasStopped: Bool { stoppedLock.lock(); defer { stoppedLock.unlock() }; return stopped }
+
+    override func stopLoading() {
+        stoppedLock.lock(); stopped = true; stoppedLock.unlock()
+    }
+}
+
+final class DuoRedirectTests: XCTestCase {
+    func testARedirectIsAnAnswerNotAnErrandAndTheBearerNeverLeavesForAnotherHost() async throws {
+        RedirectLog.shared.reset()
+        let http = URLSessionHTTP(session: URLSessionHTTP.makeDefaultSession(protocolClasses: [RedirectingURLProtocol.self]))
+        var request = URLRequest(url: URL(string: "https://api.example.test/v1/me")!)
+        request.setValue("Bearer not-a-real-secret", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await http.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 302, "the 302 itself comes back, for the client to read as not the contract's")
+        XCTAssertEqual(RedirectLog.shared.hosts, ["api.example.test"], "the Location was never asked for, so the Authorization header never went there")
+    }
+
+    func testTheSessionTheAppUsesCarriesTheRefuser() {
+        XCTAssertTrue(URLSessionHTTP.makeDefaultSession().delegate is DuoRedirectRefuser)
+    }
+
+    func testTheRefuserAnswersNoToAnyRedirect() throws {
+        let session = URLSessionHTTP.makeDefaultSession()
+        let url = URL(string: "https://api.example.test/v1/me")!
+        let task = session.dataTask(with: url)
+        let response = HTTPURLResponse(url: url, statusCode: 307, httpVersion: nil, headerFields: ["Location": "https://elsewhere.example.test/"])!
+        let answered = expectation(description: "the delegate answered")
+        var followed: URLRequest?? = .some(URLRequest(url: url))
+        DuoRedirectRefuser().urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: URLRequest(url: url)) { request in
+            followed = .some(request)
+            answered.fulfill()
+        }
+        wait(for: [answered], timeout: 2)
+        XCTAssertNil(try XCTUnwrap(followed), "nil tells the session to hand back the 3xx and send nothing again")
     }
 }
 #endif

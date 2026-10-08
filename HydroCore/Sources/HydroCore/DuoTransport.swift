@@ -32,7 +32,14 @@ public protocol DuoTransport: Sendable {
     /// `POST /attest/challenge`.
     func attestChallenge() async throws -> DuoWireAttestChallenge
     /// `POST /devices/me/rotate`. Any other holder of the old secret then answers `device_revoked`.
-    func rotate() async throws -> DuoWireRotateResponse
+    /// It authenticates as `credential`, the one the launch decided on, and not as whatever the
+    /// identity holds when the request leaves: a Create or Join that stores a new credential in
+    /// the gap used to have its own secret rotated by a call meant for the restored one, and
+    /// the phone kept the old secret of the identity it was now using. Never retried within a
+    /// launch (its answer carries the only copy of the new secret, and the old one is gone). A
+    /// launch that cannot tell what happened to one tries again at the next launch; if the first
+    /// had landed, that one is answered `device_revoked`, which contract-v1 cannot avoid (D65).
+    func rotate(as credential: DuoCredential) async throws -> DuoWireRotateResponse
     /// `GET /me`.
     func me() async throws -> DuoWireGetMeResponse
     /// `PATCH /me`.

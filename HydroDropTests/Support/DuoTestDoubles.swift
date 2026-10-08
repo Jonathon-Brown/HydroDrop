@@ -70,11 +70,18 @@ final class FakeDuoTransport: DuoTransport, @unchecked Sendable {
     private var recorded: [Call] = []
     var calls: [Call] { lock.lock(); defer { lock.unlock() }; return recorded }
     private func record(_ call: Call) { lock.lock(); recorded.append(call); lock.unlock() }
-    func reset() { lock.lock(); recorded = []; lock.unlock() }
+    private func recordRotatedAs(_ credential: DuoCredential) { lock.lock(); rotatedAsRecorded.append(credential); lock.unlock() }
+    func reset() { lock.lock(); recorded = []; rotatedAsRecorded = []; lock.unlock() }
 
     var onCreateDevice: ((DuoWireCreateDeviceRequest) throws -> DuoWireCreateDeviceResponse)?
     var onAttestChallenge: (() throws -> DuoWireAttestChallenge)?
     var onRotate: (() throws -> DuoWireRotateResponse)?
+    /// Takes the credential the rotate was sent as, for a test that must see which bearer it
+    /// carried. When set it is used instead of `onRotate`.
+    var onRotateAs: ((DuoCredential) throws -> DuoWireRotateResponse)?
+    private var rotatedAsRecorded: [DuoCredential] = []
+    /// The credential each rotate was sent as, in order.
+    var rotatedAs: [DuoCredential] { lock.lock(); defer { lock.unlock() }; return rotatedAsRecorded }
     var onMe: (() throws -> DuoWireGetMeResponse)?
     var onUpdateMe: ((DuoWireUpdateMeRequest) throws -> DuoWireMember)?
     var onDeleteMe: ((DuoWireDeleteMeRequest, DuoIdempotencyKey) throws -> Void)?
@@ -100,7 +107,10 @@ final class FakeDuoTransport: DuoTransport, @unchecked Sendable {
 
     func createDevice(_ request: DuoWireCreateDeviceRequest) async throws -> DuoWireCreateDeviceResponse { try run(.createDevice(request), onCreateDevice.map { h in { try h(request) } }) }
     func attestChallenge() async throws -> DuoWireAttestChallenge { try run(.attestChallenge, onAttestChallenge) }
-    func rotate() async throws -> DuoWireRotateResponse { try run(.rotate, onRotate) }
+    func rotate(as credential: DuoCredential) async throws -> DuoWireRotateResponse {
+        recordRotatedAs(credential)
+        return try run(.rotate, onRotateAs.map { h in { try h(credential) } } ?? onRotate)
+    }
     func me() async throws -> DuoWireGetMeResponse { try run(.me, onMe) }
     func updateMe(_ request: DuoWireUpdateMeRequest) async throws -> DuoWireMember { try run(.updateMe(request), onUpdateMe.map { h in { try h(request) } }) }
     func deleteMe(_ request: DuoWireDeleteMeRequest, key: DuoIdempotencyKey) async throws { try run(.deleteMe(request, key), onDeleteMe.map { h in { try h(request, key) } }) }

@@ -279,7 +279,7 @@ public struct DuoWireRegisterPushRequest: Codable, Equatable, Sendable {
     }
 }
 
-public struct DuoWireCreateDuoRequest: Encodable, Equatable, Sendable {
+public struct DuoWireCreateDuoRequest: Codable, Equatable, Sendable {
     /// Always sent, as `null` when there is no name.
     public var displayName: String?
     public var skin: String
@@ -305,6 +305,15 @@ public struct DuoWireCreateDuoRequest: Encodable, Equatable, Sendable {
         try container.encode(e2eeCapable, forKey: .e2eeCapable)
         try container.encode(statuses, forKey: .statuses)
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        skin = try container.decode(String.self, forKey: .skin)
+        myToday = try container.decode(String.self, forKey: .myToday)
+        e2eeCapable = try container.decode(Bool.self, forKey: .e2eeCapable)
+        statuses = try container.decode([DuoWireStatusIn].self, forKey: .statuses)
+    }
 }
 
 public enum DuoWireInvitePurpose: String, Codable, Equatable, Sendable {
@@ -329,7 +338,7 @@ public struct DuoWirePeekRequest: Codable, Equatable, Sendable {
     }
 }
 
-public struct DuoWireRedeemRequest: Encodable, Equatable, Sendable {
+public struct DuoWireRedeemRequest: Codable, Equatable, Sendable {
     public var code: String
     /// Always sent, as `null` when there is no name.
     public var displayName: String?
@@ -361,6 +370,17 @@ public struct DuoWireRedeemRequest: Encodable, Equatable, Sendable {
         try container.encode(e2eeCapable, forKey: .e2eeCapable)
         try container.encode(statuses, forKey: .statuses)
         try container.encodeIfPresent(deviceCheckToken, forKey: .deviceCheckToken)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        code = try container.decode(String.self, forKey: .code)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        skin = try container.decode(String.self, forKey: .skin)
+        myToday = try container.decode(String.self, forKey: .myToday)
+        e2eeCapable = try container.decode(Bool.self, forKey: .e2eeCapable)
+        statuses = try container.decode([DuoWireStatusIn].self, forKey: .statuses)
+        deviceCheckToken = try container.decodeIfPresent(String.self, forKey: .deviceCheckToken)
     }
 }
 

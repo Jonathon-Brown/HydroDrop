@@ -244,9 +244,25 @@ protocol DuoHTTPSession: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
+/// Answers every redirect with "no". The contract has no redirects, so one is never the server
+/// being helpful: it is a captive portal or a misconfigured proxy. A followed 307 or 308 sends the
+/// whole request again to the new host, body included (a name, an invite code, the DeviceCheck
+/// token), with `Idempotency-Key` and `X-HD-Attest` on it, and a followed 302 still carries the
+/// headers. Current macOS drops `Authorization` on a redirect, but that is not documented for
+/// iOS 17, so the bearer is not left to the platform either. Refused, the 3xx comes back as the
+/// response and the client reads it as an answer that is not the contract's.
+final class DuoRedirectRefuser: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 /// `URLSession` as a `DuoHTTPSession`, set up the way Duo wants it: no cookies, no cache (the
 /// server answers `Cache-Control: no-store`), no waiting for connectivity (an offline request
-/// fails at once and the op queue or the next refresh tries again).
+/// fails at once and the op queue or the next refresh tries again), and no redirects.
 struct URLSessionHTTP: DuoHTTPSession {
     let session: URLSession
 
@@ -254,8 +270,11 @@ struct URLSessionHTTP: DuoHTTPSession {
         self.session = session
     }
 
-    static func makeDefaultSession() -> URLSession {
+    /// `protocolClasses` is for a test that needs to answer in place of the network (a 302, say)
+    /// through a real session, so the delegate and the configuration are the ones the app uses.
+    static func makeDefaultSession(protocolClasses: [AnyClass]? = nil) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
+        if let protocolClasses { configuration.protocolClasses = protocolClasses }
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
         configuration.urlCache = nil
@@ -263,7 +282,8 @@ struct URLSessionHTTP: DuoHTTPSession {
         configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 60
-        return URLSession(configuration: configuration)
+        // The session keeps its delegate for as long as it lives, which is as long as the app.
+        return URLSession(configuration: configuration, delegate: DuoRedirectRefuser(), delegateQueue: nil)
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -283,7 +303,10 @@ struct DuoObservedSession: DuoHTTPSession {
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let (data, response) = try await base.data(for: request)
         if let http = response as? HTTPURLResponse {
-            observe(http.statusCode, http.value(forHTTPHeaderField: "X-Request-Id"))
+            // Cloudflare's own block and error pages carry `CF-Ray` and no `X-Request-Id`, and the
+            // server's request id is the same ray, so the one stands in for the other: a refused
+            // request then still leaves something to quote.
+            observe(http.statusCode, http.value(forHTTPHeaderField: "X-Request-Id") ?? http.value(forHTTPHeaderField: "CF-Ray"))
         }
         return (data, response)
     }
@@ -347,7 +370,7 @@ final class DuoDependencies {
 struct DuoUnwiredTransport: DuoTransport {
     func createDevice(_ request: DuoWireCreateDeviceRequest) async throws -> DuoWireCreateDeviceResponse { throw DuoTransportError.offline }
     func attestChallenge() async throws -> DuoWireAttestChallenge { throw DuoTransportError.offline }
-    func rotate() async throws -> DuoWireRotateResponse { throw DuoTransportError.offline }
+    func rotate(as credential: DuoCredential) async throws -> DuoWireRotateResponse { throw DuoTransportError.offline }
     func me() async throws -> DuoWireGetMeResponse { throw DuoTransportError.offline }
     func updateMe(_ request: DuoWireUpdateMeRequest) async throws -> DuoWireMember { throw DuoTransportError.offline }
     func deleteMe(_ request: DuoWireDeleteMeRequest, key: DuoIdempotencyKey) async throws { throw DuoTransportError.offline }

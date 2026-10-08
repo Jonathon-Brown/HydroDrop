@@ -103,6 +103,29 @@ final class DuoFoundationTests: XCTestCase {
                        #"{"code":"H7K39QWX","display_name":"Sam","e2ee_capable":false,"my_today":"2026-09-24","skin":"forest","statuses":[]}"#)
     }
 
+    func testTheTwoRequestsThatHadNoDecoderReadBackWhatTheyWrote() throws {
+        func roundTrip<T: Codable & Equatable>(_ value: T) throws -> T {
+            let bytes = try DuoWireCoding.encode(value)
+            let back = try DuoWireCoding.decode(T.self, from: bytes)
+            // Equatable compares strings by canonical equivalence ("é" typed two ways is equal) and
+            // the replay is byte for byte, so the bytes are compared too.
+            XCTAssertEqual(try DuoWireCoding.encode(back), bytes, "a rebuilt request encodes to the bytes it was rebuilt from")
+            return back
+        }
+        let status = DuoWireStatusIn(day: "2026-09-24", goalMet: true, progressBucket: 100, baseVer: 3)
+        let decomposed = DuoWireCreateDuoRequest(displayName: "Jose\u{0301}", skin: "classic", myToday: "2026-09-24", e2eeCapable: true, statuses: [])
+        XCTAssertEqual(try roundTrip(decomposed), decomposed)
+        let nameless = DuoWireCreateDuoRequest(displayName: nil, skin: "classic", myToday: "2026-09-24", e2eeCapable: true, statuses: [status])
+        XCTAssertEqual(try roundTrip(nameless), nameless, "a null name reads back as no name")
+        let named = DuoWireCreateDuoRequest(displayName: "Sam", skin: "forest", myToday: "2026-09-24", e2eeCapable: false, statuses: [])
+        XCTAssertEqual(try roundTrip(named), named)
+        let redeem = DuoWireRedeemRequest(code: "H7K39QWX", displayName: nil, skin: "forest", myToday: "2026-09-24", e2eeCapable: false,
+                                          statuses: [status], deviceCheckToken: "dc")
+        XCTAssertEqual(try roundTrip(redeem), redeem)
+        let withoutToken = DuoWireRedeemRequest(code: "H7K39QWX", displayName: "Sam", skin: "forest", myToday: "2026-09-24", e2eeCapable: true, statuses: [])
+        XCTAssertEqual(try roundTrip(withoutToken), withoutToken, "an absent token stays absent")
+    }
+
     func testPatchMeCanLeaveAFieldAloneClearItOrSetIt() throws {
         func json(_ request: DuoWireUpdateMeRequest) throws -> String { String(decoding: try DuoWireCoding.encode(request), as: UTF8.self) }
         XCTAssertEqual(try json(DuoWireUpdateMeRequest()), "{}")
@@ -253,8 +276,13 @@ final class DuoFoundationTests: XCTestCase {
         XCTAssertEqual(verdict(.maintenance), .retry(after: DuoRetry.fallbackDelay))
         XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.offline), .retry(after: DuoRetry.fallbackDelay))
         XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unreadable(httpStatus: 502, requestID: nil)), .retry(after: DuoRetry.fallbackDelay))
-        XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unreadable(httpStatus: 200, requestID: nil)), .fail)
-        XCTAssertEqual(verdict(.unauthenticated), .reidentify)
+        XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unreadable(httpStatus: 200, requestID: nil)), .fail,
+                       "a landed request whose answer cannot be read is told, not retried for ever behind the queue")
+        XCTAssertEqual(DuoRetry.verdict(for: CancellationError()), .cancelled, "a cancelled task is not a failure and not a retry")
+        XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError(code: .unauthenticated, context: DuoErrorContext(httpStatus: 401))), .reidentify)
+        XCTAssertEqual(verdict(.unauthenticated), .fail, "an unauthenticated that did not come from a 401 is not the server forgetting this identity")
+        XCTAssertEqual(DuoRetry.verdict(for: DuoTransportError.unauthenticated(DuoErrorContext(httpStatus: 0))), .fail,
+                       "the client's own 'no credential' error discards nothing")
         XCTAssertEqual(verdict(.deviceRevoked), .disconnected)
         XCTAssertEqual(verdict(.upgradeRequired), .upgradeRequired)
         XCTAssertEqual(verdict(.termsRequired), .termsRequired)

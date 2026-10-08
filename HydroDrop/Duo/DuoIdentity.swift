@@ -8,6 +8,8 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     private let dependencies: DuoDependencies
 
     @MainActor init(dependencies: DuoDependencies) { self.dependencies = dependencies }
+    /// Stage B's initialiser takes the folder its files live in; the composition passes one in a test.
+    @MainActor init(dependencies: DuoDependencies, directory: URL) { self.dependencies = dependencies }
 
     var credential: DuoCredential? { nil }
     var installDay: String { DayKey.key(for: Date()) }

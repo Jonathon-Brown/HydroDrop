@@ -213,14 +213,25 @@ public enum DuoRetry {
     public static let minimumDelay: TimeInterval = 30
     /// When a failure says nothing about when to try again (a WAF page's 429 reads as 60 s, §6.0).
     public static let fallbackDelay: TimeInterval = 60
+    /// The longest a `Retry-After` is believed. The server's own longest wait is a day (the daily
+    /// windows, the redeem lock, `nudge_limit`), but a proxy's 503 can carry any number, and one
+    /// that said 2147483647 would park the queue for sixty-eight years.
+    public static let maximumDelay: TimeInterval = 2 * 86_400
     /// Retries in a row before waiting for the next foreground (§6.7: max 3).
     public static let maximumAttempts = 3
 
     public enum Verdict: Equatable, Sendable {
         /// `duo_unknown` or `duo_ended`: the duo is over. Mark it ended here, say nothing.
         case ended
-        /// Try again after this long: rate limits, maintenance, 5xx and no connection.
+        /// Try again after this long: rate limits, maintenance, 5xx and no connection. The
+        /// retry of an idempotent (I) request replays its `Idempotency-Key` and its bytes;
+        /// `createDevice` and `rotate` have no key, so a flow that re-sends either on this
+        /// verdict has to know what it is doing (a second `createDevice` makes a second member).
         case retry(after: TimeInterval)
+        /// The task was cancelled (the person left the screen, a newer refresh took over). Nothing
+        /// is known about the request or the server: change nothing, tell no one, keep any
+        /// in-flight record, and do not schedule a re-send. The next refresh or tap tries again.
+        case cancelled
         /// 401 `unauthenticated`: this identity is gone. Discard it; a new one is made on the
         /// next Create or Join tap, never silently (§3.4).
         case reidentify
@@ -237,6 +248,11 @@ public enum DuoRetry {
     }
 
     public static func verdict(for error: Error) -> Verdict {
+        // A cancelled task says nothing about the request or the server. As `.fail` it would be
+        // written to Diagnostics and told to the person in words, for something that did not go
+        // wrong; as `.retry` it would invite a re-send a minute after the person left the screen.
+        // It is its own verdict, and `noteFailure` does not log it.
+        if error is CancellationError { return .cancelled }
         guard let error = error as? DuoTransportError else { return .fail }
         switch error {
         case .duoUnknown, .duoEnded:
@@ -248,9 +264,18 @@ public enum DuoRetry {
         case .unreadable(let status, _) where status >= 500 || status == 429:
             // 429 as well as 5xx: the contract says to dispatch on the HTTP status first, and a
             // rate limit whose body this build cannot read (a code a newer server added) is
-            // still a rate limit, to be waited out rather than failed (§6.7).
+            // still a rate limit, to be waited out rather than failed (§6.7). An unreadable 2xx
+            // is not here on purpose: the request landed and its answer cannot be read, and a
+            // replay is answered from the server's record with the same bytes, so retrying it
+            // would repeat for ever at every foreground and hold up every request queued behind
+            // it. It is a failure the person is told about; a flow that started an (I) request
+            // keeps its in-flight record (the client's header comment says which outcomes keep
+            // it), so the next tap replays the same key instead of starting a second join.
             return .retry(after: fallbackDelay)
-        case .unauthenticated:
+        case .unauthenticated(let context) where context.httpStatus == 401:
+            // Only a real 401 from the server means this identity is gone. The client's own
+            // "no credential" error carries status 0, and discarding on that would forget an
+            // identity that was never sent, so it falls through to `.fail`.
             return .reidentify
         case .deviceRevoked:
             return .disconnected
@@ -267,7 +292,7 @@ public enum DuoRetry {
 
     private static func delay(for context: DuoErrorContext) -> TimeInterval {
         guard let seconds = context.retryAfter else { return fallbackDelay }
-        return max(minimumDelay, TimeInterval(seconds))
+        return min(maximumDelay, max(minimumDelay, TimeInterval(seconds)))
     }
 }
 
