@@ -303,7 +303,7 @@ final class DuoOpQueueTests: XCTestCase {
     }
 
     func testTheClientRefusingToBuildARequestDropsIt() throws {
-        // `DuoAPIClient` throws `schema` at status 0 for a duo id that is not a lowercase UUID, or a
+        // The app's real transport throws `schema` at status 0 for a duo id that is not a lowercase UUID, or a
         // body it cannot encode: such an entry can never leave the phone, and kept it would hold up
         // everything behind it for good.
         XCTAssertEqual(DuoOpQueue.disposition(for: try leave(), error: error(.schema, status: 0)), .drop)
