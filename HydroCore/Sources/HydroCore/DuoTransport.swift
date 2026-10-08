@@ -126,7 +126,8 @@ public protocol DuoAttesting: Sendable {
 public protocol DuoDeviceCheckProviding: Sendable {
     var isSupported: Bool { get }
     /// A fresh base64 `DCDevice` token, or nil where DeviceCheck is unsupported or fails. It
-    /// is per request and never stored (§11.2).
+    /// is per request: the server never stores it, and the phone keeps one only inside the
+    /// in-flight record of a request still waiting for its answer, at most 23 hours (§11.2, D62).
     func token() async -> String?
 }
 

@@ -469,7 +469,8 @@ public struct DuoInflightJournal: Codable, Equatable, Sendable {
     }
 
     /// The key and the exact bytes to send for a request with a field that changes on every
-    /// attempt (a redeem's DeviceCheck token, which §11.2 calls per-request and never stored).
+    /// attempt (a redeem's DeviceCheck token: per-request, never stored by the server, and kept
+    /// here only until the request is answered or the journal's lifetime ends, D62).
     /// `key(for:body:)` would give such a request a new key each time, because its bytes never
     /// match, and the server's replay of a lost answer (§6.0) would never happen on a phone;
     /// worse, sending the old key with new bytes is `422 idempotency_mismatch`. `identity` is
