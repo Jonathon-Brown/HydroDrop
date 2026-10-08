@@ -69,6 +69,14 @@ extension DrinkLogger {
         // so a water logged from the reminder's own button still answers the reminder.
         NightOutCoordinator.shared.didLog(drinkType, settings: settings)
 
+        #if DUO_V2
+        // A partner hears about progress from every way a drink comes in, not only the Today
+        // screen, as with the iCloud version's hook here. It costs nothing for anyone without a
+        // duo (nothing is owed, so nothing is sent), and the sync engine spaces the writes out to
+        // one every thirty seconds however fast drinks are logged.
+        DuoStore.shared.logChanged(entries: logged.allEntries, goalML: settings.dailyGoalML)
+        #endif
+
         if followUp.playsHaptic {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
