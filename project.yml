@@ -5,6 +5,16 @@ options:
     iOS: "17.0"
     watchOS: "10.0"
   createIntermediateGroups: true
+# Whether Duo Streaks v2 is compiled in. Both files leave DUO_V2_CONDITION empty, so it is not.
+# Debug (Xcode's Run and Test) also reads an optional, gitignored `Config/Duo.local.xcconfig`;
+# Release reads no local file, so nothing left in a worktree can put Duo into an archive. A build
+# setting on the command line (`DUO_V2_CONDITION=DUO_V2`) turns it on, in either configuration,
+# for the app, the widgets and the unit tests (the Watch app and the UI tests hold no Duo code
+# and ignore it), and that is how a release that ships Duo says so. Every Duo source file is
+# wrapped in `#if DUO_V2`.
+configFiles:
+  Debug: Config/Duo.xcconfig
+  Release: Config/Duo.Release.xcconfig
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -118,6 +128,7 @@ targets:
           - SKAdNetworkIdentifier: 3qcr597p9d.skadnetwork
     settings:
       base:
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) $(DUO_V2_CONDITION)"
         PRODUCT_BUNDLE_IDENTIFIER: com.jonathonbrown.HydroDrop
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # One alternate icon per paid mascot skin; AppIconManager switches between them.
@@ -176,6 +187,7 @@ targets:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) $(DUO_V2_CONDITION)"
         PRODUCT_BUNDLE_IDENTIFIER: com.jonathonbrown.HydroDrop.Widgets
         CODE_SIGN_ENTITLEMENTS: HydroDropWidgets/HydroDropWidgets.entitlements
         SWIFT_EMIT_LOC_STRINGS: YES
@@ -227,6 +239,7 @@ targets:
       - path: HydroDropTests
     settings:
       base:
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) $(DUO_V2_CONDITION)"
         PRODUCT_BUNDLE_IDENTIFIER: com.jonathonbrown.HydroDropTests
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HydroDrop.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HydroDrop"

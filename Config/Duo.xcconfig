@@ -1,0 +1,4 @@
+// Whether Duo Streaks v2 is compiled in. Empty means it is not: every Duo file is wrapped in
+// `#if DUO_V2`, so nothing of it is built and nothing of it can be reached.
+DUO_V2_CONDITION =
+#include? "Duo.local.xcconfig"

@@ -90,6 +90,45 @@ such as FoundationModels for Say it, sit behind `#available`.
   `CloudSettingsStore` (iCloud key-value storage). The widget is republished when the
   goal, units or quick-add sizes change, from `HomeView.mirrorToCompanions`.
 
+## Duo Streaks v2 (branch `feature/duo-v2`)
+
+- Duo compiles in only when the Swift condition `DUO_V2` is set, and it is off by default, so with
+  it off the app has no Duo screen, service or request. (HydroCore's Duo rules and wire types are
+  compiled in either way, being pure and shared with the widget and the Watch app, and nothing
+  calls them without the flag. Public types cannot be dropped by the optimiser, so a flag-off
+  build is not byte-identical to one from `main`: about 1.8 MB larger in the app and about 3.5 MB
+  in each of the widget and the Watch app, with one extra system link, `libswift_StringProcessing`,
+  from a regex literal in `DuoNudge`. Behaviour, `Info.plist`, entitlements and the privacy
+  manifest are unchanged.) Switch it on for one `xcodebuild` run with `DUO_V2_CONDITION=DUO_V2`
+  after the destination, or for Xcode's Run and Test with a gitignored `Config/Duo.local.xcconfig`
+  holding `DUO_V2_CONDITION = DUO_V2` (it takes effect without regenerating the project).
+  Release and archive builds never read that local file (they use `Config/Duo.Release.xcconfig`),
+  so an archive that ships Duo has to pass `DUO_V2_CONDITION=DUO_V2` on purpose. Screenshots and
+  App Store captures run through the Debug test action, which does read it: pass
+  `DUO_V2_CONDITION=` (empty) on the command line, or remove the file, so they come from a Duo-off
+  build. Every Duo file under `HydroDrop/` and `HydroDropWidgets/` is wrapped in `#if DUO_V2`.
+- Rules, the wire contract and every pure helper live in `HydroCore` (`cd HydroCore && swift test`).
+  `HydroDrop/Duo/` holds the app side: `DuoStore` (state only), the services it asks (sync, joining,
+  exits and the op queue, push, identity, the API client), and `DuoComposition`, the one file that
+  names them all. A service reads what it needs from `DuoDependencies` when it needs it.
+- The words on Duo's screens come from `HydroCore`'s `DuoCopy` and `DuoUserMessage`, which hold only
+  approved wording, apart from the few lines plan P2 lists as awaiting Jonathon's approval (marked
+  in `DuoErrors.swift`). Any other user-facing string is new copy and needs his approval first.
+- Client conformance vectors added for Duo v2 stay out of `duo-vectors-v1.json` until
+  `Vectors.includesClientVectors` is turned on in one commit that regenerates the file; the server
+  and Android repos take the new file after that.
+- Test with `xcodebuild test -project HydroDrop.xcodeproj -scheme HydroDrop -destination "id=$SIM"
+  DUO_V2_CONDITION=DUO_V2 -only-testing:HydroDropTests/<Class>`, and build once without the flag to
+  show the app still builds with Duo off.
+- `-DuoPreview [scenario]` (Debug, with `DUO_V2`) draws sample duos from a store that talks to
+  nobody; the scenario names are `DuoStore.previewScenarioNames` (empty, waiting, silent, ended,
+  restore, maintenance and so on).
+- `-DuoClientVersion <N.N>` (Debug, with `DUO_V2`) makes the app tell the Duo server it is that marketing
+  version. Both servers answer `426` to a write from a client older than 2.0 and this branch still says
+  1.8.1 until the first Duo TestFlight build is bumped, so the two-simulator staging loop needs
+  `xcrun simctl launch $SIM com.jonathonbrown.HydroDrop -UITestSkipOnboarding -DuoClientVersion 2.0`
+  (for a device run, put the two words in the scheme's Arguments). Compiled out of Release.
+
 ## Conventions
 
 - Comments explain the reason behind the code in full sentences, often with the history

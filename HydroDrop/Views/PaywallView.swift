@@ -41,6 +41,11 @@ enum PaywallSource: String, CaseIterable, Identifiable {
     case streakBreakMessage = "streak-break-message"
     /// A subscriber's way to lifetime, from Settings. The paywall offers only that.
     case switchToLifetime = "switch-to-lifetime"
+    #if DUO_V2
+    /// A free person who tried to start or join a second duo, which HydroDrop+ allows. Its
+    /// count was taken out with the iCloud version of Duo and comes back with this one.
+    case lockedDuo = "locked-duo"
+    #endif
 
     var id: String { rawValue }
 }

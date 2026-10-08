@@ -6,11 +6,11 @@ import Foundation
 
 /// Which side of a duo someone is on. The owner is whoever sent the invite. It carries no
 /// rank: both sides see and do exactly the same things.
-enum DuoRole: String, Codable, CaseIterable {
+public enum DuoRole: String, Codable, CaseIterable, Sendable {
     case owner
     case partner
 
-    var other: DuoRole { self == .owner ? .partner : .owner }
+    public var other: DuoRole { self == .owner ? .partner : .owner }
 }
 
 /// Everything one person shares about one day, and the whole of it.
@@ -18,20 +18,28 @@ enum DuoRole: String, Codable, CaseIterable {
 /// No amounts, no drinks, no times of day, nothing from Night Out, caffeine or Health.
 /// Progress is rounded down to a quarter on purpose: enough to draw a face with, not
 /// enough to work out what anyone drank.
-struct DuoDayStatus: Codable, Equatable {
-    var role: DuoRole
+public struct DuoDayStatus: Codable, Equatable, Sendable {
+    public var role: DuoRole
     /// `yyyy-MM-dd` in the calendar of whoever wrote it. See `DayKey`.
-    var day: String
-    var goalMet: Bool
+    public var day: String
+    public var goalMet: Bool
     /// 0, 25, 50, 75 or 100.
-    var progressBucket: Int
-    var updatedAt: Date
+    public var progressBucket: Int
+    public var updatedAt: Date
 
-    var recordName: String { DuoRecordName.dayStatus(role: role, day: day) }
+    public init(role: DuoRole, day: String, goalMet: Bool, progressBucket: Int, updatedAt: Date) {
+        self.role = role
+        self.day = day
+        self.goalMet = goalMet
+        self.progressBucket = progressBucket
+        self.updatedAt = updatedAt
+    }
+
+    public var recordName: String { DuoRecordName.dayStatus(role: role, day: day) }
 
     /// Whether `other` says the same thing about the same day. When it was written is
     /// not part of what it says.
-    func saysTheSame(as other: DuoDayStatus) -> Bool {
+    public func saysTheSame(as other: DuoDayStatus) -> Bool {
         role == other.role && day == other.day && goalMet == other.goalMet && progressBucket == other.progressBucket
     }
 }
@@ -47,12 +55,12 @@ struct DuoDayStatus: Codable, Equatable {
 /// This used to name each duo's CloudKit zone too (`Duo-<uuid>`) and the one `Duo`
 /// record in it, and turned a zone name back into a duo. Duo v2 has no zones, so those
 /// are gone.
-enum DuoRecordName {
-    static func dayStatus(role: DuoRole, day: String) -> String { "\(role.rawValue)-\(day)" }
+public enum DuoRecordName {
+    public static func dayStatus(role: DuoRole, day: String) -> String { "\(role.rawValue)-\(day)" }
 
     /// Reads a status's name back. Nil for any other key, including ones a newer version
     /// of the app may add later.
-    static func parseDayStatus(_ recordName: String) -> (role: DuoRole, day: String)? {
+    public static func parseDayStatus(_ recordName: String) -> (role: DuoRole, day: String)? {
         guard let dash = recordName.firstIndex(of: "-"),
               let role = DuoRole(rawValue: String(recordName[..<dash])) else { return nil }
         let day = String(recordName[recordName.index(after: dash)...])
@@ -62,30 +70,30 @@ enum DuoRecordName {
 }
 
 /// Turns a day's total into the two things that are shared about it.
-enum DuoProgress {
-    static let buckets = [0, 25, 50, 75, 100]
+public enum DuoProgress {
+    public static let buckets = [0, 25, 50, 75, 100]
 
     /// Progress towards the goal, rounded down to a quarter.
     ///
     /// Measured against the saved goal, as the solo streak is, not against a target
     /// raised for a hot day. That keeps "goal met" and a full bucket the same moment,
     /// and means saying yes to extra water can never cost a partner the shared streak.
-    static func bucket(totalML: Int, goalML: Int) -> Int {
+    public static func bucket(totalML: Int, goalML: Int) -> Int {
         guard goalML > 0, totalML > 0 else { return 0 }
         let quarters = min(4, (totalML * 4) / goalML)
         return quarters * 25
     }
 
-    static func goalMet(totalML: Int, goalML: Int) -> Bool {
+    public static func goalMet(totalML: Int, goalML: Int) -> Bool {
         goalML > 0 && totalML >= goalML
     }
 
     /// What a mascot should be drawn at for a bucket.
-    static func fraction(forBucket bucket: Int) -> Double {
+    public static func fraction(forBucket bucket: Int) -> Double {
         Double(min(max(bucket, 0), 100)) / 100
     }
 
-    static func status(role: DuoRole, day: String, totalML: Int, goalML: Int, now: Date) -> DuoDayStatus {
+    public static func status(role: DuoRole, day: String, totalML: Int, goalML: Int, now: Date) -> DuoDayStatus {
         DuoDayStatus(
             role: role,
             day: day,
@@ -96,7 +104,7 @@ enum DuoProgress {
     }
 
     /// One short line for a day's status. Nil reads as a day nobody has heard about yet.
-    static func line(for status: DuoDayStatus?) -> String {
+    public static func line(for status: DuoDayStatus?) -> String {
         guard let status else { return "Nothing yet today" }
         if status.goalMet { return "Goal met" }
         switch status.progressBucket {
@@ -109,54 +117,181 @@ enum DuoProgress {
 }
 
 /// One duo, as this device last saw it.
-struct DuoState: Codable, Equatable, Identifiable {
-    var id: UUID
-    var zoneName: String
-    /// Who the zone belongs to, as CloudKit names them. Needed to find the zone again
-    /// from the partner's side, where it lives in someone else's iCloud.
-    var zoneOwnerName: String
-    var myRole: DuoRole
-    var createdAt: Date
-    /// First names, typed in by each person during setup. Never read from iCloud.
-    var ownerDisplayName: String
-    var partnerDisplayName: String
-    var ownerSkin: String
-    var partnerSkin: String
-    var statuses: [DuoDayStatus]
-    /// The invite link, once there is one. Only the owner has it.
-    var shareURL: URL?
-    var partnerHasJoined: Bool
-    /// Set when the other side left or the duo was deleted. The duo stays on screen,
+///
+/// The fields after `nudges` are Duo v2's (final design §14); a cache written without them
+/// reads with each at its default, so an older cache never fails to load.
+public struct DuoState: Codable, Equatable, Identifiable, Sendable {
+    /// The server's duo id, a lowercase UUID on the wire. Written lowercase wherever it
+    /// leaves the app (paths, ledger keys, thread ids).
+    public var id: UUID
+    public var myRole: DuoRole
+    public var createdAt: Date
+    /// First names, as the server holds them: canonical (final design §8.8), and empty
+    /// when the server says there is none, which is shown as "Your partner".
+    public var ownerDisplayName: String
+    public var partnerDisplayName: String
+    public var ownerSkin: String
+    public var partnerSkin: String
+    public var statuses: [DuoDayStatus]
+    public var partnerHasJoined: Bool
+    /// Set when the duo is over, whoever or whatever ended it. The duo stays on screen,
     /// saying so, until it is cleared by hand.
-    var endedAt: Date?
-    /// Where the last read of the zone left off, as iCloud handed it over. Kept beside
-    /// what that read brought back, so the two can never be saved apart.
-    var changeToken: Data?
+    public var endedAt: Date?
     /// The last couple of days of nudges, from both sides. Optional so that a cache
     /// written before nudges existed still reads.
-    var nudges: [DuoNudge]?
+    public var nudges: [DuoNudge]?
 
-    var allNudges: [DuoNudge] { nudges ?? [] }
+    /// When the second person joined, from the server's clock. The "Not them? Leave &
+    /// block" card is measured from it, so a wrong clock on this phone cannot hide it (§11.8).
+    public var joinedAt: Date?
+    /// How far this phone has read this duo's change feed (`changes?since=`): the highest
+    /// `cursor` any response has given, never lowered (§6.4).
+    public var cursor: Int64
+    /// The server's `ver` for each day it holds a row for, keyed `"<role>-<day>"` (see
+    /// `DuoRecordName`). A write carries the one last seen as `base_ver` (§10.3).
+    public var vers: [String: Int64]
+    /// The invite this phone made and still holds. Only the owner has one, and only until
+    /// it is used or expires.
+    public var invite: DuoInvite?
+    /// When the server says the duo's open invite expires, if it has one: how a phone that
+    /// lost its code (a reinstall) still knows there is one out.
+    public var openInviteExpiresAt: Date?
+    public var endedBy: DuoEndedBy?
+    /// The last day the partner's phone wrote, for "Not seen since <day>" (§6.4).
+    public var partnerLastWriteDay: String?
+    /// True while the partner is the App Review sample partner (§7.13): the card says so.
+    public var partnerIsDemo: Bool
+    /// What this person calls the partner, if they chose to ("Show as:"). Local to this
+    /// phone, cleaned with `cleanedName` when saved, and used in place of the server's name
+    /// everywhere this app draws or announces it (decision D29).
+    public var partnerNickname: String?
+    /// Whether the duo was set up with a link or QR code that carried a secret (§4.1).
+    public var e2eeCapable: Bool
+    /// A leave or block queued and not yet sent: the card shows it ended meanwhile.
+    public var pendingOp: DuoPendingOp?
+    /// True once one `changes` read, or the answer to a create or a join, has succeeded for
+    /// this duo on this phone. Nothing is written to a duo before that (§10.3: after a
+    /// reinstall, a reconnect or a link, a phone must read before it writes).
+    public var syncedOnce: Bool
 
-    var hasEnded: Bool { endedAt != nil }
+    public init(
+        id: UUID,
+        myRole: DuoRole,
+        createdAt: Date,
+        ownerDisplayName: String,
+        partnerDisplayName: String,
+        ownerSkin: String,
+        partnerSkin: String,
+        statuses: [DuoDayStatus],
+        partnerHasJoined: Bool,
+        endedAt: Date? = nil,
+        nudges: [DuoNudge]? = nil,
+        joinedAt: Date? = nil,
+        cursor: Int64 = 0,
+        vers: [String: Int64] = [:],
+        invite: DuoInvite? = nil,
+        openInviteExpiresAt: Date? = nil,
+        endedBy: DuoEndedBy? = nil,
+        partnerLastWriteDay: String? = nil,
+        partnerIsDemo: Bool = false,
+        partnerNickname: String? = nil,
+        e2eeCapable: Bool = false,
+        pendingOp: DuoPendingOp? = nil,
+        syncedOnce: Bool = false
+    ) {
+        self.id = id
+        self.myRole = myRole
+        self.createdAt = createdAt
+        self.ownerDisplayName = ownerDisplayName
+        self.partnerDisplayName = partnerDisplayName
+        self.ownerSkin = ownerSkin
+        self.partnerSkin = partnerSkin
+        self.statuses = statuses
+        self.partnerHasJoined = partnerHasJoined
+        self.endedAt = endedAt
+        self.nudges = nudges
+        self.joinedAt = joinedAt
+        self.cursor = cursor
+        self.vers = vers
+        self.invite = invite
+        self.openInviteExpiresAt = openInviteExpiresAt
+        self.endedBy = endedBy
+        self.partnerLastWriteDay = partnerLastWriteDay
+        self.partnerIsDemo = partnerIsDemo
+        self.partnerNickname = partnerNickname
+        self.e2eeCapable = e2eeCapable
+        self.pendingOp = pendingOp
+        self.syncedOnce = syncedOnce
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, myRole, createdAt, ownerDisplayName, partnerDisplayName, ownerSkin, partnerSkin, statuses
+        case partnerHasJoined, endedAt, nudges
+        case joinedAt, cursor, vers, invite, openInviteExpiresAt, endedBy, partnerLastWriteDay
+        case partnerIsDemo, partnerNickname, e2eeCapable, pendingOp, syncedOnce
+    }
+
+    /// Reads a cache written before any of the v2 fields existed, and one written by the
+    /// iCloud version of Duo (whose zone and share fields are simply ignored).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        myRole = try c.decode(DuoRole.self, forKey: .myRole)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        ownerDisplayName = try c.decode(String.self, forKey: .ownerDisplayName)
+        partnerDisplayName = try c.decode(String.self, forKey: .partnerDisplayName)
+        ownerSkin = try c.decode(String.self, forKey: .ownerSkin)
+        partnerSkin = try c.decode(String.self, forKey: .partnerSkin)
+        statuses = try c.decode([DuoDayStatus].self, forKey: .statuses)
+        partnerHasJoined = try c.decode(Bool.self, forKey: .partnerHasJoined)
+        endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
+        nudges = try c.decodeIfPresent([DuoNudge].self, forKey: .nudges)
+        joinedAt = try c.decodeIfPresent(Date.self, forKey: .joinedAt)
+        cursor = try c.decodeIfPresent(Int64.self, forKey: .cursor) ?? 0
+        vers = try c.decodeIfPresent([String: Int64].self, forKey: .vers) ?? [:]
+        invite = try c.decodeIfPresent(DuoInvite.self, forKey: .invite)
+        openInviteExpiresAt = try c.decodeIfPresent(Date.self, forKey: .openInviteExpiresAt)
+        endedBy = try c.decodeIfPresent(DuoEndedBy.self, forKey: .endedBy)
+        partnerLastWriteDay = try c.decodeIfPresent(String.self, forKey: .partnerLastWriteDay)
+        partnerIsDemo = try c.decodeIfPresent(Bool.self, forKey: .partnerIsDemo) ?? false
+        partnerNickname = try c.decodeIfPresent(String.self, forKey: .partnerNickname)
+        e2eeCapable = try c.decodeIfPresent(Bool.self, forKey: .e2eeCapable) ?? false
+        pendingOp = try c.decodeIfPresent(DuoPendingOp.self, forKey: .pendingOp)
+        syncedOnce = try c.decodeIfPresent(Bool.self, forKey: .syncedOnce) ?? false
+    }
+
+    public var allNudges: [DuoNudge] { nudges ?? [] }
+
+    public var hasEnded: Bool { endedAt != nil }
     /// Waiting for the invite to be accepted.
-    var isPending: Bool { myRole == .owner && !partnerHasJoined && !hasEnded }
+    public var isPending: Bool { myRole == .owner && !partnerHasJoined && !hasEnded }
 
-    func displayName(of role: DuoRole) -> String {
+    /// The id as the server writes it: lowercase.
+    public var wireID: String { id.uuidString.lowercased() }
+
+    /// The `ver` last seen for `role`'s `day`, or 0 for a day this phone has seen no row of.
+    public func ver(of role: DuoRole, on day: String) -> Int64 {
+        vers[DuoRecordName.dayStatus(role: role, day: day)] ?? 0
+    }
+
+    /// The name to draw or announce for `role`: the nickname this person gave their partner
+    /// if there is one (decision D29), else the server's name, else "Your partner".
+    public func displayName(of role: DuoRole) -> String {
+        if role != myRole, let nickname = partnerNickname, !nickname.isEmpty { return nickname }
         let name = role == .owner ? ownerDisplayName : partnerDisplayName
         return name.isEmpty ? "Your partner" : name
     }
 
-    func skinRawValue(of role: DuoRole) -> String {
+    public func skinRawValue(of role: DuoRole) -> String {
         role == .owner ? ownerSkin : partnerSkin
     }
 
-    func status(of role: DuoRole, on day: String) -> DuoDayStatus? {
+    public func status(of role: DuoRole, on day: String) -> DuoDayStatus? {
         statuses.first { $0.role == role && $0.day == day }
     }
 
     /// Puts `status` in place of whatever was known about that person's day.
-    mutating func upsert(_ status: DuoDayStatus) {
+    public mutating func upsert(_ status: DuoDayStatus) {
         if let index = statuses.firstIndex(where: { $0.role == status.role && $0.day == status.day }) {
             statuses[index] = status
         } else {
@@ -193,7 +328,7 @@ struct DuoState: Codable, Equatable, Identifiable {
     /// own, they spell nothing and would leave an invisible name, so they go. The server's
     /// name check allows them in the same places (§11.5, as Phase 1 erratum 2 amended it),
     /// and it rejects emoji whatever cleaning keeps.
-    static func cleanedName(_ raw: String) -> String {
+    public static func cleanedName(_ raw: String) -> String {
         let lineBreaksAndTabs: Set<UInt32> = [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x85, 0x2028, 0x2029]
         let joiners: Set<UInt32> = [0x200C, 0x200D]
 
@@ -282,7 +417,7 @@ struct DuoState: Codable, Equatable, Identifiable {
     /// the halves are ordinary marks and are put in order. This comment used to say
     /// Foundation left the signs whole after marks of another script, which was not what
     /// happens.
-    static func composed(_ text: String) -> String {
+    public static func composed(_ text: String) -> String {
         let alwaysSplit: [UInt32: [UInt32]] = [0x0F73: [0x0F71, 0x0F72], 0x0F75: [0x0F71, 0x0F74], 0x0F81: [0x0F71, 0x0F80]]
         var split = String.UnicodeScalarView()
         for scalar in text.unicodeScalars {
@@ -304,7 +439,7 @@ struct DuoState: Codable, Equatable, Identifiable {
         return String(result)
     }
 
-    static let maximumNameLength = 24
+    public static let maximumNameLength = 24
 }
 
 /// The shared streak: consecutive days on which both people met their own goal.
@@ -312,7 +447,7 @@ struct DuoState: Codable, Equatable, Identifiable {
 /// Days are compared as the strings each person wrote, never as instants. Someone in
 /// Tokyo and someone in Los Angeles both have a "2026-09-21", they live through it at
 /// different times, and it is the same day of the streak for both of them.
-enum DuoStreak {
+public enum DuoStreak {
     /// Day-key arithmetic happens in a fixed calendar, so no daylight saving change
     /// anywhere can make a day go missing or arrive twice.
     private static let arithmetic: Calendar = {
@@ -336,7 +471,7 @@ enum DuoStreak {
     /// earlier day, so a phone that kept one would be counting a day nobody else has. This
     /// used to accept any year the calendar could write, which meant 1999-12-31 and even
     /// 0001-01-01 were read as days.
-    static func isDayKey(_ text: String) -> Bool {
+    public static func isDayKey(_ text: String) -> Bool {
         guard text.count == 10, let date = DayKey.date(from: text, calendar: arithmetic),
               DayKey.key(for: date, calendar: arithmetic) == text else { return false }
         // Written back out the same, so the calendar's year is the one in the text.
@@ -344,10 +479,10 @@ enum DuoStreak {
     }
 
     /// The first year a day key can be in.
-    static let earliestYear = 2000
+    public static let earliestYear = 2000
 
     /// Whether `day` is over everywhere, so nobody can still be living through it.
-    static func isOverEverywhere(_ day: String, now: Date) -> Bool {
+    public static func isOverEverywhere(_ day: String, now: Date) -> Bool {
         guard let next = DayKey.nextDayKey(after: day, calendar: arithmetic),
               let end = DayKey.date(from: next, calendar: lastPlace) else { return false }
         return now >= end
@@ -358,7 +493,7 @@ enum DuoStreak {
     /// My own day is over when my calendar says so. My partner's time zone is not
     /// shared, so their day counts as over once they have written a later one, or once
     /// it is over everywhere, whichever comes first.
-    static func isStillOpen(
+    public static func isStillOpen(
         _ day: String,
         for role: DuoRole,
         statuses: [DuoDayStatus],
@@ -374,7 +509,7 @@ enum DuoStreak {
     /// Nobody on Earth is more than two calendar days ahead of anybody else, so a day
     /// further off than that is a mistake or a fib. It is not counted, not walked back
     /// from, not shown, and not taken as a sign that anyone has moved on from today.
-    static func plausible(_ statuses: [DuoDayStatus], myToday: String) -> [DuoDayStatus] {
+    public static func plausible(_ statuses: [DuoDayStatus], myToday: String) -> [DuoDayStatus] {
         let furthest = DayKey.date(from: myToday, calendar: arithmetic)
             .flatMap { arithmetic.date(byAdding: .day, value: 2, to: $0) }
             .map { DayKey.key(for: $0, calendar: arithmetic) } ?? myToday
@@ -387,7 +522,7 @@ enum DuoStreak {
     /// someone has not met but still could is stepped over, so a day in progress for
     /// either person never breaks the streak. Anything else ends it. Streak freezes
     /// play no part here.
-    static func current(statuses all: [DuoDayStatus], myRole: DuoRole, myToday: String, now: Date) -> Int {
+    public static func current(statuses all: [DuoDayStatus], myRole: DuoRole, myToday: String, now: Date) -> Int {
         let statuses = plausible(all, myToday: myToday)
         guard let earliest = statuses.map(\.day).min() else { return 0 }
         return walk(statuses, down: earliest, myRole: myRole, myToday: myToday, now: now).streak
@@ -411,7 +546,7 @@ enum DuoStreak {
     /// and read on 09-25, start on 06-17; without the partner's 06-17 the streak still
     /// reaches the window's first day, 06-18, unbroken, so this is true, while "the
     /// earliest status, unbroken" would say false (vector HC.edge.staleCache).
-    static func reachedRetentionEdge(statuses all: [DuoDayStatus], myRole: DuoRole, myToday: String, now: Date) -> Bool {
+    public static func reachedRetentionEdge(statuses all: [DuoDayStatus], myRole: DuoRole, myToday: String, now: Date) -> Bool {
         let statuses = plausible(all, myToday: myToday)
         guard let edge = retentionStart(myToday: myToday),
               let earliest = statuses.map(\.day).min(), earliest <= edge else { return false }
@@ -452,7 +587,7 @@ enum DuoStreak {
 
     /// How recently a partner's status for my yesterday must have been written to be
     /// shown as their today. See `currentStatus`.
-    static let freshness: TimeInterval = 6 * 60 * 60
+    public static let freshness: TimeInterval = 6 * 60 * 60
 
     /// The status to show for someone right now.
     ///
@@ -460,7 +595,7 @@ enum DuoStreak {
     /// newest they have written if it is for my today or later, or for my yesterday and
     /// written in the last few hours, which is what a partner a few time zones behind
     /// looks like. Anything older is yesterday's news and is not shown as today's.
-    static func currentStatus(
+    public static func currentStatus(
         of role: DuoRole,
         statuses: [DuoDayStatus],
         myRole: DuoRole,
@@ -482,15 +617,15 @@ enum DuoStreak {
 
     /// How far back a day can still be corrected. Editing a drink can move it to another
     /// day, so the last week is republished when it changes. Nothing older ever is.
-    static let correctionWindowDays = 7
+    public static let correctionWindowDays = 7
 
     /// How many days of statuses anyone keeps: both phones and the server, the same
     /// number, so that they all show the same streak. The privacy page states it, and
     /// the server reads it from `RETENTION_DAYS` (decision D9).
-    static let retentionDays = 100
+    public static let retentionDays = 100
 
     /// The first day of the kept window: `myToday` and the 99 days before it.
-    static func retentionStart(myToday: String) -> String? {
+    public static func retentionStart(myToday: String) -> String? {
         guard let today = DayKey.date(from: myToday, calendar: arithmetic),
               let start = arithmetic.date(byAdding: .day, value: -(retentionDays - 1), to: today) else { return nil }
         return DayKey.key(for: start, calendar: arithmetic)
@@ -505,7 +640,7 @@ enum DuoStreak {
     /// The server runs the same rule each day with the date in the last time zone on
     /// Earth as `myToday`. That date is never later than any phone's, so the server never
     /// drops a day a phone still counts; it holds the same window or a day or two more.
-    static func pruned(_ statuses: [DuoDayStatus], myToday: String, now: Date) -> [DuoDayStatus] {
+    public static func pruned(_ statuses: [DuoDayStatus], myToday: String, now: Date) -> [DuoDayStatus] {
         guard let today = DayKey.date(from: myToday, calendar: arithmetic),
               let cutoffDate = arithmetic.date(byAdding: .day, value: -(correctionWindowDays + 2), to: today),
               let windowStart = retentionStart(myToday: myToday),
@@ -533,10 +668,10 @@ enum DuoStreak {
 /// There is no queue of writes to lose. Whatever could not be sent, because the phone
 /// was offline or the app was closed, is simply still different the next time this
 /// runs, and is sent then.
-enum DuoOutbox {
+public enum DuoOutbox {
     /// A `coverageStart` earlier than any real day, for callers that know the log goes
     /// back as far as it needs to.
-    static let coveredForever = "0000-01-01"
+    public static let coveredForever = "0000-01-01"
 
     /// - Parameters:
     ///   - totalsByDay: hydrating mL per day from the log, as `StreakCalculator` groups it.
@@ -547,7 +682,7 @@ enum DuoOutbox {
     ///     there means this phone wasn't keeping a log yet, not that nobody drank.
     ///     Without it, reinstalling the app and opening the duo before the log came back
     ///     from iCloud would publish a week of empty days over a partner's shared streak.
-    static func unsent(
+    public static func unsent(
         role: DuoRole,
         totalsByDay: [String: Int],
         goalML: Int,
@@ -555,6 +690,7 @@ enum DuoOutbox {
         myToday: String,
         now: Date,
         coverageStart: String = coveredForever,
+        rejectedDays: DuoRejectedDays = DuoRejectedDays(),
         calendar: Calendar = .current
     ) -> [DuoDayStatus] {
         guard let today = DayKey.date(from: myToday, calendar: calendar) else { return [] }
@@ -566,6 +702,9 @@ enum DuoOutbox {
 
         return days.compactMap { day in
             let wanted = DuoProgress.status(role: role, day: day, totalML: totalsByDay[day] ?? 0, goalML: goalML, now: now)
+            // A day the server refused for a reason that will not change is not sent again
+            // until what is wanted for it changes (final design §10.2, vector KV10).
+            if rejectedDays.blocks(wanted) { return nil }
             if let existing = known.first(where: { $0.role == role && $0.day == day }) {
                 if existing.saysTheSame(as: wanted) { return nil }
                 let isDowngrade = wanted.progressBucket <= existing.progressBucket
@@ -581,10 +720,10 @@ enum DuoOutbox {
 
 /// Spaces writes out. However fast drinks are logged, the server hears about it at most
 /// once every thirty seconds, and it hears the latest state, not every step on the way.
-struct DuoWriteCoalescer {
-    static let minimumInterval: TimeInterval = 30
+public struct DuoWriteCoalescer: Sendable {
+    public static let minimumInterval: TimeInterval = 30
 
-    enum Decision: Equatable {
+    public enum Decision: Equatable, Sendable {
         case writeNow
         /// Too soon after the last write. One write is now owed at this time.
         case wait(until: Date)
@@ -592,10 +731,12 @@ struct DuoWriteCoalescer {
         case alreadyWaiting
     }
 
-    private(set) var lastWriteAt: Date?
-    private(set) var isWaiting = false
+    public private(set) var lastWriteAt: Date?
+    public private(set) var isWaiting = false
 
-    mutating func request(now: Date) -> Decision {
+    public init() {}
+
+    public mutating func request(now: Date) -> Decision {
         guard let lastWriteAt else {
             self.lastWriteAt = now
             return .writeNow
@@ -612,24 +753,24 @@ struct DuoWriteCoalescer {
     }
 
     /// The owed write's time has come.
-    mutating func waitEnded(now: Date) {
+    public mutating func waitEnded(now: Date) {
         isWaiting = false
         lastWriteAt = now
     }
 }
 
-enum DuoLimit {
+public enum DuoLimit {
     /// One duo is free. More is part of HydroDrop+.
-    static let freeDuoCount = 1
-    static let plusDuoCount = 5
+    public static let freeDuoCount = 1
+    public static let plusDuoCount = 5
 
-    static func maximum(isSubscribed: Bool) -> Int {
+    public static func maximum(isSubscribed: Bool) -> Int {
         isSubscribed ? plusDuoCount : freeDuoCount
     }
 
     /// Duos that have ended do not take up a place: they are only a notice waiting to
     /// be cleared.
-    static func canAddDuo(existing: [DuoState], isSubscribed: Bool) -> Bool {
+    public static func canAddDuo(existing: [DuoState], isSubscribed: Bool) -> Bool {
         existing.filter { !$0.hasEnded }.count < maximum(isSubscribed: isSubscribed)
     }
 }

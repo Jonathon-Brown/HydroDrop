@@ -1,0 +1,6 @@
+// Release and archive builds: Duo Streaks v2 is never compiled in by default, and unlike
+// `Duo.xcconfig` this file does not include `Duo.local.xcconfig`, so a gitignored file left
+// in a worktree for Xcode's Run button cannot put Duo into a build that goes to TestFlight.
+// A release that ships Duo says so on purpose, on the command line:
+// `DUO_V2_CONDITION=DUO_V2`.
+DUO_V2_CONDITION =

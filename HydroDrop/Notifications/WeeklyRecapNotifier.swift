@@ -86,6 +86,25 @@ final class AppRouter: ObservableObject {
     /// Anything above that has somewhere else to take the user closes it first.
     @Published var showingSettings = false
 
+    #if DUO_V2
+    /// A Duo invite that arrived as a link or a scanned QR code and has not been dealt with
+    /// yet. Set by `handle(_:)`, which can run before any screen exists; the root view takes it,
+    /// closes Settings if it is open, and hands it to `DuoStore.receive(_:)` (final design §4.2).
+    @Published var pendingDuoLink: DuoParsedInvite?
+
+    /// Raised to bring the Duo screen forward, from a tapped Duo notification. Settings opens
+    /// first, and the Duo row inside it takes this and lowers it again.
+    @Published var showingDuoScreen = false
+
+    /// Whether the code-entry sheet, which the Duo screen presents over Settings or over Today, is
+    /// up: from when it appears until it has finished leaving. The join sheet the root presents
+    /// for the code it just stored waits on this, for the reason `settingsIsOnScreen` exists: a
+    /// sheet requested while another is still dismissing is dropped. The Duo screen also closes
+    /// Settings from that sheet's `onDismiss`, never in the turn the sheet closes itself, since two
+    /// stacked sheets must not be dismissed together.
+    @Published var duoEntrySheetIsOnScreen = false
+    #endif
+
     /// Whether the Settings sheet is actually up: from when it appears until it has
     /// finished sliding away, which is after `showingSettings` has already gone false.
     /// Whatever wants to present from underneath waits on this, because a sheet or an
@@ -103,6 +122,12 @@ final class AppRouter: ObservableObject {
     /// caller knows nothing was done with it.
     @discardableResult
     func handle(_ url: URL) -> Bool {
+        #if DUO_V2
+        if let invite = DuoLink.parse(url) {
+            pendingDuoLink = invite
+            return true
+        }
+        #endif
         guard let tagID = BottleTag.tagID(from: url) else { return false }
         pendingBottleTagID = tagID
         return true

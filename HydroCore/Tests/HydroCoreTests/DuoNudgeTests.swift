@@ -24,8 +24,6 @@ final class DuoNudgeTests: XCTestCase {
     ) -> DuoState {
         return DuoState(
             id: id,
-            zoneName: "Duo-\(id.uuidString)",
-            zoneOwnerName: "owner",
             myRole: myRole,
             createdAt: at(1, 9),
             ownerDisplayName: "Jo",
@@ -33,10 +31,8 @@ final class DuoNudgeTests: XCTestCase {
             ownerSkin: "classic",
             partnerSkin: "forest",
             statuses: statuses,
-            shareURL: nil,
             partnerHasJoined: joined,
             endedAt: ended ? at(2, 9) : nil,
-            changeToken: nil,
             nudges: nudges
         )
     }

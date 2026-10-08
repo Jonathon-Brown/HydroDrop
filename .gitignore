@@ -23,3 +23,8 @@ screenshot_*.png
 # Build output and editor state from running `swift test` or opening HydroCore on its own.
 HydroCore/.build/
 HydroCore/.swiftpm/
+
+# Turns Duo Streaks v2 on for Debug builds from Xcode (Run and Test): a one-line
+# `DUO_V2_CONDITION = DUO_V2` (see Config/Duo.xcconfig). Local, and read by Debug only: Release
+# and archive builds use Config/Duo.Release.xcconfig, which does not include it.
+Config/Duo.local.xcconfig

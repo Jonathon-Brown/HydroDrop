@@ -7,7 +7,7 @@ import Foundation
 /// The lines a nudge can say. There is no free text anywhere in a duo: a nudge carries
 /// the name of one of these and nothing else, and the words are looked up on the
 /// receiving phone. Nothing a person typed ever reaches another person.
-enum DuoNudgePreset: String, CaseIterable, Identifiable, Codable {
+public enum DuoNudgePreset: String, CaseIterable, Identifiable, Codable, Sendable {
     case waterBreak
     case sipWithMe
     case dropletMissesYou
@@ -17,9 +17,9 @@ enum DuoNudgePreset: String, CaseIterable, Identifiable, Codable {
     case halfwayCheck
     case youHaveGotThis
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var text: String {
+    public var text: String {
         switch self {
         case .waterBreak: return "Water break?"
         case .sipWithMe: return "Sip with me?"
@@ -34,24 +34,31 @@ enum DuoNudgePreset: String, CaseIterable, Identifiable, Codable {
 
     /// What is shown for a preset this version has never heard of, which is what a
     /// partner on a newer version may one day send.
-    static let fallbackText = "Time for some water?"
+    public static let fallbackText = "Time for some water?"
 
-    static func text(forID id: String) -> String {
+    public static func text(forID id: String) -> String {
         DuoNudgePreset(rawValue: id)?.text ?? fallbackText
     }
 }
 
 /// One nudge, as it sits in the duo's zone.
-struct DuoNudge: Codable, Equatable, Identifiable {
-    static let recordPrefix = "nudge-"
+public struct DuoNudge: Codable, Equatable, Identifiable, Sendable {
+    public static let recordPrefix = "nudge-"
 
     /// The record's name, `nudge-<uuid>`.
-    var id: String
-    var fromRole: DuoRole
-    var presetID: String
-    var createdAt: Date
+    public var id: String
+    public var fromRole: DuoRole
+    public var presetID: String
+    public var createdAt: Date
 
-    static func make(from role: DuoRole, preset: DuoNudgePreset, now: Date) -> DuoNudge {
+    public init(id: String, fromRole: DuoRole, presetID: String, createdAt: Date) {
+        self.id = id
+        self.fromRole = fromRole
+        self.presetID = presetID
+        self.createdAt = createdAt
+    }
+
+    public static func make(from role: DuoRole, preset: DuoNudgePreset, now: Date) -> DuoNudge {
         DuoNudge(id: recordPrefix + UUID().uuidString, fromRole: role, presetID: preset.rawValue, createdAt: now)
     }
 
@@ -65,25 +72,25 @@ struct DuoNudge: Codable, Equatable, Identifiable {
     /// that NUL, was taken for a nudge's. The pattern is matched code point by code point,
     /// as JavaScript's and Kotlin's regular expressions match it, with no canonical
     /// equivalence, so all three give the same answer on every input.
-    static func isNudgeRecordName(_ name: String) -> Bool {
+    public static func isNudgeRecordName(_ name: String) -> Bool {
         let pattern = #/nudge-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/#
         return name.wholeMatch(of: pattern.matchingSemantics(.unicodeScalar)) != nil
     }
 }
 
 /// Who may send a nudge, and when.
-enum DuoNudgeRules {
+public enum DuoNudgeRules {
     /// Nudges one person can send one duo in one of their own days. The server can set
     /// a lower number for a device it trusts less, and says so in `GET /me`, so
     /// `verdict` takes the limit as a parameter with this as the default.
-    static let dailyLimit = 3
+    public static let dailyLimit = 3
     /// A nudge older than this is history. It is kept off the screen, never announced,
     /// and cleared out of the zone by whoever sent it.
-    static let lifetime: TimeInterval = 2 * 24 * 60 * 60
+    public static let lifetime: TimeInterval = 2 * 24 * 60 * 60
     /// A nudge that turns up later than this is too late to be worth a notification.
-    static let announceWithin: TimeInterval = 12 * 60 * 60
+    public static let announceWithin: TimeInterval = 12 * 60 * 60
 
-    enum Verdict: Equatable {
+    public enum Verdict: Equatable, Sendable {
         case allowed(remaining: Int)
         /// All of today's have been sent.
         case limitReached
@@ -93,11 +100,11 @@ enum DuoNudgeRules {
         case nobodyToNudge
     }
 
-    static func sentToday(by role: DuoRole, nudges: [DuoNudge], now: Date, calendar: Calendar = .current) -> Int {
+    public static func sentToday(by role: DuoRole, nudges: [DuoNudge], now: Date, calendar: Calendar = .current) -> Int {
         nudges.filter { $0.fromRole == role && calendar.isDate($0.createdAt, inSameDayAs: now) }.count
     }
 
-    static func verdict(
+    public static func verdict(
         for duo: DuoState,
         partnerStatus: DuoDayStatus?,
         now: Date,
@@ -112,31 +119,31 @@ enum DuoNudgeRules {
 
     /// My own nudges that have outlived their use, to be deleted from the zone the next
     /// time I send one. Only ever my own: a partner's records are theirs to tidy.
-    static func expired(sentBy role: DuoRole, nudges: [DuoNudge], now: Date) -> [DuoNudge] {
+    public static func expired(sentBy role: DuoRole, nudges: [DuoNudge], now: Date) -> [DuoNudge] {
         nudges.filter { $0.fromRole == role && now.timeIntervalSince($0.createdAt) > lifetime }
     }
 
     /// What is worth keeping in the cache.
-    static func current(_ nudges: [DuoNudge], now: Date) -> [DuoNudge] {
+    public static func current(_ nudges: [DuoNudge], now: Date) -> [DuoNudge] {
         nudges.filter { now.timeIntervalSince($0.createdAt) <= lifetime }
     }
 }
 
 /// What has already been announced, so nothing is ever announced twice, whether the
 /// news arrives by push, by background refresh, by opening the app, or by all three.
-struct DuoLedger: Equatable {
-    static let capacity = 200
+public struct DuoLedger: Equatable, Sendable {
+    public static let capacity = 200
 
-    private(set) var seen: [String]
+    public private(set) var seen: [String]
 
-    init(seen: [String] = []) {
+    public init(seen: [String] = []) {
         self.seen = seen
     }
 
-    func hasSeen(_ key: String) -> Bool { seen.contains(key) }
+    public func hasSeen(_ key: String) -> Bool { seen.contains(key) }
 
     /// Records `key`. True the first time, false every time after.
-    mutating func markSeen(_ key: String) -> Bool {
+    public mutating func markSeen(_ key: String) -> Bool {
         guard !seen.contains(key) else { return false }
         seen.append(key)
         if seen.count > Self.capacity { seen.removeFirst(seen.count - Self.capacity) }
@@ -144,8 +151,17 @@ struct DuoLedger: Equatable {
     }
 
     /// Takes a key back out: it was planned but never actually shown.
-    mutating func forget(_ key: String) {
+    public mutating func forget(_ key: String) {
         seen.removeAll { $0 == key }
+    }
+
+    /// Takes back every key a duo wrote, whatever its day or kind: they all carry the duo's
+    /// lowercase id between bars (`met|<id>|<day>`). Clear removes a duo "together with its
+    /// vers, rejectedDays and ledger keys" (§12.2), and a key left behind would stay on the phone
+    /// for as long as the 200-key ledger keeps it.
+    public mutating func forget(duoID: UUID) {
+        let marker = "|\(duoID.uuidString.lowercased())|"
+        seen.removeAll { $0.contains(marker) }
     }
 
     /// The key a partner's goal-met moment is recorded under, `met|<duo id>|<day>`, with the
@@ -158,31 +174,38 @@ struct DuoLedger: Equatable {
     /// made on the phone. Duo v2 ids come from the server in lowercase. The v2 ledger
     /// starts empty under `duo.ledger.v2` (decision D15), so no key written the old way is
     /// ever compared with a new one, and nothing has to be migrated.
-    static func goalKey(duoID: UUID, day: String) -> String { "met|\(duoID.uuidString.lowercased())|\(day)" }
+    public static func goalKey(duoID: UUID, day: String) -> String { "met|\(duoID.uuidString.lowercased())|\(day)" }
 }
 
 /// Something to tell the user about a duo.
-struct DuoAnnouncement: Equatable {
-    enum Kind: Equatable {
+public struct DuoAnnouncement: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
         case nudge(presetID: String)
         /// The partner met their goal. `iHaveToo` picks the wording.
         case partnerMetGoal(iHaveToo: Bool)
     }
 
     /// The ledger key, which is also what the notification is named after.
-    var key: String
-    var duoID: UUID
-    var partnerName: String
-    var kind: Kind
+    public var key: String
+    public var duoID: UUID
+    public var partnerName: String
+    public var kind: Kind
 
-    var title: String {
+    public init(key: String, duoID: UUID, partnerName: String, kind: Kind) {
+        self.key = key
+        self.duoID = duoID
+        self.partnerName = partnerName
+        self.kind = kind
+    }
+
+    public var title: String {
         switch kind {
         case .nudge: return "\(partnerName) nudged you"
         case .partnerMetGoal: return "\(partnerName) hit their goal"
         }
     }
 
-    var body: String {
+    public var body: String {
         switch kind {
         case .nudge(let presetID): return DuoNudgePreset.text(forID: presetID)
         case .partnerMetGoal(let iHaveToo):
@@ -191,21 +214,21 @@ struct DuoAnnouncement: Equatable {
     }
 
     /// Only a nudge carries the reminder's buttons, so a glass can be logged from it.
-    var isActionable: Bool {
+    public var isActionable: Bool {
         if case .nudge = kind { return true }
         return false
     }
 }
 
 /// Works out what a fetch is worth telling the user about.
-enum DuoAnnouncements {
+public enum DuoAnnouncements {
     /// - Parameters:
     ///   - before: the duo as it was cached before the fetch.
     ///   - after: the same duo with the fetch applied.
     ///   - isFirstRead: true when the whole zone was read rather than what changed.
     ///     A first read is catching up, not news, so a goal found already met is not
     ///     announced as though it had just happened.
-    static func plan(
+    public static func plan(
         before: DuoState,
         after: DuoState,
         isFirstRead: Bool,
@@ -257,10 +280,10 @@ enum DuoAnnouncements {
 /// When a duo notification may be shown: only inside the waking window, which is the
 /// same window reminders keep to. Anything that arrives outside it is held until the
 /// window next opens, so a partner in another time zone can never wake anyone up.
-enum DuoQuietHours {
-    static let minutesPerDay = 24 * 60
+public enum DuoQuietHours {
+    public static let minutesPerDay = 24 * 60
 
-    static func isAwake(_ date: Date, startMinutes: Int, endMinutes: Int, calendar: Calendar = .current) -> Bool {
+    public static func isAwake(_ date: Date, startMinutes: Int, endMinutes: Int, calendar: Calendar = .current) -> Bool {
         // No window at all is the "paused" state for reminders. For a duo it is read as
         // no restriction: there is no opening time to hold anything until.
         guard startMinutes != endMinutes else { return true }
@@ -291,7 +314,7 @@ enum DuoQuietHours {
     /// nudge held that long is never announced; on the Chatham Islands' change at 02:45 it
     /// opened a quarter of an hour late. So the opening is worked out here from the time
     /// zone's offsets.
-    static func holdUntil(_ date: Date, startMinutes: Int, endMinutes: Int, calendar: Calendar = .current) -> Date? {
+    public static func holdUntil(_ date: Date, startMinutes: Int, endMinutes: Int, calendar: Calendar = .current) -> Date? {
         guard !isAwake(date, startMinutes: startMinutes, endMinutes: endMinutes, calendar: calendar) else { return nil }
         let start = min(max(startMinutes, 0), minutesPerDay - 1)
         var local = Calendar(identifier: .gregorian)
@@ -344,10 +367,10 @@ enum DuoQuietHours {
 
 /// The one-time suggestion, after a few days of a solo streak, to keep one with
 /// someone else. Shown once, dismissible, and never again after that.
-enum DuoInviteMoment {
-    static let streakNeeded = 3
+public enum DuoInviteMoment {
+    public static let streakNeeded = 3
 
-    static func shouldShow(soloStreak: Int, hasAnyDuo: Bool, wasDismissed: Bool) -> Bool {
+    public static func shouldShow(soloStreak: Int, hasAnyDuo: Bool, wasDismissed: Bool) -> Bool {
         !wasDismissed && !hasAnyDuo && soloStreak >= streakNeeded
     }
 }
