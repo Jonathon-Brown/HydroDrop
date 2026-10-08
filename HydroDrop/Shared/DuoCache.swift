@@ -29,6 +29,7 @@ struct DuoCache {
     static let inflightKey = "duo.inflight.v1"
     static let clearedKey = "duo.cleared.v1"
     static let deleteRequestedKey = "duo.deleteRequested.v1"
+    static let throwawayDeviceKey = "duo.throwawayDevice.v1"
     /// The kind the widget is registered under, so a change here can reload it.
     static let widgetKind = "DuoWidget"
 
@@ -37,7 +38,7 @@ struct DuoCache {
     static let allKeys = [statesKey, ledgerKey, myDisplayNameKey, opsKey, pendingInviteKey, rejectedDaysKey,
                           diagnosticsKey, notificationsOffKey, inviteMomentDismissedKey, memberKey, ageStatusKey,
                           termsAcceptedKey, pushUploadKey, seenDevicesKey, goalRaiseNoticeKey, inflightKey, clearedKey,
-                          deleteRequestedKey]
+                          deleteRequestedKey, throwawayDeviceKey]
     /// What a wipe leaves: the age answer (a local boolean the person gave once, and what stops
     /// a restart by someone who was refused, D60), the notifications switch, and the one-time
     /// suggestion and goal-raise note. None of them says anything about a duo.
@@ -190,6 +191,20 @@ struct DuoCache {
         nonmutating set {
             if let newValue { defaults.set(newValue.timeIntervalSince1970, forKey: Self.deleteRequestedKey) }
             else { defaults.removeObject(forKey: Self.deleteRequestedKey) }
+        }
+    }
+
+    /// The device id of the throwaway identity a Reconnect minted to carry its request and has not
+    /// finished with yet. While the stored credential is that one and live duos are cached, the
+    /// duos are another member's and this phone is still disconnected from them: without this,
+    /// a relaunch after a refused or interrupted reconnect found a valid, settled credential and
+    /// nothing to say otherwise, the first read answered `duo_unknown`, every cached duo ended
+    /// locally, and a reconnect that later worked could not bring them back. A device id only.
+    var throwawayDeviceID: String? {
+        get { defaults.string(forKey: Self.throwawayDeviceKey) }
+        nonmutating set {
+            if let newValue { defaults.set(newValue, forKey: Self.throwawayDeviceKey) }
+            else { defaults.removeObject(forKey: Self.throwawayDeviceKey) }
         }
     }
 

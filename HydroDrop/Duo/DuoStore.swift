@@ -102,6 +102,16 @@ final class DuoStore: ObservableObject, DuoHost {
     func install(_ dependencies: DuoDependencies) {
         self.dependencies = dependencies
         refusedNow()
+        // A Reconnect that was refused or cut short left the throwaway it minted as the stored
+        // credential, behind duos that belong to another member. It is still disconnected from
+        // them: say so before anything reads with the stranger's bearer and ends them.
+        if let throwaway = cache.throwawayDeviceID {
+            if dependencies.identity?.credential?.deviceID == throwaway {
+                if duos.contains(where: { !$0.hasEnded }) { availability = .disconnected }
+            } else {
+                cache.throwawayDeviceID = nil
+            }
+        }
     }
 
     /// Whether this person was refused, asked of every place the refusal is kept rather than of

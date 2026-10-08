@@ -77,6 +77,7 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         cache.saveInflight(journal)
         cache.markCleared(UUID(), now: kit.clock.now)
         cache.deleteRequestedAt = kit.clock.now
+        cache.throwawayDeviceID = "throwaway-device"
         // The four a wipe keeps.
         store.notificationsEnabled = false
         cache.inviteMomentDismissed = true

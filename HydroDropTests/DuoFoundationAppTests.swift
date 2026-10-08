@@ -462,6 +462,27 @@ final class DuoServiceSupportTests: XCTestCase {
                        "the person asked for everything to go and the identity being gone is the answer: finish the wipe")
     }
 
+    func testAThrowawayCredentialBehindCachedDuosStillReadsAsDisconnectedAfterARelaunch() throws {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        let throwaway = try XCTUnwrap(kit.identity.credential).deviceID
+        kit.dependencies.cache.saveDuos([DuoFixtures.duo()])
+
+        func relaunch() -> DuoStore {
+            let store = DuoStore(cache: DuoCache(defaults: kit.defaults), reloadWidget: {})
+            store.install(kit.dependencies)
+            return store
+        }
+        XCTAssertEqual(relaunch().availability, .unknown, "no marker, nothing to say")
+        kit.dependencies.cache.throwawayDeviceID = throwaway
+        XCTAssertEqual(relaunch().availability, .disconnected, "the stored credential is the throwaway and live duos belong to someone else")
+        kit.dependencies.cache.saveDuos([DuoFixtures.duo(ended: true)])
+        XCTAssertEqual(relaunch().availability, .unknown, "no live duo, nothing to be disconnected from")
+        kit.dependencies.cache.saveDuos([DuoFixtures.duo()])
+        kit.dependencies.cache.throwawayDeviceID = "some-other-device"
+        XCTAssertEqual(relaunch().availability, .unknown, "the credential is not the throwaway")
+        XCTAssertNil(kit.dependencies.cache.throwawayDeviceID, "a marker for a credential that is gone is dropped")
+    }
+
     func testTheDeleteRequestedMarkerIsADateAndNothingElse() {
         let defaults = UserDefaults(suiteName: "DuoDeleteMarker.\(UUID().uuidString)")!
         let cache = DuoCache(defaults: defaults)
