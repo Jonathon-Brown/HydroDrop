@@ -287,6 +287,8 @@ final class FakeAnnouncer: DuoAnnouncing {
     func hasDeliveredRemote(forKey key: String) async -> Bool { remoteKeys.contains(key) }
     func removeDelivered(for duoID: UUID) { removedFor.append(duoID) }
     func removeAllDelivered() { removedAll += 1 }
+    private(set) var removedPending = 0
+    func removeAllPending() { removedPending += 1 }
 }
 
 @MainActor

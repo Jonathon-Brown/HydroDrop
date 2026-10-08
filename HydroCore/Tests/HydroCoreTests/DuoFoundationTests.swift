@@ -499,6 +499,8 @@ final class DuoFoundationTests: XCTestCase {
         XCTAssertEqual(DuoPushPayload.parse(data: ["t": "ended", "duo": duo, "ended_by": "owner_deleted"])?.kind, .ended(.ownerDeleted))
         XCTAssertEqual(DuoPushPayload.parse(data: ["t": "ended", "duo": duo, "ended_by": "weird"])?.kind, .ended(.unknown))
         XCTAssertEqual(DuoPushPayload.parse(data: ["t": "reconnected", "duo": duo, "who": "superseded"])?.kind, .reconnected(who: "superseded"))
+        XCTAssertEqual(DuoPushPayload.parse(data: ["t": "reconnected", "duo": duo])?.kind, .reconnected(who: "unknown"),
+                       "the iOS payload has no who in its data: an absent one is not a partner")
         let digest = try XCTUnwrap(DuoPushPayload.parse(data: ["t": "digest", "duo": duo, "kinds": "goal_met,nudge", "days": "2026-09-23,2026-09-24", "nudge_ids": "nudge-8F2A0000-0000-4000-8000-000000000002", "preset": "cheers"]))
         XCTAssertEqual(digest.ledgerKeys.count, 3)
         XCTAssertEqual(DuoPushPayload.parse(data: ["t": "from_the_future", "duo": duo])?.kind, .unknown("from_the_future"))

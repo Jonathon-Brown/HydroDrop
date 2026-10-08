@@ -488,6 +488,15 @@ final class DuoServiceSupportTests: XCTestCase {
         XCTAssertEqual(kit.dependencies.cache.throwawayDeviceID, throwaway, "a credential that does not read yet may only be a locked Keychain: the marker stays")
     }
 
+    func testTurningDuoNotificationsOffWithdrawsWhatIsWaitingForTheMorning() {
+        let kit = DuoTestKit()
+        kit.store.notificationsEnabled = false
+        XCTAssertEqual(kit.announcer.removedPending, 1, "a nudge held to 08:00 must not appear after the person said no")
+        XCTAssertEqual(kit.announcer.removedAll, 0, "what is already delivered is left alone")
+        kit.store.notificationsEnabled = true
+        XCTAssertEqual(kit.announcer.removedPending, 1, "turning them on withdraws nothing")
+    }
+
     func testClearingADuoTakesItsNudgeIdsOutOfTheLedger() {
         let kit = DuoTestKit()
         var duo = DuoFixtures.duo(ended: true)

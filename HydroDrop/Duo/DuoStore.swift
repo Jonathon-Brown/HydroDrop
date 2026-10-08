@@ -52,6 +52,7 @@ final class DuoStore: ObservableObject, DuoHost {
         didSet {
             guard notificationsEnabled != oldValue else { return }
             cache.notificationsEnabled = notificationsEnabled
+            if !notificationsEnabled { dependencies?.announcer?.removeAllPending() }
             dependencies?.push?.reevaluate(.toggleChanged)
         }
     }

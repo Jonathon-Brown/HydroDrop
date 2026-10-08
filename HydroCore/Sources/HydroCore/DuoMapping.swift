@@ -205,7 +205,10 @@ public struct DuoPushPayload: Equatable, Sendable {
         case "ended":
             kind = .ended(data["ended_by"].flatMap { DuoEndedBy(rawValue: $0) } ?? .unknown)
         case "reconnected":
-            kind = .reconnected(who: data["who"] ?? "partner")
+            // The iOS payload carries who in its `loc-key` (`duo.reconnected.partner` or
+            // `.superseded`) and not in the data, so an absent field says nothing: reading it as
+            // "partner" labelled a superseded phone's "Not you? Leave & block" push as a partner's.
+            kind = .reconnected(who: data["who"] ?? "unknown")
         case "digest":
             kind = .digest(kinds: list("kinds"), days: list("days"), nudgeIDs: list("nudge_ids"), preset: data["preset"],
                            count: data["count"].flatMap { Int($0) })

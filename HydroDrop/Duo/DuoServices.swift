@@ -204,6 +204,14 @@ protocol DuoAnnouncing: AnyObject {
     func removeDelivered(for duoID: UUID)
     /// Removes every Duo notification there is (Delete my Duo data).
     func removeAllDelivered()
+    /// Withdraws the announcements still waiting for their time (a nudge held to the morning)
+    /// and leaves the delivered ones: turning Duo's notifications off must not leave something
+    /// to appear at 08:00 that the person has said they do not want.
+    func removeAllPending()
+}
+
+extension DuoAnnouncing {
+    func removeAllPending() {}
 }
 
 @MainActor
