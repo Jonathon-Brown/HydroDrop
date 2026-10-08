@@ -29,6 +29,11 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        #if DUO_V2
+        // A plain tap on a Duo notification opens the Duo screen. Its Log a glass and Snooze
+        // buttons are the reminder's, so those fall through to the switch below.
+        if await DuoNotificationRouter.handle(response) { return }
+        #endif
         // A tap on the weekly recap opens it, wherever the app happens to be.
         if response.notification.request.content.categoryIdentifier == WeeklyRecapNotifier.categoryIdentifier,
            response.actionIdentifier == UNNotificationDefaultActionIdentifier {
@@ -46,6 +51,18 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
             break
         }
     }
+    #if DUO_V2
+
+    /// A Duo push that arrives with the app on screen is shown, and fetched. Anything else gets no
+    /// options, which is what iOS did for every notification while this delegate did not
+    /// implement this method, so the reminders and the recap stay as they were.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        await DuoNotificationRouter.willPresent(notification) ?? []
+    }
+    #endif
 
     /// Logs one glass at the user's first quick-add size.
     @MainActor
