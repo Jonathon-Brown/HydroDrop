@@ -306,6 +306,18 @@ final class DuoStore: ObservableObject, DuoHost {
     // MARK: - Reading and publishing
 
     func refresh() async { await dependencies?.sync?.refresh() }
+
+    /// The Duo screen has come on screen (final design §3.4 step 2). Along with a cached duo, this
+    /// is the one time the phone's identity is asked about without a tap: a phone that was
+    /// restored or reinstalled with a credential and no duo cached finds out here whether to ask
+    /// "Continue as <name>?". `refresh()` alone cannot do it, because it cannot tell this from a
+    /// foreground or a background task, and the first `prepare()` of an unsettled phone sends
+    /// `GET /me` under the previous owner's bearer, which moves their `last_seen_at`. Anything
+    /// else that is on screen with no duo (the Today section, a card) calls `refresh()`, not this.
+    func duoScreenOpened() async {
+        _ = await dependencies?.identity?.prepare()
+        await refresh()
+    }
     func flush() async { await dependencies?.sync?.flush() }
     func backgroundRefresh() async -> Bool { await dependencies?.sync?.backgroundRefresh() ?? false }
     func scheduleBackgroundRefresh() { dependencies?.background?.scheduleRefresh() }

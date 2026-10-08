@@ -158,13 +158,14 @@ final class FakeDuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     private(set) var stored: [DuoCredential] = []
     private(set) var discardCount = 0
     private(set) var continued = 0
+    private(set) var prepared = 0
 
     init(credential: DuoCredential? = nil) { self.credential = credential }
 
     func store(_ credential: DuoCredential) throws { stored.append(credential); self.credential = credential }
     func replaceSecret(_ secret: String, version: Int) throws { credential?.deviceSecret = secret; credential?.secretVersion = version }
     func discard() { discardCount += 1; credential = nil }
-    func prepare() async -> DuoIdentityLaunch { launch }
+    func prepare() async -> DuoIdentityLaunch { prepared += 1; return launch }
     func continueAsRestored() async { continued += 1 }
 }
 

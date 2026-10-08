@@ -338,6 +338,15 @@ final class DuoFoundationAppTests: XCTestCase {
 
     // MARK: - Forwarding
 
+    func testOnlyTheDuoScreenOpeningAsksTheIdentityWithoutADuo() async {
+        let kit = DuoTestKit()
+        await kit.store.refresh()
+        XCTAssertEqual(kit.identity.prepared, 0, "a refresh alone never asks the identity: it cannot tell a foreground from the screen")
+        await kit.store.duoScreenOpened()
+        XCTAssertEqual(kit.identity.prepared, 1, "the Duo screen opening is the one time an unsettled phone is asked about")
+        XCTAssertEqual(kit.sync.calls, ["refresh", "refresh"], "and it then reads like any refresh")
+    }
+
     func testTheStoreAsksItsServicesAndDoesNothingItself() async {
         let kit = DuoTestKit()
         let duo = DuoFixtures.duo()
