@@ -4,6 +4,16 @@ import Foundation
 /// What every service does with a failed request, once, so the Duo screen says the same thing
 /// whichever service met the failure (final design §6.7's "Client behaviour" column).
 extension DuoDependencies {
+    /// Whether the stored credential is the throwaway a Reconnect minted and has not finished
+    /// with. It belongs to nobody who has a duo yet, so it cannot send a leave or a block for the
+    /// duos cached on the phone (they are another member's: the server answers 404 and the exit
+    /// would count as done), and a Reconnect, which is what finishes it, must not be refused
+    /// because of such an exit.
+    var credentialIsAThrowaway: Bool {
+        guard let marked = cache.throwawayDeviceID else { return false }
+        return identity?.credential?.deviceID == marked
+    }
+
     /// Notes a failure: writes it to Diagnostics, and acts on what it says about this phone's
     /// standing: a 401 `unauthenticated` forgets the identity (a new one is made on the next
     /// Create or Join tap, never silently, §3.4); `device_revoked`, 426 and `banned` change what

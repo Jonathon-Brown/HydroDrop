@@ -532,6 +532,22 @@ final class DuoServiceSupportTests: XCTestCase {
         XCTAssertEqual(queue.queued.map(\.key), ["k1"])
     }
 
+    func testAThrowawayThatBecomesReadableAfterLaunchIsStillCaughtBeforeAnythingReads() async throws {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        let throwaway = try XCTUnwrap(kit.identity.credential).deviceID
+        kit.identity.credential = nil
+        kit.dependencies.cache.saveDuos([DuoFixtures.duo()])
+        kit.dependencies.cache.throwawayDeviceID = throwaway
+        let store = DuoStore(cache: DuoCache(defaults: kit.defaults), reloadWidget: {})
+        store.install(kit.dependencies)
+        XCTAssertEqual(store.availability, .unknown, "the Keychain cannot be read yet: nothing to say")
+        XCTAssertFalse(kit.dependencies.credentialIsAThrowaway)
+        kit.identity.credential = DuoFixtures.credential()
+        XCTAssertTrue(kit.dependencies.credentialIsAThrowaway)
+        await store.refresh()
+        XCTAssertEqual(store.availability, .disconnected, "the first way in after the unlock reads the marker, before the engine reads with a stranger's bearer")
+    }
+
     func testTheDeleteRequestedMarkerIsADateAndNothingElse() {
         let defaults = UserDefaults(suiteName: "DuoDeleteMarker.\(UUID().uuidString)")!
         let cache = DuoCache(defaults: defaults)

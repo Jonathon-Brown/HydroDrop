@@ -103,20 +103,23 @@ final class DuoStore: ObservableObject, DuoHost {
     func install(_ dependencies: DuoDependencies) {
         self.dependencies = dependencies
         refusedNow()
-        // A Reconnect that was refused or cut short left the throwaway it minted as the stored
-        // credential, behind duos that belong to another member. It is still disconnected from
-        // them: say so before anything reads with the stranger's bearer and ends them.
-        if let throwaway = cache.throwawayDeviceID {
-            // A credential that reads as nil may only be a Keychain that is not readable yet (a
-            // launch before the first unlock), so the marker is dropped only for a credential
-            // that reads and is some other one.
-            if let stored = dependencies.identity?.credential?.deviceID {
-                if stored == throwaway {
-                    if duos.contains(where: { !$0.hasEnded }) { availability = .disconnected }
-                } else {
-                    cache.throwawayDeviceID = nil
-                }
-            }
+        applyThrowawayMarker()
+    }
+
+    /// A Reconnect that was refused or cut short left the throwaway it minted as the stored
+    /// credential, behind duos that belong to another member. It is still disconnected from them:
+    /// say so before anything reads with the stranger's bearer and ends them. Asked at install and
+    /// again at every way into the sync engine, because a process that started before the first
+    /// unlock cannot read the credential at install, and the answer changes when it can.
+    func applyThrowawayMarker() {
+        guard let throwaway = cache.throwawayDeviceID else { return }
+        // A credential that reads as nil may only be a Keychain that is not readable yet, so the
+        // marker is dropped only for a credential that reads and is some other one.
+        guard let stored = dependencies?.identity?.credential?.deviceID else { return }
+        if stored == throwaway {
+            if duos.contains(where: { !$0.hasEnded }), availability != .disconnected { availability = .disconnected }
+        } else {
+            cache.throwawayDeviceID = nil
         }
     }
 
@@ -322,7 +325,7 @@ final class DuoStore: ObservableObject, DuoHost {
 
     // MARK: - Reading and publishing
 
-    func refresh() async { await dependencies?.sync?.refresh() }
+    func refresh() async { applyThrowawayMarker(); await dependencies?.sync?.refresh() }
 
     /// The Duo screen has come on screen (final design §3.4 step 2). Along with a cached duo, this
     /// is the one time the phone's identity is asked about without a tap: a phone that was
@@ -335,10 +338,10 @@ final class DuoStore: ObservableObject, DuoHost {
         _ = await dependencies?.identity?.prepare()
         await refresh()
     }
-    func flush() async { await dependencies?.sync?.flush() }
-    func backgroundRefresh() async -> Bool { await dependencies?.sync?.backgroundRefresh() ?? false }
+    func flush() async { applyThrowawayMarker(); await dependencies?.sync?.flush() }
+    func backgroundRefresh() async -> Bool { applyThrowawayMarker(); return await dependencies?.sync?.backgroundRefresh() ?? false }
     func scheduleBackgroundRefresh() { dependencies?.background?.scheduleRefresh() }
-    func pushArrived(_ payload: DuoPushPayload) async { await dependencies?.sync?.pushArrived(payload) }
+    func pushArrived(_ payload: DuoPushPayload) async { applyThrowawayMarker(); await dependencies?.sync?.pushArrived(payload) }
     func pushTokenArrived(_ token: Data, environment: DuoAPNsEnvironment) { dependencies?.push?.tokenArrived(token, environment: environment) }
     func sendNudge(_ preset: DuoNudgePreset, in duo: DuoState) async { await dependencies?.sync?.sendNudge(preset, in: duo) }
 
