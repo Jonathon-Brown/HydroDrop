@@ -76,6 +76,7 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         _ = journal.key(for: "POST /duos", body: Data("{}".utf8), now: kit.clock.now, random: kit.random)
         cache.saveInflight(journal)
         cache.markCleared(UUID(), now: kit.clock.now)
+        cache.deleteRequestedAt = kit.clock.now
         // The four a wipe keeps.
         store.notificationsEnabled = false
         cache.inviteMomentDismissed = true

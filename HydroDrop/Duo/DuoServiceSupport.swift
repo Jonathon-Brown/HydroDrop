@@ -24,6 +24,10 @@ extension DuoDependencies {
             identity.discard()
             host.availability = .available
             abandonLiveDuos()
+            // The person asked to delete everything and the answer to that request never came:
+            // the identity being gone is the answer, so finish the wipe instead of leaving the
+            // cards, the name and the orphan Keychain items behind with no way to remove them.
+            if cache.deleteRequestedAt != nil { exiting?.startFresh() }
         case .disconnected:
             host.availability = .disconnected
         case .upgradeRequired:

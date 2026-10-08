@@ -452,6 +452,32 @@ final class DuoServiceSupportTests: XCTestCase {
         XCTAssertEqual(kit.store.availability, .upgradeRequired, "a read that worked does not lift an upgrade requirement")
     }
 
+    func testAnIdentityTheServerForgotFinishesADeleteTheAnswerOfWhichWasLost() {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        XCTAssertEqual(kit.dependencies.noteFailure(failure(.unauthenticated, status: 401)), .reidentify)
+        XCTAssertFalse(kit.exiting.calls.contains("startFresh"), "an identity that was never asked to be deleted is only forgotten")
+        kit.dependencies.cache.deleteRequestedAt = kit.clock.now
+        XCTAssertEqual(kit.dependencies.noteFailure(failure(.unauthenticated, status: 401)), .reidentify)
+        XCTAssertEqual(kit.exiting.calls.filter { $0 == "startFresh" }.count, 1,
+                       "the person asked for everything to go and the identity being gone is the answer: finish the wipe")
+    }
+
+    func testTheDeleteRequestedMarkerIsADateAndNothingElse() {
+        let defaults = UserDefaults(suiteName: "DuoDeleteMarker.\(UUID().uuidString)")!
+        let cache = DuoCache(defaults: defaults)
+        XCTAssertNil(cache.deleteRequestedAt)
+        let moment = Date(timeIntervalSince1970: 1_790_000_000)
+        cache.deleteRequestedAt = moment
+        XCTAssertEqual(cache.deleteRequestedAt, moment)
+        XCTAssertTrue(DuoCache.wipedKeys.contains(DuoCache.deleteRequestedKey), "a wipe removes it")
+        XCTAssertFalse(DuoCache.keptKeys.contains(DuoCache.deleteRequestedKey))
+        cache.clearEverything()
+        XCTAssertNil(cache.deleteRequestedAt)
+        cache.deleteRequestedAt = moment
+        cache.deleteRequestedAt = nil
+        XCTAssertNil(cache.deleteRequestedAt)
+    }
+
     func testAnIdentityTheServerForgotTakesTheLiveDuosAndEverythingMadeWithItDown() throws {
         let kit = DuoTestKit(credential: DuoFixtures.credential())
         let live = DuoFixtures.duo()

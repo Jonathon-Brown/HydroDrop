@@ -28,6 +28,7 @@ struct DuoCache {
     static let goalRaiseNoticeKey = "duo.goalRaiseNotice.v1"
     static let inflightKey = "duo.inflight.v1"
     static let clearedKey = "duo.cleared.v1"
+    static let deleteRequestedKey = "duo.deleteRequested.v1"
     /// The kind the widget is registered under, so a change here can reload it.
     static let widgetKind = "DuoWidget"
 
@@ -35,7 +36,8 @@ struct DuoCache {
     /// names it, so forgetting to decide errs towards forgetting the data rather than keeping it.
     static let allKeys = [statesKey, ledgerKey, myDisplayNameKey, opsKey, pendingInviteKey, rejectedDaysKey,
                           diagnosticsKey, notificationsOffKey, inviteMomentDismissedKey, memberKey, ageStatusKey,
-                          termsAcceptedKey, pushUploadKey, seenDevicesKey, goalRaiseNoticeKey, inflightKey, clearedKey]
+                          termsAcceptedKey, pushUploadKey, seenDevicesKey, goalRaiseNoticeKey, inflightKey, clearedKey,
+                          deleteRequestedKey]
     /// What a wipe leaves: the age answer (a local boolean the person gave once, and what stops
     /// a restart by someone who was refused, D60), the notifications switch, and the one-time
     /// suggestion and goal-raise note. None of them says anything about a duo.
@@ -173,6 +175,22 @@ struct DuoCache {
     var acceptedTermsVersion: Int {
         get { defaults.integer(forKey: Self.termsAcceptedKey) }
         nonmutating set { defaults.set(newValue, forKey: Self.termsAcceptedKey) }
+    }
+
+    /// When the person asked for `DELETE /me` and the answer was not seen to be a refusal: a bare
+    /// date, no token and no request bytes (D62). If the server committed the delete and the
+    /// answer was lost, the next request meets a 401 `unauthenticated` and, without this, only
+    /// part of what the phone kept would be forgotten, with nothing left in the screen to finish
+    /// it: the ended cards, the name, the ledger and orphan Keychain items would stay. With it,
+    /// that 401 completes the wipe the person asked for (`noteFailure`). The exit service sets
+    /// it before it sends and clears it when the server's answer proves nothing was deleted; a
+    /// wipe removes it with everything else.
+    var deleteRequestedAt: Date? {
+        get { defaults.object(forKey: Self.deleteRequestedKey) is Double ? Date(timeIntervalSince1970: defaults.double(forKey: Self.deleteRequestedKey)) : nil }
+        nonmutating set {
+            if let newValue { defaults.set(newValue.timeIntervalSince1970, forKey: Self.deleteRequestedKey) }
+            else { defaults.removeObject(forKey: Self.deleteRequestedKey) }
+        }
     }
 
     /// Forgets every duo and everything about this person's Duo identity that this phone
