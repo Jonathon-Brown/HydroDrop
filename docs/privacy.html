@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- Keep this before resource loads; GitHub Pages cannot set custom response headers. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self'; style-src-attr 'none'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="no-referrer">
+<script src="/theme.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HydroDrop Privacy Policy</title>
 <meta name="description" content="How HydroDrop handles your data: no accounts, no servers, your log stays on your device and in your own iCloud.">
@@ -11,86 +15,28 @@
 <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap">
-<style>
-  :root {
-    color-scheme: dark;
-    --ground: #07121F; --card: #0C1B2D; --line: #16304A; --hair: #12263B;
-    --text: #EEF4FA; --soft: #B7C7D8; --muted: #9DB2C8; --link: #7CC0FF;
-    --blue: #2E8FED; --blue-lift: #4DA3FF; --ink: #04101D;
-    --display: 'Unbounded', 'Arial Rounded MT Bold', system-ui, sans-serif;
-    --body: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --pad: clamp(24px, 8.3vw, 120px);
-  }
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--body); line-height: 1.6; -webkit-font-smoothing: antialiased; }
-  a { color: var(--link); text-decoration: none; }
-  a:hover { color: #B5DBFF; }
-  main a { text-decoration: underline; text-underline-offset: 3px; }
-  :focus-visible { outline: 3px solid var(--blue-lift); outline-offset: 3px; border-radius: 8px; }
-  h1, h2, h3, p { margin: 0; }
-  p { text-wrap: pretty; }
-  .wrap { max-width: 1440px; margin: 0 auto; padding-left: var(--pad); padding-right: var(--pad); }
-  .site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; }
-  .logo { display: flex; align-items: center; gap: 12px; color: var(--text); padding: 10px 0; font-family: var(--display); font-weight: 700; font-size: 18px; }
-  .logo:hover { color: var(--text); }
-  .site-nav { display: flex; align-items: center; gap: 36px; }
-  .site-nav a { color: #C5D5E6; font-size: 15px; font-weight: 500; padding: 13px 0; }
-  .site-nav a:hover { color: var(--text); }
-  .site-nav a[aria-current] { color: var(--text); font-weight: 700; }
-  .btn { display: inline-flex; align-items: center; background: var(--blue); color: var(--ink); font-weight: 700; font-size: 15px; padding: 13px 22px; border-radius: 999px; transition: background .2s; }
-  .btn:hover { background: var(--blue-lift); color: var(--ink); }
-  main { padding-top: clamp(32px, 5vw, 72px); padding-bottom: clamp(64px, 7.8vw, 112px); }
-  h1 { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 4.5vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }
-  .site-footer { border-top: 1px solid var(--hair); padding-top: 36px; padding-bottom: 48px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 40px; font-size: 14px; color: var(--muted); }
-  .site-footer p { max-width: 560px; }
-  .site-footer nav { display: flex; flex-wrap: wrap; gap: 0 32px; }
-  .site-footer nav a { color: #C5D5E6; padding: 12px 0; }
-  .updated { margin-top: 20px; font-size: 15px; color: var(--muted); }
-  .short { margin-top: 48px; background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 40px; display: flex; align-items: center; gap: 36px; }
-  .short svg { flex-shrink: 0; }
-  .short p { font-size: clamp(18px, 1.55vw, 22px); line-height: 1.5; font-weight: 500; }
-  .cols { display: flex; align-items: flex-start; gap: 96px; margin-top: 56px; }
-  .toc { position: sticky; top: 24px; width: 240px; flex-shrink: 0; display: flex; flex-direction: column; font-size: 15px; font-weight: 500; }
-  .toc span { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-bottom: 8px; }
-  .toc a { color: #C5D5E6; padding: 12px 0; border-top: 1px solid var(--hair); text-decoration: none; }
-  .toc a:hover { color: var(--text); }
-  .policy { flex: 1; max-width: 760px; display: flex; flex-direction: column; gap: 44px; font-size: 17px; line-height: 1.7; color: var(--soft); }
-  .policy section { display: flex; flex-direction: column; gap: 12px; scroll-margin-top: 24px; }
-  .policy h2 { font-family: var(--display); font-weight: 700; font-size: clamp(19px, 1.6vw, 22px); letter-spacing: -0.02em; color: var(--text); }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-  @media (max-width: 720px) {
-    .site-header { min-height: 64px; }
-    .site-nav { gap: 20px; }
-    .site-nav a { font-size: 14px; }
-    .site-header .btn { display: none; }
-    .logo span { display: none; }
-    .short { flex-direction: column; align-items: flex-start; gap: 20px; padding: 28px 24px; border-radius: 24px; margin-top: 32px; }
-    .cols { margin-top: 40px; }
-    .toc { display: none; }
-    .policy { font-size: 16px; gap: 36px; }
-  }
-</style>
+<link rel="stylesheet" href="/privacy.css">
+<link rel="stylesheet" href="/site.css">
+<link rel="stylesheet" href="/print.css" media="print">
+<script src="/site.js" defer></script>
+<meta property="og:title" content="HydroDrop Privacy Policy">
+<meta property="og:description" content="How HydroDrop handles your data: no accounts, no servers, your log stays on your device and in your own iCloud.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hydrodrop.us/privacy.html">
+<meta property="og:image" content="https://hydrodrop.us/og-image.png">
+<meta property="og:image:alt" content="HydroDrop app icon and Today screen">
+<meta name="twitter:card" content="summary_large_image">
 </head>
 <body id="top">
-<header class="wrap site-header">
-  <a class="logo" href="./" aria-label="HydroDrop home">
-    <svg viewBox="0 0 100 134" width="22" height="30" aria-hidden="true"><path d="M50 1C55 40 100 63 99.2 91.5A50 50 0 0 1 .8 91.5C0 63 45 40 50 1Z" fill="#2E8FED"/></svg>
-    <span>HydroDrop</span>
-  </a>
-  <nav class="site-nav" aria-label="Main">
-    <a href="./">Home</a>
-    <a href="support.html">Support</a>
-    <a href="privacy.html" aria-current="page">Privacy</a>
-  </nav>
-  <a class="btn" href="https://apps.apple.com/app/id6793399317">Get the app</a>
-</header>
-<main class="wrap">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav"><a class="brand" href="/" aria-label="HydroDrop home"><img src="/assets/icons/classic.webp" width="32" height="32" alt="">HydroDrop</a>
+<button class="theme-toggle" type="button" hidden>Use dark theme</button>
+<button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden>Menu</button>
+<nav id="site-navigation" class="nav-links" aria-label="Main"><a href="/#flow">Explore</a><a href="/#looks">The looks</a><a href="/support.html">Support & FAQ</a><a class="button small" href="https://apps.apple.com/app/id6793399317">Get the app ↗</a></nav></header>
+<progress class="reading-progress" max="100" value="0" aria-hidden="true"></progress>
+<main tabindex="-1" id="main" class="wrap">
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated September 28, 2026</p>
+  <p class="updated">Last updated October 9, 2026</p>
   <div class="short">
     <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="#4DA3FF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.8l7.5 3v5.6c0 4.6-3 8.3-7.5 9.8-4.5-1.5-7.5-5.2-7.5-9.8V5.8l7.5-3z"/><path d="M8.6 12.2l2.4 2.4 4.4-4.8"/></svg>
     <p>The short version: HydroDrop has no accounts and runs no servers. Your water log stays on your device and in your own private iCloud. We never see it.</p>
@@ -145,7 +91,7 @@
       </section>
       <section id="website">
         <h2>This website</h2>
-        <p>This website sets no cookies, runs no analytics and has no sign-up. It loads its typefaces from Google Fonts, so your browser makes a request to Google when you open a page, as covered by <a href="https://policies.google.com/privacy">Google's privacy policy</a>.</p>
+        <p>This website sets no cookies, runs no analytics and has no sign-up. Its images, scripts and styles are served from this website, and its typefaces use the fonts already on your device. If you choose a light or dark theme, that preference is saved in your browser’s local storage. It is not sent to us or used for tracking.</p>
       </section>
       <section id="contact">
         <h2>Contact</h2>
@@ -153,16 +99,18 @@
       </section>
     </div>
   </div>
+<p class="page-updated wrap">Page updated <time datetime="2026-10-09">October 9, 2026</time></p>
 </main>
 
 <footer class="wrap site-footer">
   <p>© 2026 Jonathon Brown. Apple, iPhone, Apple Watch, iCloud and App Store are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
-  <nav aria-label="Footer">
+  <nav aria-label="Footer"><a href="/terms.html">Terms</a>
     <a href="./">Home</a>
     <a href="support.html">Support</a>
     <a href="privacy.html">Privacy</a>
     <a href="mailto:support@hydrodrop.us">support@hydrodrop.us</a>
   </nav>
 </footer>
+<div class="page-tools"><a href="/support.html" aria-label="Contact HydroDrop support">Help</a><a href="#top" aria-label="Back to top">↑ Top</a></div>
 </body>
 </html>
