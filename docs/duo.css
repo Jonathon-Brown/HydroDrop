@@ -1,0 +1,70 @@
+:root {
+    color-scheme: dark;
+    --ground: #07121F; --card: #0C1B2D; --line: #16304A; --hair: #12263B;
+    --text: #EEF4FA; --soft: #B7C7D8; --muted: #9DB2C8; --link: #7CC0FF;
+    --blue: #2E8FED; --blue-lift: #4DA3FF; --ink: #04101D;
+    --edge: #4A7FB5; /* 4.1:1 on the card, so an outlined button still reads as a control (WCAG 1.4.11) */
+    --display: system-ui, -apple-system, sans-serif;
+    --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --pad: clamp(24px, 8.3vw, 120px);
+  }
+  * { box-sizing: border-box; }
+  /* Author display rules such as .btn's inline-flex would otherwise beat the hidden attribute's
+     user-agent style, and the Copy button showed in the no-code state. */
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--body); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { color: #B5DBFF; }
+  main a:not(.btn) { text-decoration: underline; text-underline-offset: 3px; }
+  :focus-visible { outline: 3px solid var(--blue-lift); outline-offset: 3px; border-radius: 8px; }
+  h1, h2, p { margin: 0; }
+  p { text-wrap: pretty; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding-left: var(--pad); padding-right: var(--pad); }
+  .site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; }
+  .logo { display: flex; align-items: center; gap: 12px; color: var(--text); padding: 10px 0; font-family: var(--display); font-weight: 700; font-size: 18px; }
+  .logo:hover { color: var(--text); }
+  .site-nav { display: flex; align-items: center; gap: 36px; }
+  .site-nav a { color: #C5D5E6; font-size: 15px; font-weight: 500; padding: 13px 0; }
+  .site-nav a:hover { color: var(--text); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; background: var(--blue); color: var(--ink); font-family: var(--body); font-weight: 700; font-size: 15px; line-height: 1.2; padding: 13px 22px; border: 0; border-radius: 999px; cursor: pointer; transition: background .2s; }
+  .btn:hover { background: var(--blue-lift); color: var(--ink); }
+  .btn.big { font-size: 17px; padding: 16px 28px; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--edge); }
+  .btn.ghost:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); border-color: var(--blue-lift); }
+  main { padding-top: clamp(32px, 5vw, 72px); padding-bottom: clamp(64px, 7.8vw, 112px); }
+  h1 { font-family: var(--display); font-weight: 800; font-size: clamp(32px, 4.5vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }
+  .intro { display: flex; align-items: center; justify-content: space-between; gap: 64px; }
+  .intro > div { display: flex; flex-direction: column; gap: 20px; }
+  .intro p { max-width: 620px; font-size: clamp(17px, 1.3vw, 19px); color: var(--soft); }
+  .intro .duo-mascot { flex-shrink: 0; width: 150px; height: auto; margin-right: 60px; filter: drop-shadow(0 22px 36px rgba(84,168,237,0.3)); }
+  .code-box { margin-top: 40px; background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 32px 36px; display: flex; flex-direction: column; gap: 10px; }
+  .code-label { font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .code { font-family: var(--mono); font-weight: 700; font-size: clamp(34px, 10vw, 56px); line-height: 1.15; letter-spacing: 0.08em; color: var(--text); user-select: all; -webkit-user-select: all; overflow-wrap: anywhere; }
+  .code-help { font-size: 16px; color: var(--soft); max-width: 620px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+  .actions + .code-help { margin-top: 6px; }
+  #copy { min-width: 9.5em; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .ways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 32px; }
+  .way { background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 36px; display: flex; flex-direction: column; gap: 12px; }
+  .way h2 { font-family: var(--display); font-weight: 700; font-size: clamp(19px, 1.6vw, 22px); letter-spacing: -0.02em; margin-top: 4px; }
+  .way p { font-size: 17px; color: var(--soft); }
+  .way strong { color: var(--text); }
+  .site-footer { border-top: 1px solid var(--hair); padding-top: 36px; padding-bottom: 48px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 40px; font-size: 14px; color: var(--muted); }
+  .site-footer p { max-width: 560px; }
+  .site-footer nav { display: flex; flex-wrap: wrap; gap: 0 32px; }
+  .site-footer nav a { color: #C5D5E6; padding: 12px 0; }
+  @media (max-width: 720px) {
+    .site-header { min-height: 64px; }
+    .site-nav { gap: 20px; }
+    .site-nav a { font-size: 14px; }
+    .site-header .btn { display: none; }
+    .logo span { display: none; }
+    .intro .duo-mascot { display: none; }
+    .code-box { margin-top: 28px; padding: 24px; border-radius: 24px; }
+    .actions { flex-direction: column; }
+    .actions .btn { width: 100%; }
+    .ways { grid-template-columns: 1fr; gap: 12px; margin-top: 24px; }
+    .way { padding: 28px 24px; border-radius: 24px; }
+  }
