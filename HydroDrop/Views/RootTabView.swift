@@ -57,7 +57,15 @@ struct RootTabView: View {
         // A tapped recap notification wins over Settings left open. The recap sheet
         // below waits for it to be fully gone before it comes up.
         .onChange(of: router.showingWeeklyRecap) { _, showing in
-            if showing { router.showingSettings = false }
+            guard showing else { return }
+            // The recap is HydroDrop+. A notification left over from a subscription that
+            // has since lapsed opens nothing, and the flag is cleared so it cannot open
+            // the sheet later from underneath something else.
+            guard store.isSubscribed else {
+                router.showingWeeklyRecap = false
+                return
+            }
+            router.showingSettings = false
         }
         #if DEBUG
         // `-SimulateBottleTap <address>` hands an address to the same place a real tag
@@ -108,10 +116,13 @@ struct RootTabView: View {
         router.handle(url)
     }
 
-    /// The recap a notification asked for, held back while Settings is still leaving.
+    /// The recap a notification asked for, held back while Settings, or one of the tabs'
+    /// own sheets, is up or still leaving. It used to wait on Settings alone, so a tap on
+    /// the notification with the paywall or an edit left open brought the app forward
+    /// to nothing, and the flag stayed set.
     private var weeklyRecapIsPresented: Binding<Bool> {
         Binding(
-            get: { router.showingWeeklyRecap && !router.settingsIsOnScreen },
+            get: { router.showingWeeklyRecap && !router.somethingIsOnScreen },
             set: { router.showingWeeklyRecap = $0 }
         )
     }

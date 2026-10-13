@@ -75,9 +75,11 @@ final class WeatherGoalAdvisor: NSObject {
             return .denied
         case .notDetermined:
             locationManager.requestWhenInUseAuthorization()
-            // The delegate reports the answer; poll briefly rather than hold a
-            // continuation across a callback that may never come if the user swipes away.
-            for _ in 0..<40 {
+            // The delegate reports the answer; poll rather than hold a continuation
+            // across a callback that may never come if the user swipes away. A minute,
+            // not ten seconds: reading the system prompt slowly used to turn the switch
+            // off with an error, and the second attempt then worked silently.
+            for _ in 0..<240 {
                 try? await Task.sleep(for: .milliseconds(250))
                 switch locationManager.authorizationStatus {
                 case .authorizedWhenInUse, .authorizedAlways: return .granted

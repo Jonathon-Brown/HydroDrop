@@ -6,11 +6,16 @@
     var statusEl = document.getElementById('copy-status');
     var storeBtn = document.getElementById('store');
     var display = '';
+    // The last invite the hash carried. In-page anchors such as "Skip to content" replace
+    // the fragment, and re-parsing "#main" used to wipe the code from the page and from the
+    // banner's app-argument. A later hash that is not an invite leaves this one in place.
+    var invite = null;
 
     function render() {
       // Only the code is ever shown or copied. The secret after the dot goes nowhere but the
       // Smart App Banner's app-argument, and only when it has the right shape.
-      var invite = duoParse(location.hash);
+      var parsed = duoParse(location.hash);
+      if (parsed !== null) { invite = parsed; }
       var ok = invite !== null;
       display = ok ? invite.code.slice(0, 4) + '-' + invite.code.slice(4) : '';
       codeEl.textContent = display;
@@ -19,7 +24,7 @@
       copyBtn.hidden = !ok;
       noCodeEl.hidden = ok;
       storeBtn.classList.toggle('ghost', ok);
-      duoBanner();
+      duoBanner(invite);
     }
 
     function copied() {

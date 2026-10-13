@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import UserNotifications
 
 /// Schedules repeating local notifications that nudge the user to drink water
@@ -6,6 +7,8 @@ import UserNotifications
 final class ReminderManager {
     static let shared = ReminderManager()
     private let center = UNUserNotificationCenter.current()
+    /// Where today's intake is read from when a rebuild is asked for without entries.
+    private var modelContainer: ModelContainer?
     /// The category that carries "Log a glass" and "Snooze". Shared so Night Out's water
     /// reminder gets the same buttons as any other reminder.
     static let reminderCategoryIdentifier = "HYDRO_REMINDER"
@@ -38,6 +41,12 @@ final class ReminderManager {
     private var tail: Task<Void, Never>?
 
     private init() {}
+
+    /// Gives the schedule a store to read today's intake from. Call once, after the
+    /// app's container exists, as `NotificationActionHandler` is given it.
+    func activate(modelContainer: ModelContainer) {
+        self.modelContainer = modelContainer
+    }
 
     /// Registers the reminder category with its two buttons.
     ///
@@ -126,11 +135,13 @@ final class ReminderManager {
 
         let settings = AppSettings.shared
         let calendar = Calendar.current
-        let todayTotal = entries.map { entries in
-            entries
-                .filter { calendar.isDateInToday($0.timestamp) }
-                .reduce(0) { $0 + $1.hydratedML }
-        }
+        // No entries means a settings change, not a logged drink. Today's pace is what it
+        // was, so it is read back from the store rather than taken as zero, which used to
+        // re-arm every nudge the day had already earned skipping whenever Settings was
+        // opened or a reminder setting moved.
+        let todayTotal = (entries ?? todaysEntriesFromStore(calendar: calendar))
+            .filter { calendar.isDateInToday($0.timestamp) }
+            .reduce(0) { $0 + $1.hydratedML }
         let snapshot = ScheduleSnapshot(
             remindersEnabled: settings.remindersEnabled,
             intervalMinutes: settings.reminderIntervalMinutes,
@@ -138,7 +149,7 @@ final class ReminderManager {
             endMinutes: settings.quietEndMinutes,
             smartRemindersActive: settings.smartRemindersActive,
             goalML: goalML ?? settings.dailyGoalML,
-            todayTotalML: todayTotal ?? 0
+            todayTotalML: todayTotal
         )
 
         lock.lock()
@@ -151,6 +162,17 @@ final class ReminderManager {
         }
         tail = task
         lock.unlock()
+    }
+
+    /// Today's drinks, straight from the store. Empty before `activate` or when the store
+    /// cannot be read, which is the same answer a rebuild without entries always had.
+    private func todaysEntriesFromStore(calendar: Calendar) -> [WaterEntry] {
+        guard let modelContainer else { return [] }
+        let startOfDay = calendar.startOfDay(for: Date())
+        let descriptor = FetchDescriptor<WaterEntry>(
+            predicate: #Predicate { $0.timestamp >= startOfDay }
+        )
+        return (try? ModelContext(modelContainer).fetch(descriptor)) ?? []
     }
 
     private func isCurrent(_ generation: Int) -> Bool {
@@ -224,12 +246,14 @@ final class ReminderManager {
                 guard scheduled < Self.maxPendingRequests else { return }
                 guard isCurrent(generation) else { return }
 
-                // Adding to the day's start rolls past midnight correctly for
-                // overnight windows, where a slot belongs to the following date.
-                guard let fireDate = calendar.date(
-                    byAdding: .minute,
-                    value: plan.startMinutes + offset,
-                    to: dayStart
+                // A slot past midnight belongs to the following date, which the helper
+                // handles; it also keeps the slot at its clock time on the two days a
+                // year the clocks change, where adding minutes to midnight put it an
+                // hour off.
+                guard let fireDate = MinuteOfDay.instant(
+                    plan.startMinutes + offset,
+                    on: dayStart,
+                    calendar: calendar
                 ), fireDate > now else { continue }
 
                 if dayOffset == 0 && isAheadOfPace(

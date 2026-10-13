@@ -62,6 +62,14 @@ if [ -z "$XCODEGEN" ] || [ ! -x "$XCODEGEN" ]; then
 fi
 
 echo "Using $("$XCODEGEN" --version)"
+# The scheme patch and the notes in project.yml were written against one XcodeGen, and
+# Homebrew serves whatever is current. A different version is not a failure, since the
+# patch itself fails loudly if the scheme comes out in a shape it cannot read, but it is
+# worth a line in the log when a build breaks for no other reason.
+case "$("$XCODEGEN" --version)" in
+    *"$XCODEGEN_VERSION"*) ;;
+    *) echo "warning: XcodeGen $XCODEGEN_VERSION is the version this script was written against" >&2 ;;
+esac
 cd "$REPO_ROOT"
 
 # CURRENT_PROJECT_VERSION is committed as a fixed value, and the project is regenerated

@@ -41,8 +41,12 @@ struct HydrationProvider: TimelineProvider {
         let entry = HydrationTimelineEntry(date: now, snapshot: snapshot)
         // Progress only moves when a drink is logged, and every path that logs one
         // reloads the timeline itself. The only thing that changes on its own is the
-        // date, so the next scheduled reload is the one that empties the day.
-        let tomorrow = Calendar.current.startOfDay(for: now.addingTimeInterval(24 * 60 * 60))
+        // date, so the next scheduled reload is the one that empties the day. A calendar
+        // day, not 24 hours: on the night the clocks go back, midnight plus 24 hours is
+        // still today, and a reload date in the past had WidgetKit asking again at once.
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))
+            ?? now.addingTimeInterval(24 * 60 * 60)
         completion(Timeline(entries: [entry], policy: .after(tomorrow)))
     }
 }

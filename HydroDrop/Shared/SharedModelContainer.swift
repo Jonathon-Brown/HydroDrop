@@ -9,10 +9,12 @@ import SwiftData
 /// and only then SwiftData's own default location, which is where the app lived before
 /// the App Group existed.
 enum SharedModelContainer {
-    /// Every model the store holds. A store made before `Bottle` existed, including the
-    /// one `StoreMigration` builds with only `WaterEntry` in it, gains the new entity by
-    /// lightweight migration the first time it is opened with this.
-    static let schema = Schema([WaterEntry.self, Bottle.self])
+    /// Every model the store holds. A store made before `Bottle` or `HealthTombstone`
+    /// existed, including the one `StoreMigration` builds with only `WaterEntry` in it,
+    /// gains the new entity by lightweight migration the first time it is opened with
+    /// this. Every entity here has to be in CloudKit's Production schema before a build
+    /// ships, or sync stalls; `Scripts/preflight.sh` checks.
+    static let schema = Schema([WaterEntry.self, Bottle.self, HealthTombstone.self])
 
     /// Builds the container the app should use, migrating the store into the App Group
     /// on the way if that has not happened yet.
@@ -26,9 +28,10 @@ enum SharedModelContainer {
     static func makeForApp(retire: (StoreMigration.HealthLeftovers) -> Void = { _ in }) -> ModelContainer {
         if let url = StoreMigration.resolveStoreURL() {
             if let container = open(url: url, cloudKit: .automatic) {
-                // The read-and-reinsert leaves duplicates once CloudKit mirrors the legacy
-                // originals back down. Collapse them here, on the live synced container, so
-                // the delete propagates — and every launch, because that sync can land late.
+                // The read-and-reinsert leaves this device's copies beside the originals
+                // once CloudKit mirrors those back down. Collapse the copies here, on the
+                // live synced container, so the delete propagates — and every launch,
+                // because that sync can land late. Free once the copies are gone.
                 StoreMigration.deduplicateIfNeeded(in: container, retire: retire)
                 return container
             }

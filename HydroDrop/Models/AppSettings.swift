@@ -93,6 +93,10 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(remindersEnabled, forKey: Keys.remindersEnabled)
             ReminderManager.shared.refreshSchedule()
+            // The recap is a notification too, and this is the switch people reach for
+            // to stop them all. It lives under its own identifier so the reminder rebuild
+            // never touches it, which left it firing every Sunday after the switch was off.
+            WeeklyRecapNotifier.shared.refresh()
         }
     }
 
@@ -150,6 +154,14 @@ final class AppSettings: ObservableObject {
     }
 
     static let quickAddSlotCount = 3
+
+    /// A goal from iCloud is another device's answer, or a record damaged on the way, so
+    /// it is held to the range the stepper enforces rather than trusted. Every division
+    /// by the goal guards zero, but a zero or a negative still showed 0% and no streak
+    /// until the stepper was moved, and a value near Int.max overflowed the day's bump.
+    private static func sanitisedGoal(_ goal: Int?) -> Int? {
+        goal.flatMap { MeasurementSystem.storedGoalRangeML.contains($0) ? $0 : nil }
+    }
 
     /// A stored preset list is only usable if it has the right shape and plausible
     /// amounts. Anything else (a truncated write, a value from a future version) falls
@@ -472,6 +484,12 @@ final class AppSettings: ObservableObject {
     @Published var liveActivityEnabled: Bool {
         didSet {
             defaults.set(liveActivityEnabled, forKey: Keys.liveActivityEnabled)
+            // Off means off the Lock Screen now, not at the next drink. Nothing else runs
+            // between the switch and the Settings sheet closing, so the activity used to
+            // stay up, stale, until something was logged or the app relaunched.
+            if !liveActivityEnabled {
+                Task { @MainActor in await HydrationLiveActivityController.endAll() }
+            }
         }
     }
 
@@ -552,7 +570,7 @@ final class AppSettings: ObservableObject {
         let synced = CloudSettingsStore.shared
         let screenshotMode = Self.isScreenshotMode
 
-        let storedGoal = synced.int(forKey: Keys.dailyGoalML) ?? 2000
+        let storedGoal = Self.sanitisedGoal(synced.int(forKey: Keys.dailyGoalML)) ?? 2000
 
         let storedInterval: Int
         if let savedMinutes = d.object(forKey: Keys.reminderIntervalMinutes) as? Int {
@@ -773,7 +791,7 @@ final class AppSettings: ObservableObject {
         var worldRecordToPublish: Int?
 
         isApplyingRemoteChange = true
-        if changed.contains(Keys.dailyGoalML), let goal = synced.int(forKey: Keys.dailyGoalML) {
+        if changed.contains(Keys.dailyGoalML), let goal = Self.sanitisedGoal(synced.int(forKey: Keys.dailyGoalML)) {
             dailyGoalML = goal
         }
         if changed.contains(Keys.measurementSystem),

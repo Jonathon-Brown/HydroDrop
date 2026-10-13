@@ -93,32 +93,44 @@ struct LogWaterIntent: AppIntent {
         let amountML = try resolvedAmountML(snapshot: snapshot)
         let drinkType = (drink ?? .water).drinkType
 
-        guard let container = SharedModelContainer.makeForExtension() else {
-            throw LogWaterError.storeUnavailable
-        }
-        let context = ModelContext(container)
-        // The core rather than `logInApp`: this can be running inside the widget
-        // extension, where the reminder scheduler, the watch session and the app's
-        // settings do not exist. `afterLogInApp` below is what picks the rest up on
-        // the occasions the intent is running in the app instead.
         let saved: DrinkLogger.Logged
-        do {
-            saved = try DrinkLogger.log(
-                amountML: amountML,
-                drinkType: drinkType,
-                in: context,
-                loggedBy: "an intent"
-            )
-        } catch {
-            throw LogWaterError.couldNotSave
+        if let inAppLogger = DrinkLogger.inAppLogger {
+            // Running in the app, for Siri, Shortcuts or the Action Button: the app's own
+            // store and the whole follow-up, exactly as a quick-add button gets.
+            do {
+                saved = try inAppLogger(amountML, drinkType)
+            } catch {
+                throw LogWaterError.couldNotSave
+            }
+        } else {
+            // Running inside the widget extension, where the reminder scheduler, the
+            // watch session and the app's settings do not exist: the shared store, opened
+            // here, and the core alone. The app picks the rest up on its next foreground.
+            guard let container = SharedModelContainer.makeForExtension() else {
+                throw LogWaterError.storeUnavailable
+            }
+            do {
+                saved = try DrinkLogger.log(
+                    amountML: amountML,
+                    drinkType: drinkType,
+                    in: ModelContext(container),
+                    loggedBy: "an intent"
+                )
+            } catch {
+                throw LogWaterError.couldNotSave
+            }
         }
 
         // Read back from the store rather than added to the snapshot, so a drink
-        // logged in the app a moment ago is included rather than overwritten.
+        // logged in the app a moment ago is included rather than overwritten. In the
+        // app the full snapshot has just been published by `logInApp`, and this older
+        // one with only the total moved on would put a stale streak over it.
         let todayTotal = saved.todayTotalML
-        var updated = snapshot.resolved()
-        updated.todayTotalML = todayTotal
-        WidgetBridge.publish(updated)
+        if DrinkLogger.inAppLogger == nil {
+            var updated = snapshot.resolved()
+            updated.todayTotalML = todayTotal
+            WidgetBridge.publish(updated)
+        }
 
         let system = snapshot.measurementSystem
         let logged = system.format(mL: amountML)

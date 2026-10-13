@@ -12,6 +12,10 @@ struct HomeView: View {
     @ObservedObject private var nightOut = NightOutCoordinator.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @Query(sort: \Bottle.createdAt) private var bottles: [Bottle]
+    /// The log's totals by day, kept across renders (see `LogCache`). The streak, the
+    /// lost streak, the world and the freeze all read from this rather than each walking
+    /// every drink on every render.
+    @State private var logCache = LogCache()
 
     @State private var showingAddSheet = false
     @State private var showingSayIt = false
@@ -36,6 +40,15 @@ struct HomeView: View {
     @State private var worldHeaderHeight: CGFloat = 110
     /// A weather suggestion fetched for today but not yet answered.
     @State private var pendingWeatherBumpML: Int?
+    /// When the forecast was last asked. A mild day leaves no answer behind, so without
+    /// this the forecast was fetched again on every foreground and every return to this
+    /// tab, despite the "once a day" the feature was designed around.
+    @AppStorage("weatherBump.lastCheckedAt") private var weatherLastCheckedAt = 0.0
+    /// Whether this screen has appeared before. `onAppear` fires again each time the
+    /// Today tab is reselected, and the foreground work used to run on every one of
+    /// those: a Health scan, a reminder rebuild, a forecast fetch and a workout query
+    /// for a tab switch. Returns from the background come through `scenePhase`.
+    @State private var hasAppeared = false
     /// The same for today's workouts.
     @State private var pendingWorkoutBumpML: Int?
     /// The day extra water was accepted for something other than the heat, so the line
@@ -54,8 +67,20 @@ struct HomeView: View {
     @AppStorage("streakBreakNotice.dismissedDayKey") private var dismissedStreakNoticeDayKey = ""
     @AppStorage("streakBreakNotice.countedDayKey") private var countedStreakNoticeDayKey = ""
 
+    private var totalsByDay: [String: Int] {
+        logCache.totalsByDay(of: allEntries)
+    }
+
+    /// Today's drinks. The query is newest first, so they sit at the top, after anything
+    /// dated ahead of now, and the walk stops at the first drink from an earlier day
+    /// rather than reading the whole log for a day's worth.
     private var todayEntries: [WaterEntry] {
-        allEntries.filter { Calendar.current.isDateInToday($0.timestamp) }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: Date())
+        guard let end = calendar.date(byAdding: .day, value: 1, to: start) else {
+            return allEntries.filter { calendar.isDateInToday($0.timestamp) }
+        }
+        return Array(allEntries.drop(while: { $0.timestamp >= end }).prefix(while: { $0.timestamp >= start }))
     }
 
     /// What today counts for, which is the hydrating share of each drink rather than
@@ -112,7 +137,7 @@ struct HomeView: View {
 
     private var streak: Int {
         StreakCalculator.currentStreak(
-            entries: allEntries,
+            totals: totalsByDay,
             goalML: settings.dailyGoalML,
             frozenDayKeys: settings.frozenStreakDayKeys
         )
@@ -134,7 +159,7 @@ struct HomeView: View {
     private var visibleLostStreak: StreakFreeze.LostStreak? {
         guard !store.isSubscribed else { return nil }
         guard let lost = StreakFreeze.lostStreakAFreezeWouldHaveSaved(
-            entries: allEntries,
+            totals: totalsByDay,
             goalML: settings.dailyGoalML,
             frozenDayKeys: settings.frozenStreakDayKeys
         ) else { return nil }
@@ -255,10 +280,15 @@ struct HomeView: View {
                 WorldView(state: world, streak: streak, todayTotalML: todayTotal)
                     .environmentObject(settings)
             }
-            .sheet(isPresented: $showingAddSheet) {
+            // Every sheet here tells the router it is up and when it has fully gone, so a
+            // recap notification, a bottle tag or a celebration arriving underneath waits
+            // rather than being dropped. The milestone check runs again once a sheet has
+            // gone, because the drink that earned it was usually logged from that sheet.
+            .sheet(isPresented: $showingAddSheet, onDismiss: { sheetDidDismiss() }) {
                 AddDrinkSheet { amount, drinkType, timestamp in
                     addEntry(amount: amount, drinkType: drinkType, timestamp: timestamp)
                 }
+                .onAppear { router.modalDidAppear() }
             }
             .alert(
                 "This tag is not linked to a bottle on this device",
@@ -302,12 +332,13 @@ struct HomeView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             }
-            .sheet(isPresented: $showingSayIt) {
+            .sheet(isPresented: $showingSayIt, onDismiss: { sheetDidDismiss() }) {
                 SayItSheet(defaultML: settings.quickAddPresets.first ?? 250) { drafts in
                     addEntries(drafts)
                 }
+                .onAppear { router.modalDidAppear() }
             }
-            .sheet(item: $editingEntry) { entry in
+            .sheet(item: $editingEntry, onDismiss: { sheetDidDismiss() }) { entry in
                 EditEntrySheet(entry: entry) {
                     // The edit may have moved the drink to another day or changed what
                     // it counts for, so everything downstream of the total is stale. Any
@@ -325,11 +356,13 @@ struct HomeView: View {
                     Task { @MainActor in delete(entry) }
                 }
                 .environmentObject(settings)
+                .onAppear { router.modalDidAppear() }
             }
-            .sheet(item: $paywallSource) { source in
+            .sheet(item: $paywallSource, onDismiss: { sheetDidDismiss() }) { source in
                 PaywallView(source: source)
+                    .onAppear { router.modalDidAppear() }
             }
-            .sheet(item: $celebration) { occasion in
+            .sheet(item: $celebration, onDismiss: { sheetDidDismiss() }) { occasion in
                 MilestoneCelebrationView(
                     occasion: occasion,
                     world: WorldCardContent(
@@ -343,6 +376,7 @@ struct HomeView: View {
                     goalML: settings.dailyGoalML,
                     system: settings.measurementSystem
                 )
+                .onAppear { router.modalDidAppear() }
             }
             .overlay(alignment: .bottom) {
                 if let pendingUndo {
@@ -355,7 +389,11 @@ struct HomeView: View {
             }
         }
         .onAppear {
-            syncOnForeground()
+            // Once per launch here; every later foreground comes through scenePhase.
+            if !hasAppeared {
+                hasAppeared = true
+                syncOnForeground()
+            }
             refreshWorld()
             checkMilestones()
             considerReviewPrompt()
@@ -365,8 +403,13 @@ struct HomeView: View {
         .onChange(of: router.pendingBottleTagID) { _, _ in
             handlePendingBottleTap()
         }
-        .onChange(of: router.settingsIsOnScreen) { _, isOnScreen in
-            if !isOnScreen { handlePendingBottleTap() }
+        // Settings, or one of this screen's own sheets, has fully gone: whatever waited
+        // on a clear screen can come up now.
+        .onChange(of: router.somethingIsOnScreen) { _, isOnScreen in
+            if !isOnScreen {
+                handlePendingBottleTap()
+                checkMilestones()
+            }
         }
         // One-shot pace-aware reminders only cover a few days, so they have to be
         // re-armed when the app is opened. Nothing did that before: the schedule was
@@ -395,6 +438,10 @@ struct HomeView: View {
         }
         .onChange(of: todayTotal) { _, _ in
             mirrorToCompanions()
+            // The query has caught up with a delete or an undo by now, which is the first
+            // moment the schedule can be paced against the real total. Re-pacing from the
+            // delete itself read the entry that was on its way out as still drunk.
+            ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
         }
         .onChange(of: settings.dailyGoalML) { _, _ in
             mirrorToCompanions()
@@ -480,7 +527,7 @@ struct HomeView: View {
         if !settings.hasSeededMilestones {
             settings.seedMilestones(
                 longestStreak: StreakCalculator.longestStreak(
-                    entries: allEntries,
+                    totals: totalsByDay,
                     goalML: settings.dailyGoalML,
                     frozenDayKeys: settings.frozenStreakDayKeys
                 )
@@ -499,6 +546,13 @@ struct HomeView: View {
         settings.noteWorld(goalDays: world.goalDays)
 
         guard celebration == nil else { return }
+        // A sheet asked for while another is up, or still on its way out, is dropped
+        // rather than queued, and the badge below is recorded before the sheet is shown,
+        // so a dropped celebration was one the user never got. The drink that earns a
+        // milestone is usually logged from the Custom or Say it sheet, whose dismissal is
+        // exactly when the streak moves. Wait for a clear screen; every sheet's dismissal
+        // and Settings' come back through here.
+        guard !router.somethingIsOnScreen else { return }
         let milestone = StreakMilestone.newlyReached(
             streak: streak,
             alreadyCelebrated: Set(settings.celebratedMilestones)
@@ -526,7 +580,7 @@ struct HomeView: View {
         if let staged = WorldDebug.state { return staged }
         #endif
         return WorldEngine.state(
-            totalsByDay: StreakCalculator.totalsByDay(allEntries),
+            totalsByDay: totalsByDay,
             goalML: settings.dailyGoalML,
             frozenDayKeys: settings.frozenStreakDayKeys,
             recordedGoalDays: settings.worldGoalDaysRecord
@@ -905,10 +959,12 @@ struct HomeView: View {
     /// (a background read, a link, the in-app scanner) ends up here.
     private func handlePendingBottleTap() {
         guard let tagID = router.pendingBottleTagID else { return }
-        // A scan from My Bottles closes Settings on its way here. Until the sheet has
-        // gone, an unknown tag's alert would have nowhere to appear, so the tap waits
-        // and is picked up again once it has.
-        guard !router.settingsIsOnScreen else { return }
+        // A scan from My Bottles closes Settings on its way here, and a tag read with
+        // the app in the background can find the paywall or an edit still up. Until
+        // whatever it is has gone, an unknown tag's alert would have nowhere to appear
+        // and the undo toast nowhere to be seen, so the tap waits and is picked up
+        // again once it has.
+        guard !router.somethingIsOnScreen else { return }
         router.pendingBottleTagID = nil
 
         guard let bottle = BottleTag.bottle(for: tagID, in: bottles) else {
@@ -1050,18 +1106,31 @@ struct HomeView: View {
         let remaining = entries.filter { $0.modelContext != nil }
         guard !remaining.isEmpty else { return }
         // Read before the delete: once an entry is gone, so is the only record of
-        // which Health samples belonged to it.
+        // which Health samples belonged to it. Left as tombstones in the same save, for
+        // the devices that hold these samples and would otherwise never hear.
         let samples = remaining.flatMap(HealthSampleReference.all(of:))
+        HealthTombstone.leave(for: samples, in: modelContext)
         remaining.forEach(modelContext.delete)
         afterLogChange()
         retireHealthSamples(samples)
     }
 
-    /// Everything that has to catch up after the log changes in any way.
+    /// One of this screen's sheets has fully gone. The router's count is what the recap
+    /// and the bottle tap wait on; the milestone check runs again here because the
+    /// `onChange` that watches the count fires only when it reaches zero, and a second
+    /// sheet can already be counted by then.
+    private func sheetDidDismiss() {
+        router.modalDidDismiss()
+        checkMilestones()
+    }
+
+    /// Everything that has to catch up after the log changes in any way. The reminder
+    /// schedule is not here: it is re-paced from `onChange(of: todayTotal)`, once the
+    /// query reflects the change, because `allEntries` still holds a drink that was just
+    /// deleted at this point.
     private func afterLogChange() {
         mirrorToCompanions()
         syncHealth(.logChanged)
-        ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
     }
 
     /// Writes anything Health is missing. Cheap and a no-op when sync is off, so it can
@@ -1141,6 +1210,10 @@ struct HomeView: View {
         checkWeather()
         checkWorkouts()
         ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
+        // Same reason as the line above: pending requests can vanish while the app is
+        // away (Reset All Settings, a restore), and a recap that is wanted should be
+        // there on Sunday without a settings change to put it back.
+        WeeklyRecapNotifier.shared.refresh()
     }
 
     /// Asks Health whether a workout worth a suggestion has ended today.
@@ -1168,6 +1241,12 @@ struct HomeView: View {
         guard settings.weatherGoalActive else { return }
         guard acceptedWeatherBumpML == 0, !settings.hasDismissedWeatherBump() else { return }
         guard pendingWeatherBumpML == nil else { return }
+        // One reading is believed for as long as the world believes the sky it paints
+        // from the same request. The stamp is taken before the fetch, so a forecast
+        // that cannot be reached is not asked for again on the very next foreground.
+        let now = Date().timeIntervalSinceReferenceDate
+        guard now - weatherLastCheckedAt > WorldWeather.freshness else { return }
+        weatherLastCheckedAt = now
         Task { @MainActor in
             guard let bump = await WeatherGoalAdvisor.shared.suggestedBumpML(baseGoalML: settings.dailyGoalML) else { return }
             guard settings.weatherGoalActive, !settings.hasDismissedWeatherBump() else { return }
@@ -1184,7 +1263,7 @@ struct HomeView: View {
     /// Spends a HydroDrop+ freeze on yesterday if it was missed and a streak is at stake.
     private func applyStreakFreezeIfNeeded() {
         guard let day = StreakFreeze.dayToProtect(
-            entries: allEntries,
+            totals: totalsByDay,
             goalML: settings.dailyGoalML,
             frozenDayKeys: settings.frozenStreakDayKeys,
             isSubscribed: store.isSubscribed
@@ -1199,6 +1278,7 @@ struct HomeView: View {
             clearUndo()
         }
         let samples = HealthSampleReference.all(of: entry)
+        HealthTombstone.leave(for: samples, in: modelContext)
         modelContext.delete(entry)
         afterLogChange()
         retireHealthSamples(samples)

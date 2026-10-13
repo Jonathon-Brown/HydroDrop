@@ -76,6 +76,16 @@ final class VolumeUnitTests: XCTestCase {
         XCTAssertEqual(MeasurementSystem.imperial.mL(fromDisplayVolume: .infinity), 0)
         XCTAssertEqual(MeasurementSystem.metric.mL(fromDisplayVolume: .nan), 0)
     }
+
+    /// A finite number past `Int.max` used to trap in the conversion, which a Shortcut's
+    /// amount field can supply. It is held to a ceiling every caller then refuses.
+    func testAnAbsurdlyLargeVolumeIsHeldToTheCeilingRatherThanTrapping() {
+        let ceiling = Int(MeasurementSystem.conversionCeilingML)
+        XCTAssertEqual(MeasurementSystem.metric.mL(fromDisplayVolume: 1e25), ceiling)
+        XCTAssertEqual(MeasurementSystem.imperial.mL(fromDisplayVolume: 1e300), ceiling)
+        XCTAssertEqual(MeasurementSystem.metric.mL(fromDisplayVolume: -1e25), -ceiling)
+        XCTAssertFalse(MeasurementSystem.plausibleDrinkRangeML.contains(ceiling), "the ceiling is itself refused")
+    }
 }
 
 final class ReviewPrompterTests: XCTestCase {
