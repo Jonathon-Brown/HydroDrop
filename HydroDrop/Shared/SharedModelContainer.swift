@@ -26,9 +26,10 @@ enum SharedModelContainer {
     static func makeForApp(retire: (StoreMigration.HealthLeftovers) -> Void = { _ in }) -> ModelContainer {
         if let url = StoreMigration.resolveStoreURL() {
             if let container = open(url: url, cloudKit: .automatic) {
-                // The read-and-reinsert leaves duplicates once CloudKit mirrors the legacy
-                // originals back down. Collapse them here, on the live synced container, so
-                // the delete propagates — and every launch, because that sync can land late.
+                // The read-and-reinsert leaves this device's copies beside the originals
+                // once CloudKit mirrors those back down. Collapse the copies here, on the
+                // live synced container, so the delete propagates — and every launch,
+                // because that sync can land late. Free once the copies are gone.
                 StoreMigration.deduplicateIfNeeded(in: container, retire: retire)
                 return container
             }

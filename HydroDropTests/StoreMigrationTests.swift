@@ -19,7 +19,8 @@ final class StoreMigrationTests: XCTestCase {
     private static let touchedKeys = [
         StoreMigration.migrationCompleteKey,
         StoreMigration.migrationAttemptsKey,
-        StoreMigration.lastDedupeCountKey,
+        StoreMigration.migrationCopyIDsKey,
+        StoreMigration.migrationMomentKey,
     ]
 
     override func setUpWithError() throws {
@@ -82,6 +83,24 @@ final class StoreMigrationTests: XCTestCase {
         }
     }
 
+    /// A row as CloudKit mirrors it back down from before 1.9: no Health identifier.
+    private func original(amountML: Int, timestamp: Date, drinkType: DrinkType = .water) -> WaterEntry {
+        let row = WaterEntry(amountML: amountML, timestamp: timestamp, drinkType: drinkType)
+        row.healthSyncID = nil
+        return row
+    }
+
+    /// Marks rows as the copies this device's migration made, which are the only rows the
+    /// dedupe pass ever deletes.
+    private func recordAsCopies(_ rows: [WaterEntry], madeAt moment: Date = Date()) {
+        AppGroup.defaults?.set(rows.compactMap(\.healthSyncID), forKey: StoreMigration.migrationCopyIDsKey)
+        AppGroup.defaults?.set(moment.timeIntervalSinceReferenceDate, forKey: StoreMigration.migrationMomentKey)
+    }
+
+    private var recordedCopyIDs: [String]? {
+        AppGroup.defaults?.stringArray(forKey: StoreMigration.migrationCopyIDsKey)
+    }
+
     private func legacyURL() -> URL { workingDirectory.appending(path: "default.store") }
 
     private func targetURL() throws -> URL {
@@ -129,7 +148,7 @@ final class StoreMigrationTests: XCTestCase {
 
     /// The reinsert builds brand-new objects, so anything it forgets to copy across is
     /// silently lost for every existing user.
-    func testDrinkTypeAndHealthSampleSurviveTheReinsert() throws {
+    func testDrinkTypeAndHealthSamplesSurviveTheReinsert() throws {
         let legacy = legacyURL()
         let target = try targetURL()
         let entry = WaterEntry(
@@ -138,6 +157,9 @@ final class StoreMigrationTests: XCTestCase {
             drinkType: .coffee
         )
         entry.healthKitSampleUUID = "6B1E7F70-0000-4000-8000-00000000ABCD"
+        entry.caffeineSampleUUID = "6B1E7F70-0000-4000-8000-00000000CAFE"
+        entry.healthWaterWritten = "record of water"
+        entry.healthCaffeineWritten = "record of caffeine"
         try makeStore(at: legacy, rows: [entry])
 
         XCTAssertEqual(StoreMigration.migrate(from: legacy, to: target), target)
@@ -147,6 +169,9 @@ final class StoreMigrationTests: XCTestCase {
         XCTAssertEqual(migrated.drinkType, .coffee)
         XCTAssertEqual(migrated.timestamp, Date(timeIntervalSince1970: 1_700_000_000))
         XCTAssertEqual(migrated.healthKitSampleUUID, "6B1E7F70-0000-4000-8000-00000000ABCD")
+        XCTAssertEqual(migrated.caffeineSampleUUID, "6B1E7F70-0000-4000-8000-00000000CAFE")
+        XCTAssertEqual(migrated.healthWaterWritten, "record of water")
+        XCTAssertEqual(migrated.healthCaffeineWritten, "record of caffeine")
     }
 
     /// An entry logged before drink types existed has no raw value at all, and must
@@ -168,6 +193,21 @@ final class StoreMigrationTests: XCTestCase {
     func testReinsertReportsWhatTheTargetHolds() throws {
         let target = try targetURL()
         XCTAssertEqual(try StoreMigration.reinsert(sampleRows(4), into: target), 4)
+    }
+
+    /// The copies are told apart from the originals by the Health identifiers the reinsert
+    /// mints for them, so the migration has to remember exactly those.
+    func testTheMigrationRecordsTheCopiesItMade() throws {
+        let legacy = legacyURL()
+        let target = try targetURL()
+        try makeStore(at: legacy, rows: sampleRows(3))
+
+        XCTAssertEqual(StoreMigration.migrate(from: legacy, to: target), target)
+
+        let copies = try StoreMigration.readRows(at: target).compactMap(\.healthSyncID)
+        XCTAssertEqual(copies.count, 3, "every copy carries an identifier of its own")
+        XCTAssertEqual(Set(recordedCopyIDs ?? []), Set(copies))
+        XCTAssertNotNil(AppGroup.defaults?.object(forKey: StoreMigration.migrationMomentKey))
     }
 
     /// `resolveStoreURL` creates the shared directory before any of this runs, but the
@@ -199,6 +239,7 @@ final class StoreMigrationTests: XCTestCase {
             AppGroup.defaults?.bool(forKey: StoreMigration.migrationCompleteKey), true,
             "a failure must never mark the migration complete"
         )
+        XCTAssertNil(recordedCopyIDs, "a failure made no copies to collapse")
         XCTAssertEqual(try rowCount(at: legacy), 3, "the original is untouched by a failure")
     }
 
@@ -225,52 +266,129 @@ final class StoreMigrationTests: XCTestCase {
 
     // MARK: - Dedupe
 
-    /// The reinserted copies and the CloudKit-mirrored originals are distinct objects
-    /// with identical field values, which is exactly what the pass has to collapse.
-    func testDuplicateRowsAreCollapsedToOne() throws {
+    /// The reinserted copies and the CloudKit-mirrored original are distinct objects with
+    /// identical field values. The copies go, the original stays, and the list empties.
+    func testCopiesAreCollapsedOntoTheirOriginal() throws {
+        let url = try targetURL()
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let copies = [WaterEntry(amountML: 250, timestamp: timestamp), WaterEntry(amountML: 250, timestamp: timestamp)]
+        recordAsCopies(copies)
+        let container = try makeStore(at: url, rows: copies + [original(amountML: 250, timestamp: timestamp)])
+
+        StoreMigration.deduplicateIfNeeded(in: container)
+
+        XCTAssertEqual(try rowCount(at: url), 1)
+        XCTAssertNil(recordedCopyIDs, "nothing is left to collapse")
+    }
+
+    /// The pass used to collapse any rows that matched, which took two real drinks logged
+    /// to the same minute for one drink synced twice and deleted one of them. Only this
+    /// device's own copies are ever deleted.
+    func testTwoRealDrinksLoggedToTheSameMinuteAreBothKept() throws {
         let url = try targetURL()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
         let container = try makeStore(at: url, rows: [
-            WaterEntry(amountML: 250, timestamp: timestamp),
             WaterEntry(amountML: 250, timestamp: timestamp),
             WaterEntry(amountML: 250, timestamp: timestamp),
         ])
 
         StoreMigration.deduplicateIfNeeded(in: container)
 
-        XCTAssertEqual(try rowCount(at: url), 1)
+        XCTAssertEqual(try rowCount(at: url), 2)
     }
 
-    /// Two drinks of different sizes at the same instant are two real drinks, and a
-    /// pass that collapsed them would quietly delete the user's water.
+    /// The same, on a device that still has copies of other drinks to collapse.
+    func testRealDrinksAreKeptWhileOtherCopiesAreStillWaitedOn() throws {
+        let url = try targetURL()
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let copy = WaterEntry(amountML: 500, timestamp: timestamp.addingTimeInterval(3_600))
+        recordAsCopies([copy])
+        let container = try makeStore(at: url, rows: [
+            WaterEntry(amountML: 250, timestamp: timestamp),
+            WaterEntry(amountML: 250, timestamp: timestamp),
+            copy,
+        ])
+
+        StoreMigration.deduplicateIfNeeded(in: container)
+
+        XCTAssertEqual(try rowCount(at: url), 3)
+        XCTAssertEqual(recordedCopyIDs, [copy.healthSyncID], "the copy still waits for its original")
+    }
+
+    /// Until the original arrives, the copy is the only row the user has for that drink.
+    func testACopyWhoseOriginalHasNotArrivedIsKept() throws {
+        let url = try targetURL()
+        let copies = sampleRows(3)
+        recordAsCopies(copies)
+        let container = try makeStore(at: url, rows: copies)
+
+        StoreMigration.deduplicateIfNeeded(in: container)
+
+        XCTAssertEqual(try rowCount(at: url), 3)
+        XCTAssertEqual(Set(recordedCopyIDs ?? []), Set(copies.compactMap(\.healthSyncID)))
+    }
+
+    /// Another device's copy of the same drink is not on this device's list, so here it
+    /// counts as the original. That is right: each device collapses only its own copy, and
+    /// once both have, one row per drink is left, whichever arrived first.
+    func testAnotherDevicesCopyCountsAsTheOriginalHere() throws {
+        let url = try targetURL()
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let mine = WaterEntry(amountML: 250, timestamp: timestamp)
+        let theirs = WaterEntry(amountML: 250, timestamp: timestamp)
+        recordAsCopies([mine])
+        let container = try makeStore(at: url, rows: [mine, theirs])
+
+        StoreMigration.deduplicateIfNeeded(in: container)
+
+        let rows = try ModelContext(container).fetch(FetchDescriptor<WaterEntry>())
+        XCTAssertEqual(rows.map(\.healthSyncID), [theirs.healthSyncID])
+        XCTAssertNil(recordedCopyIDs)
+    }
+
+    /// Two drinks of different sizes at the same instant are two real drinks, and a copy
+    /// matches only the original it was taken from.
     func testDrinksThatOnlyShareATimestampAreKept() throws {
         let url = try targetURL()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
-        let container = try makeStore(at: url, rows: [
-            WaterEntry(amountML: 250, timestamp: timestamp),
+        let copies = [
             WaterEntry(amountML: 500, timestamp: timestamp),
             WaterEntry(amountML: 250, timestamp: timestamp, drinkType: .coffee),
-        ])
+        ]
+        recordAsCopies(copies)
+        let container = try makeStore(at: url, rows: [original(amountML: 250, timestamp: timestamp)] + copies)
 
         StoreMigration.deduplicateIfNeeded(in: container)
 
         XCTAssertEqual(try rowCount(at: url), 3)
     }
 
-    func testDedupeRecordsTheSettledCountSoTheNextPassCanSkip() throws {
+    /// A copy the user deleted themselves is nothing to wait for.
+    func testADeletedCopyComesOffTheList() throws {
         let url = try targetURL()
-        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
-        let container = try makeStore(at: url, rows: [
-            WaterEntry(amountML: 250, timestamp: timestamp),
-            WaterEntry(amountML: 250, timestamp: timestamp),
-        ])
+        let copies = sampleRows(2)
+        recordAsCopies(copies)
+        let container = try makeStore(at: url, rows: [copies[0]])
 
         StoreMigration.deduplicateIfNeeded(in: container)
 
-        XCTAssertEqual(
-            AppGroup.defaults?.object(forKey: StoreMigration.lastDedupeCountKey) as? Int, 1,
-            "the count recorded must be what the store holds after the pass, not before"
-        )
+        XCTAssertEqual(recordedCopyIDs, [copies[0].healthSyncID])
+    }
+
+    /// With iCloud off the originals never come. After a month the copies are simply the
+    /// log, and the pass stops reading every row on every launch.
+    func testTheListIsForgottenAfterAMonth() throws {
+        let url = try targetURL()
+        let copies = sampleRows(2)
+        let migrated = Date(timeIntervalSince1970: 1_700_000_000)
+        recordAsCopies(copies, madeAt: migrated)
+        let container = try makeStore(at: url, rows: copies)
+
+        StoreMigration.deduplicateIfNeeded(in: container, now: migrated.addingTimeInterval(StoreMigration.copyListLifetime + 1))
+
+        XCTAssertEqual(try rowCount(at: url), 2)
+        XCTAssertNil(recordedCopyIDs)
+        XCTAssertNil(AppGroup.defaults?.object(forKey: StoreMigration.migrationMomentKey))
     }
 
     func testAStoreWithNothingToCollapseIsLeftAlone() throws {
@@ -282,36 +400,41 @@ final class StoreMigrationTests: XCTestCase {
         XCTAssertEqual(try rowCount(at: url), 5)
     }
 
-    /// The pass used to keep whichever copy came first, so a copy Health had never heard of
-    /// could outlive the one it had, leaving that sample in Health with nothing pointing at
-    /// it and the drink written a second time.
-    func testTheCopyHealthKnowsIsTheOneKept() throws {
+    /// The copy may be the row Health was written from, if the reconcile ran before the
+    /// original synced down. The original takes the sample and its record, and the Health
+    /// identifier the sample was written under, so nothing is left in Health with no drink
+    /// pointing at it and the drink is not written a second time.
+    func testTheOriginalTakesWhatHealthKnowsFromTheCopy() throws {
         let url = try targetURL()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
-        let written = WaterEntry(amountML: 250, timestamp: timestamp)
-        written.healthKitSampleUUID = "water-A"
-        written.healthWaterWritten = "record of water-A"
-        let container = try makeStore(at: url, rows: [WaterEntry(amountML: 250, timestamp: timestamp), written])
+        let copy = WaterEntry(amountML: 250, timestamp: timestamp)
+        copy.healthKitSampleUUID = "water-A"
+        copy.healthWaterWritten = "record of water-A"
+        recordAsCopies([copy])
+        let container = try makeStore(at: url, rows: [copy, original(amountML: 250, timestamp: timestamp)])
 
         StoreMigration.deduplicateIfNeeded(in: container)
 
         let rows = try ModelContext(container).fetch(FetchDescriptor<WaterEntry>())
         XCTAssertEqual(rows.map(\.healthKitSampleUUID), ["water-A"])
         XCTAssertEqual(rows.map(\.healthWaterWritten), ["record of water-A"])
+        XCTAssertEqual(rows.map(\.healthSyncID), [copy.healthSyncID])
+        XCTAssertNil(recordedCopyIDs, "the identifier the original took over is no longer a copy's")
     }
 
-    /// Each copy knows a different kind: the kept one takes the other's sample and record,
+    /// Each row knows a different kind: the original takes the copy's sample and record,
     /// so neither sample is left behind in Health.
-    func testADeletedCopysSampleMovesOntoTheKeptOne() throws {
+    func testADeletedCopysSampleMovesOntoTheOriginal() throws {
         let url = try targetURL()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
-        let caffeine = WaterEntry(amountML: 250, timestamp: timestamp, drinkType: .coffee)
-        caffeine.caffeineSampleUUID = "caffeine-B"
-        let water = WaterEntry(amountML: 250, timestamp: timestamp, drinkType: .coffee)
+        let copy = WaterEntry(amountML: 250, timestamp: timestamp, drinkType: .coffee)
+        copy.caffeineSampleUUID = "caffeine-B"
+        let water = original(amountML: 250, timestamp: timestamp, drinkType: .coffee)
         water.healthKitSampleUUID = "water-A"
         water.healthWaterWritten = "record of water-A"
+        recordAsCopies([copy])
         var handedOver: [StoreMigration.HealthLeftovers] = []
-        let container = try makeStore(at: url, rows: [caffeine, water])
+        let container = try makeStore(at: url, rows: [copy, water])
 
         StoreMigration.deduplicateIfNeeded(in: container) { handedOver.append($0) }
 
@@ -323,25 +446,24 @@ final class StoreMigrationTests: XCTestCase {
         XCTAssertEqual(handedOver, [], "nothing is left over")
     }
 
-    /// Both copies were written to Health: one sample stays with the kept drink, and the
-    /// other is a second copy of the drink in Health, handed over to be taken out.
+    /// Both rows were written to Health: the original's sample stays with it, and the
+    /// copy's is a second copy of the drink in Health, handed over to be taken out.
     func testASecondCopyInHealthIsHandedOver() throws {
         let url = try targetURL()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
-        let first = WaterEntry(amountML: 250, timestamp: timestamp)
+        let first = original(amountML: 250, timestamp: timestamp)
         first.healthKitSampleUUID = "water-A"
         let second = WaterEntry(amountML: 250, timestamp: timestamp)
         second.healthKitSampleUUID = "water-B"
+        recordAsCopies([second])
         var handedOver: [StoreMigration.HealthLeftovers] = []
         let container = try makeStore(at: url, rows: [first, second])
 
         StoreMigration.deduplicateIfNeeded(in: container) { handedOver.append($0) }
 
         let kept = try XCTUnwrap(ModelContext(container).fetch(FetchDescriptor<WaterEntry>()).first)
-        XCTAssertEqual(handedOver.count, 1)
-        XCTAssertEqual(handedOver.first?.water.count, 1)
-        XCTAssertNotEqual(handedOver.first?.water.first, kept.healthKitSampleUUID)
-        XCTAssertEqual(Set([kept.healthKitSampleUUID ?? ""] + (handedOver.first?.water ?? [])), ["water-A", "water-B"])
+        XCTAssertEqual(kept.healthKitSampleUUID, "water-A")
+        XCTAssertEqual(handedOver, [StoreMigration.HealthLeftovers(water: ["water-B"], caffeine: [])])
     }
 }
 
