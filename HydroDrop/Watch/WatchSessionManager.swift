@@ -80,7 +80,9 @@ final class WatchSessionManager: NSObject {
         let settings = AppSettings.shared
         pushContext(
             totalML: total,
-            goalML: settings.dailyGoalML,
+            // Today's target, the same number Today pushes, so the wrist does not flip
+            // between the saved goal and the bumped one after every drink on a hot day.
+            goalML: settings.todayGoalML(),
             measurementSystem: settings.measurementSystem,
             quickAddPresetsML: settings.quickAddPresets
         )

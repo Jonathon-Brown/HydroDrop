@@ -30,6 +30,17 @@ struct HydroDropApp: App {
         // logged (an iCloud restore onto a new phone, say) is recognised here instead.
         AppSettings.shared.completeOnboardingIfExistingUser(entryCount: Self.entryCount(in: container))
         WatchSessionManager.shared.activate(modelContainer: container)
+        // An intent run by Siri or Shortcuts lands in this process, and logs the way a
+        // quick-add button does rather than the way the widget extension has to.
+        DrinkLogger.inAppLogger = { [container] amountML, drinkType in
+            try DrinkLogger.logInApp(
+                amountML: amountML,
+                drinkType: drinkType,
+                in: container.mainContext,
+                loggedBy: "an intent",
+                followUp: .init(reminderGoalML: AppSettings.shared.todayGoalML(), mirrorsToWatch: true)
+            )
+        }
         // Installed before the first scene exists, so a "Log a glass" tap that launches
         // the app in the background is handled rather than dropped.
         NotificationActionHandler.shared.activate(modelContainer: container)

@@ -80,6 +80,28 @@ extension DrinkLogger {
             settings: settings,
             isShared: SharedModelContainer.isShared(context.container)
         )
+        // The Live Activity is the third thing that draws the day without the app open,
+        // and it sits on the same Lock Screen as the notification whose button logged
+        // this. The Today screen refreshes it from its own `onChange`, but a drink that
+        // arrives while that screen does not exist, from a notification action or the
+        // watch after a background launch, used to leave it showing the old total until
+        // the app was next opened. Only an update is possible from the background; a
+        // start there is refused, and the controller logs it.
+        let liveTotal = logged.todayTotalML
+        let liveGoal = followUp.reminderGoalML ?? settings.todayGoalML()
+        let liveStreak = StreakCalculator.currentStreak(
+            entries: logged.allEntries,
+            goalML: settings.dailyGoalML,
+            frozenDayKeys: settings.frozenStreakDayKeys
+        )
+        Task { @MainActor in
+            await HydrationLiveActivityController.refresh(
+                todayTotalML: liveTotal,
+                goalML: liveGoal,
+                settings: settings,
+                streak: liveStreak
+            )
+        }
         // A logged drink moves today's pace, so the rest of the day's nudges are stale.
         if let reminderGoalML = followUp.reminderGoalML {
             ReminderManager.shared.refreshSchedule(
