@@ -15,6 +15,9 @@ struct HistoryView: View {
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @State private var showingPaywall = false
     @State private var showingWeeklyRecap = false
+    /// The log's totals by day, kept across renders (see `LogCache`). Everything below
+    /// that used to walk every drink now reads from this.
+    @State private var logCache = LogCache()
 
     private let freeDayCount = 7
     private let plusDayCount = 30
@@ -25,8 +28,12 @@ struct HistoryView: View {
         store.isSubscribed ? plusDayCount : freeDayCount
     }
 
+    private var totalsByDay: [String: Int] {
+        logCache.totalsByDay(of: allEntries, calendar: calendar)
+    }
+
     private var displayedDays: [DayTotal] {
-        let totals = StreakCalculator.totalsByDay(allEntries, calendar: calendar)
+        let totals = totalsByDay
         return (0..<dayCount).reversed().compactMap { offset -> DayTotal? in
             guard let day = calendar.date(byAdding: .day, value: -offset, to: calendar.startOfDay(for: Date())) else { return nil }
             return DayTotal(date: day, totalML: totals[DayKey.key(for: day, calendar: calendar)] ?? 0)
@@ -35,9 +42,10 @@ struct HistoryView: View {
 
     private var streak: Int {
         StreakCalculator.currentStreak(
-            entries: allEntries,
+            totals: totalsByDay,
             goalML: settings.dailyGoalML,
-            frozenDayKeys: settings.frozenStreakDayKeys
+            frozenDayKeys: settings.frozenStreakDayKeys,
+            calendar: calendar
         )
     }
 
@@ -64,7 +72,7 @@ struct HistoryView: View {
     private var worldCard: WorldCardContent {
         WorldCardContent(
             state: WorldEngine.state(
-                totalsByDay: StreakCalculator.totalsByDay(allEntries),
+                totalsByDay: totalsByDay,
                 goalML: settings.dailyGoalML,
                 frozenDayKeys: settings.frozenStreakDayKeys,
                 recordedGoalDays: settings.worldGoalDaysRecord
@@ -75,8 +83,7 @@ struct HistoryView: View {
     }
 
     private var todayTotal: Int {
-        let totals = StreakCalculator.totalsByDay(allEntries, calendar: calendar)
-        return totals[DayKey.key(for: Date(), calendar: calendar)] ?? 0
+        totalsByDay[DayKey.key(for: Date(), calendar: calendar)] ?? 0
     }
 
     var body: some View {
@@ -150,7 +157,7 @@ struct HistoryView: View {
                     }
 
                     InsightsSection(
-                        totalsByDay: StreakCalculator.totalsByDay(allEntries),
+                        totalsByDay: totalsByDay,
                         goalML: settings.dailyGoalML
                     )
                     .id(Self.insightsAnchor)

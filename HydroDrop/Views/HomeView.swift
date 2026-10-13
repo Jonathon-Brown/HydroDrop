@@ -12,6 +12,10 @@ struct HomeView: View {
     @ObservedObject private var nightOut = NightOutCoordinator.shared
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @Query(sort: \Bottle.createdAt) private var bottles: [Bottle]
+    /// The log's totals by day, kept across renders (see `LogCache`). The streak, the
+    /// lost streak, the world and the freeze all read from this rather than each walking
+    /// every drink on every render.
+    @State private var logCache = LogCache()
 
     @State private var showingAddSheet = false
     @State private var showingSayIt = false
@@ -63,8 +67,20 @@ struct HomeView: View {
     @AppStorage("streakBreakNotice.dismissedDayKey") private var dismissedStreakNoticeDayKey = ""
     @AppStorage("streakBreakNotice.countedDayKey") private var countedStreakNoticeDayKey = ""
 
+    private var totalsByDay: [String: Int] {
+        logCache.totalsByDay(of: allEntries)
+    }
+
+    /// Today's drinks. The query is newest first, so they sit at the top, after anything
+    /// dated ahead of now, and the walk stops at the first drink from an earlier day
+    /// rather than reading the whole log for a day's worth.
     private var todayEntries: [WaterEntry] {
-        allEntries.filter { Calendar.current.isDateInToday($0.timestamp) }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: Date())
+        guard let end = calendar.date(byAdding: .day, value: 1, to: start) else {
+            return allEntries.filter { calendar.isDateInToday($0.timestamp) }
+        }
+        return Array(allEntries.drop(while: { $0.timestamp >= end }).prefix(while: { $0.timestamp >= start }))
     }
 
     /// What today counts for, which is the hydrating share of each drink rather than
@@ -121,7 +137,7 @@ struct HomeView: View {
 
     private var streak: Int {
         StreakCalculator.currentStreak(
-            entries: allEntries,
+            totals: totalsByDay,
             goalML: settings.dailyGoalML,
             frozenDayKeys: settings.frozenStreakDayKeys
         )
@@ -143,7 +159,7 @@ struct HomeView: View {
     private var visibleLostStreak: StreakFreeze.LostStreak? {
         guard !store.isSubscribed else { return nil }
         guard let lost = StreakFreeze.lostStreakAFreezeWouldHaveSaved(
-            entries: allEntries,
+            totals: totalsByDay,
             goalML: settings.dailyGoalML,
             frozenDayKeys: settings.frozenStreakDayKeys
         ) else { return nil }
@@ -511,7 +527,7 @@ struct HomeView: View {
         if !settings.hasSeededMilestones {
             settings.seedMilestones(
                 longestStreak: StreakCalculator.longestStreak(
-                    entries: allEntries,
+                    totals: totalsByDay,
                     goalML: settings.dailyGoalML,
                     frozenDayKeys: settings.frozenStreakDayKeys
                 )
@@ -564,7 +580,7 @@ struct HomeView: View {
         if let staged = WorldDebug.state { return staged }
         #endif
         return WorldEngine.state(
-            totalsByDay: StreakCalculator.totalsByDay(allEntries),
+            totalsByDay: totalsByDay,
             goalML: settings.dailyGoalML,
             frozenDayKeys: settings.frozenStreakDayKeys,
             recordedGoalDays: settings.worldGoalDaysRecord
@@ -1247,7 +1263,7 @@ struct HomeView: View {
     /// Spends a HydroDrop+ freeze on yesterday if it was missed and a streak is at stake.
     private func applyStreakFreezeIfNeeded() {
         guard let day = StreakFreeze.dayToProtect(
-            entries: allEntries,
+            totals: totalsByDay,
             goalML: settings.dailyGoalML,
             frozenDayKeys: settings.frozenStreakDayKeys,
             isSubscribed: store.isSubscribed

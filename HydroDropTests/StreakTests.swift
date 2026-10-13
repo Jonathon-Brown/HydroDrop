@@ -37,6 +37,49 @@ final class StreakTests: XCTestCase {
         ISO8601DateFormatter().date(from: iso)!
     }
 
+    /// The screens read the streak and the freeze rules from totals a cache holds, and
+    /// those overloads have to say exactly what the entries versions say.
+    func testTheTotalsOverloadsAgreeWithTheEntriesVersions() {
+        let calendar = calendar("Europe/London")
+        let now = date("2026-08-22T12:00:00Z")
+        let entries = [
+            WaterEntry(amountML: 2000, timestamp: date("2026-08-19T12:00:00Z")),
+            WaterEntry(amountML: 2000, timestamp: date("2026-08-20T12:00:00Z")),
+            WaterEntry(amountML: 500, timestamp: date("2026-08-21T12:00:00Z")),
+            WaterEntry(amountML: 2000, timestamp: date("2026-08-10T12:00:00Z")),
+            WaterEntry(amountML: 2000, timestamp: date("2026-08-11T12:00:00Z")),
+            WaterEntry(amountML: 2000, timestamp: date("2026-08-12T12:00:00Z")),
+        ]
+        let totals = StreakCalculator.totalsByDay(entries, calendar: calendar)
+        let frozen = ["2026-08-13"]
+
+        XCTAssertEqual(
+            StreakCalculator.currentStreak(totals: totals, goalML: goal, frozenDayKeys: frozen, now: now, calendar: calendar),
+            StreakCalculator.currentStreak(entries: entries, goalML: goal, frozenDayKeys: frozen, now: now, calendar: calendar)
+        )
+        XCTAssertEqual(
+            StreakCalculator.longestStreak(totals: totals, goalML: goal, frozenDayKeys: frozen, calendar: calendar),
+            StreakCalculator.longestStreak(entries: entries, goalML: goal, frozenDayKeys: frozen, calendar: calendar)
+        )
+        XCTAssertEqual(StreakCalculator.longestStreak(totals: totals, goalML: goal, frozenDayKeys: frozen, calendar: calendar), 3)
+        XCTAssertEqual(
+            StreakFreeze.dayToProtect(totals: totals, goalML: goal, frozenDayKeys: [], isSubscribed: true, now: now, calendar: calendar),
+            StreakFreeze.dayToProtect(entries: entries, goalML: goal, frozenDayKeys: [], isSubscribed: true, now: now, calendar: calendar)
+        )
+        XCTAssertEqual(
+            StreakFreeze.dayToProtect(totals: totals, goalML: goal, frozenDayKeys: [], isSubscribed: true, now: now, calendar: calendar),
+            "2026-08-21"
+        )
+        XCTAssertEqual(
+            StreakFreeze.lostStreakAFreezeWouldHaveSaved(totals: totals, goalML: goal, frozenDayKeys: [], now: now, calendar: calendar),
+            StreakFreeze.lostStreakAFreezeWouldHaveSaved(entries: entries, goalML: goal, frozenDayKeys: [], now: now, calendar: calendar)
+        )
+        XCTAssertEqual(
+            StreakFreeze.lostStreakAFreezeWouldHaveSaved(totals: totals, goalML: goal, frozenDayKeys: [], now: now, calendar: calendar),
+            StreakFreeze.LostStreak(missedDayKey: "2026-08-21", length: 2)
+        )
+    }
+
     /// Midday UTC, which is the same calendar day in New York and London alike.
     private func entries(_ days: [(String, Int)]) -> [WaterEntry] {
         days.map { WaterEntry(amountML: $0.1, timestamp: date("\($0.0)T15:00:00Z")) }
