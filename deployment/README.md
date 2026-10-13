@@ -62,7 +62,12 @@ After choosing/configuring a host/proxy, verify all page responses, actual missi
 404 status, `/tap` routing and the Apple association file before changing DNS.
 
 The app's `.well-known/apple-app-site-association` must continue to be served without
-a redirect and as JSON. Preserve the bottle and Duo universal-link paths and public app-ads.txt.
+a redirect, with a 200 and a body Apple can parse as JSON. GitHub Pages sends the
+extensionless file as `application/octet-stream`, which Apple accepts and the live `/tap`
+flow already relies on; a new host must send that or `application/json`. The local
+preview (`Scripts/serve_website.py`) forces `application/json`, which is a divergence from
+production, not a requirement. Preserve the bottle and Duo universal-link paths and the
+public app-ads.txt.
 Do not add rate limiting that interferes with Apple's association-file fetches.
 There are no expensive website endpoints that require application rate limits or API spend caps.
 

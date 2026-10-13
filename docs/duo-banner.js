@@ -10,9 +10,11 @@
     var secret = parts.length > 1 && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(parts[1]) ? parts[1] : '';
     return { code: code, secret: secret };
   }
-  function duoBanner() {
+  function duoBanner(invite) {
     var m = document.getElementById('smart-banner');
-    var invite = duoParse(location.hash);
+    // The page script passes the invite it is showing, which may be an earlier hash than
+    // the current one; the head has nothing yet and reads the hash itself.
+    if (invite === undefined) { invite = duoParse(location.hash); }
     var link = 'https://hydrodrop.us/duo' + (invite ? '#' + invite.code + (invite.secret ? '.' + invite.secret : '') : '');
     if (m) { m.setAttribute('content', 'app-id=6793399317, app-argument=' + link); }
   }
