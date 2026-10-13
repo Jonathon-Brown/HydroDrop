@@ -182,10 +182,22 @@ if [[ $(printf '%s\n' "$SDK_STARTS" | grep -c .) -ne 1 || "$SDK_STARTS" != Hydro
 else
   pass "Google's ad SDK starts only in AdAvailability, after the region check"
 fi
-if grep -qE '^[[:space:]]*GADDelayInitialization:[[:space:]]*true' project.yml 2>/dev/null; then
-  pass "the ad SDK doesn't set itself up at launch (GADDelayInitialization)"
+# Both keys: the undocumented one the device check was done with, and the one Google
+# documents for delaying app measurement. Losing either is a gap an SDK update can open.
+MISSING_GAD_KEYS=""
+for key in GADDelayInitialization GADDelayAppMeasurementInit; do
+  grep -qE "^[[:space:]]*$key:[[:space:]]*true" project.yml 2>/dev/null || MISSING_GAD_KEYS="$MISSING_GAD_KEYS $key"
+done
+if [[ -z "$MISSING_GAD_KEYS" ]]; then
+  pass "the ad SDK doesn't set itself up at launch (GADDelayInitialization and GADDelayAppMeasurementInit)"
 else
-  fail "project.yml lost GADDelayInitialization, so Google's ad SDK sets itself up at every launch, in the EEA, UK and Switzerland too"
+  fail "project.yml lost:$MISSING_GAD_KEYS — Google's ad SDK can set itself up at every launch, in the EEA, UK and Switzerland too"
+fi
+# The SDK is pinned exactly, so a bump is a deliberate change that repeats the device check.
+if grep -qE '^[[:space:]]*exactVersion:[[:space:]]*[0-9]' project.yml 2>/dev/null; then
+  pass "GoogleMobileAds is pinned to an exact version"
+else
+  fail "project.yml no longer pins GoogleMobileAds exactly, so a fresh checkout can resolve an SDK the EEA check never ran against"
 fi
 MISSING_REGION=""
 for code in GB GBR CH CHE NO NOR IS ISL LI LIE DE DEU FR FRA IE IRL; do
