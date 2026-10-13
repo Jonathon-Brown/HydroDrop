@@ -57,7 +57,15 @@ struct RootTabView: View {
         // A tapped recap notification wins over Settings left open. The recap sheet
         // below waits for it to be fully gone before it comes up.
         .onChange(of: router.showingWeeklyRecap) { _, showing in
-            if showing { router.showingSettings = false }
+            guard showing else { return }
+            // The recap is HydroDrop+. A notification left over from a subscription that
+            // has since lapsed opens nothing, and the flag is cleared so it cannot open
+            // the sheet later from underneath something else.
+            guard store.isSubscribed else {
+                router.showingWeeklyRecap = false
+                return
+            }
+            router.showingSettings = false
         }
         #if DEBUG
         // `-SimulateBottleTap <address>` hands an address to the same place a real tag

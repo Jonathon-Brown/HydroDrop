@@ -395,6 +395,10 @@ struct HomeView: View {
         }
         .onChange(of: todayTotal) { _, _ in
             mirrorToCompanions()
+            // The query has caught up with a delete or an undo by now, which is the first
+            // moment the schedule can be paced against the real total. Re-pacing from the
+            // delete itself read the entry that was on its way out as still drunk.
+            ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
         }
         .onChange(of: settings.dailyGoalML) { _, _ in
             mirrorToCompanions()
@@ -1057,11 +1061,13 @@ struct HomeView: View {
         retireHealthSamples(samples)
     }
 
-    /// Everything that has to catch up after the log changes in any way.
+    /// Everything that has to catch up after the log changes in any way. The reminder
+    /// schedule is not here: it is re-paced from `onChange(of: todayTotal)`, once the
+    /// query reflects the change, because `allEntries` still holds a drink that was just
+    /// deleted at this point.
     private func afterLogChange() {
         mirrorToCompanions()
         syncHealth(.logChanged)
-        ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
     }
 
     /// Writes anything Health is missing. Cheap and a no-op when sync is off, so it can
@@ -1141,6 +1147,10 @@ struct HomeView: View {
         checkWeather()
         checkWorkouts()
         ReminderManager.shared.refreshSchedule(entries: allEntries, goalML: todayGoal)
+        // Same reason as the line above: pending requests can vanish while the app is
+        // away (Reset All Settings, a restore), and a recap that is wanted should be
+        // there on Sunday without a settings change to put it back.
+        WeeklyRecapNotifier.shared.refresh()
     }
 
     /// Asks Health whether a workout worth a suggestion has ended today.

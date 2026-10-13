@@ -93,6 +93,10 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(remindersEnabled, forKey: Keys.remindersEnabled)
             ReminderManager.shared.refreshSchedule()
+            // The recap is a notification too, and this is the switch people reach for
+            // to stop them all. It lives under its own identifier so the reminder rebuild
+            // never touches it, which left it firing every Sunday after the switch was off.
+            WeeklyRecapNotifier.shared.refresh()
         }
     }
 
@@ -472,6 +476,12 @@ final class AppSettings: ObservableObject {
     @Published var liveActivityEnabled: Bool {
         didSet {
             defaults.set(liveActivityEnabled, forKey: Keys.liveActivityEnabled)
+            // Off means off the Lock Screen now, not at the next drink. Nothing else runs
+            // between the switch and the Settings sheet closing, so the activity used to
+            // stay up, stale, until something was logged or the app relaunched.
+            if !liveActivityEnabled {
+                Task { @MainActor in await HydrationLiveActivityController.endAll() }
+            }
         }
     }
 

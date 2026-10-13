@@ -18,11 +18,16 @@ struct HydroDropApp: App {
         // The Health corrections 1.8.1 queued on this device move onto the synced drinks,
         // claimed by this device if it may write to Health. Otherwise a device with sync on
         // takes them over after a week. With sync off here too, because they are no use
-        // sitting in this device's defaults.
-        HealthReplacementQueue().moveQueuedSamplesOntoDrinks(
-            in: container.mainContext,
-            claimedBy: HealthKitManager.shared.claimant(for:)
-        )
+        // sitting in this device's defaults. Not before this device can read its own name:
+        // a launch in the background before the first unlock after a restart has no
+        // keychain, and the queue moved then was claimed by nobody, so this device waited
+        // a week to correct its own samples. The list keeps for a launch that can.
+        if HealthInstall.id != nil {
+            HealthReplacementQueue().moveQueuedSamplesOntoDrinks(
+                in: container.mainContext,
+                claimedBy: HealthKitManager.shared.claimant(for:)
+            )
+        }
         // Started here, not from AppSettings' own initialiser: the change handler calls
         // back into AppSettings.shared, which must already exist by then.
         AppSettings.shared.startCloudSync()
@@ -47,6 +52,9 @@ struct HydroDropApp: App {
         // TestFlight builds 29 to 31 had an iCloud version of Duo Streaks that never
         // shipped. Clears what it left on a tester's phone; does nothing for anyone else.
         LegacyDuoCleanup.runOnce()
+        // A rebuild asked for by a settings change reads today's intake from here, so it
+        // paces against what was actually drunk rather than against nothing.
+        ReminderManager.shared.activate(modelContainer: container)
         ReminderManager.shared.registerCategories()
         // Published before any view appears, so a widget added while the app was
         // uninstalled has something true to draw as soon as the app is opened again.
