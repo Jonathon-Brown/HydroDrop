@@ -36,6 +36,15 @@ struct HomeView: View {
     @State private var worldHeaderHeight: CGFloat = 110
     /// A weather suggestion fetched for today but not yet answered.
     @State private var pendingWeatherBumpML: Int?
+    /// When the forecast was last asked. A mild day leaves no answer behind, so without
+    /// this the forecast was fetched again on every foreground and every return to this
+    /// tab, despite the "once a day" the feature was designed around.
+    @AppStorage("weatherBump.lastCheckedAt") private var weatherLastCheckedAt = 0.0
+    /// Whether this screen has appeared before. `onAppear` fires again each time the
+    /// Today tab is reselected, and the foreground work used to run on every one of
+    /// those: a Health scan, a reminder rebuild, a forecast fetch and a workout query
+    /// for a tab switch. Returns from the background come through `scenePhase`.
+    @State private var hasAppeared = false
     /// The same for today's workouts.
     @State private var pendingWorkoutBumpML: Int?
     /// The day extra water was accepted for something other than the heat, so the line
@@ -364,7 +373,11 @@ struct HomeView: View {
             }
         }
         .onAppear {
-            syncOnForeground()
+            // Once per launch here; every later foreground comes through scenePhase.
+            if !hasAppeared {
+                hasAppeared = true
+                syncOnForeground()
+            }
             refreshWorld()
             checkMilestones()
             considerReviewPrompt()
@@ -1210,6 +1223,12 @@ struct HomeView: View {
         guard settings.weatherGoalActive else { return }
         guard acceptedWeatherBumpML == 0, !settings.hasDismissedWeatherBump() else { return }
         guard pendingWeatherBumpML == nil else { return }
+        // One reading is believed for as long as the world believes the sky it paints
+        // from the same request. The stamp is taken before the fetch, so a forecast
+        // that cannot be reached is not asked for again on the very next foreground.
+        let now = Date().timeIntervalSinceReferenceDate
+        guard now - weatherLastCheckedAt > WorldWeather.freshness else { return }
+        weatherLastCheckedAt = now
         Task { @MainActor in
             guard let bump = await WeatherGoalAdvisor.shared.suggestedBumpML(baseGoalML: settings.dailyGoalML) else { return }
             guard settings.weatherGoalActive, !settings.hasDismissedWeatherBump() else { return }
