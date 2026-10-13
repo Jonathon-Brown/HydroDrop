@@ -54,13 +54,26 @@ enum MeasurementSystem: String, CaseIterable, Identifiable {
     }
 
     /// A value chosen in this system's display unit, as the mL to store.
+    ///
+    /// Bounded in `Double` before the conversion. `Int(_:)` traps on anything past
+    /// `Int.max`, and the value can come from a Shortcut's free-text amount or from a
+    /// number the language model copied out of a sentence, so the bound is a little past
+    /// the largest drink the app accepts rather than the largest number a `Double` holds.
+    /// Every caller checks the result against its own range, which is why the bound is
+    /// deliberately outside all of them: a huge number is refused, not quietly accepted.
     func mL(fromDisplayVolume value: Double) -> Int {
         guard value.isFinite else { return 0 }
+        let raw: Double
         switch self {
-        case .metric: return Int(value.rounded())
-        case .imperial: return Int((value * Self.mLPerFluidOunce).rounded())
+        case .metric: raw = value
+        case .imperial: raw = value * Self.mLPerFluidOunce
         }
+        return Int(min(max(raw, -Self.conversionCeilingML), Self.conversionCeilingML).rounded())
     }
+
+    /// Past this a volume is nonsense whatever the unit, and holding the arithmetic to it
+    /// keeps the conversion to `Int` from trapping.
+    static let conversionCeilingML = Double(plausibleDrinkRangeML.upperBound) * 2
 
     /// A stored volume rounded to whole display units, for steppers and pickers.
     func wholeUnits(fromML mL: Int) -> Int {
