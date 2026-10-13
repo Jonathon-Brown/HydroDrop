@@ -188,7 +188,9 @@ To rebuild one:
 - 1.9 moves the Health edit queue onto the synced drink: `WaterEntry` gains `healthSyncID`,
   `healthWaterWritten` and `healthCaffeineWritten` (see `Health/HealthWrittenRecord.swift`).
   An edit made on any device is replaced by the sample's owner (the device that wrote it, or
-  that claimed a pre-1.9 sample), and another device takes over after a week. The CloudKit
-  Production schema must have the three fields before any 1.9 build goes to TestFlight, or
-  iCloud sync of new drinks stalls. The design and its decisions are in the vault note
-  "HydroDrop 1.9 Health edits across devices".
+  that claimed a pre-1.9 sample), and another device takes over after a week. A deleted
+  drink leaves a `HealthTombstone` row (`Models/HealthTombstone.swift`, a new record type)
+  for the devices that hold its samples. The CloudKit Production schema must have the three
+  fields and the `CD_HealthTombstone` record type before any 1.9 build goes to TestFlight,
+  or iCloud sync of new drinks stalls; `Scripts/preflight.sh` checks both. The design and
+  its decisions are in the vault note "HydroDrop 1.9 Health edits across devices".

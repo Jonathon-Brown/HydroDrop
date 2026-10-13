@@ -175,8 +175,10 @@ targets:
       - path: HydroDrop/Support/Diagnostics.swift
       - path: HydroDrop/Models/StreakCalculator.swift
       # `HydroDrop/Shared` opens the store with the full schema, so every model in it
-      # has to compile here too, even though no widget draws a bottle.
+      # has to compile here too, even though no widget draws a bottle or deletes a
+      # Health sample.
       - path: HydroDrop/Models/Bottle.swift
+      - path: HydroDrop/Models/HealthTombstone.swift
     info:
       path: HydroDropWidgets/Info.plist
       properties:
