@@ -155,6 +155,14 @@ final class AppSettings: ObservableObject {
 
     static let quickAddSlotCount = 3
 
+    /// A goal from iCloud is another device's answer, or a record damaged on the way, so
+    /// it is held to the range the stepper enforces rather than trusted. Every division
+    /// by the goal guards zero, but a zero or a negative still showed 0% and no streak
+    /// until the stepper was moved, and a value near Int.max overflowed the day's bump.
+    private static func sanitisedGoal(_ goal: Int?) -> Int? {
+        goal.flatMap { MeasurementSystem.storedGoalRangeML.contains($0) ? $0 : nil }
+    }
+
     /// A stored preset list is only usable if it has the right shape and plausible
     /// amounts. Anything else (a truncated write, a value from a future version) falls
     /// back to the defaults rather than putting a nonsense button on the home screen.
@@ -562,7 +570,7 @@ final class AppSettings: ObservableObject {
         let synced = CloudSettingsStore.shared
         let screenshotMode = Self.isScreenshotMode
 
-        let storedGoal = synced.int(forKey: Keys.dailyGoalML) ?? 2000
+        let storedGoal = Self.sanitisedGoal(synced.int(forKey: Keys.dailyGoalML)) ?? 2000
 
         let storedInterval: Int
         if let savedMinutes = d.object(forKey: Keys.reminderIntervalMinutes) as? Int {
@@ -783,7 +791,7 @@ final class AppSettings: ObservableObject {
         var worldRecordToPublish: Int?
 
         isApplyingRemoteChange = true
-        if changed.contains(Keys.dailyGoalML), let goal = synced.int(forKey: Keys.dailyGoalML) {
+        if changed.contains(Keys.dailyGoalML), let goal = Self.sanitisedGoal(synced.int(forKey: Keys.dailyGoalML)) {
             dailyGoalML = goal
         }
         if changed.contains(Keys.measurementSystem),

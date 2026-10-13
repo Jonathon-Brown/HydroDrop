@@ -174,7 +174,10 @@ extension WatchSessionManager: WCSessionDelegate {
             Diagnostics.log("dropped a watch drink with an implausible amount: \(amountML)")
             return
         }
-        let timestamp = (userInfo["timestamp"] as? Date) ?? Date()
+        // The time is input too. Held to the window a drink can be logged in, so a watch
+        // whose clock is wrong cannot file a drink in the future, where it counts for no
+        // day and sits at the top of History.
+        let timestamp = DrinkTime.clamped((userInfo["timestamp"] as? Date) ?? Date())
         let identifier = userInfo["id"] as? String
         Task { @MainActor in
             WatchSessionManager.shared.handleLogDrink(
