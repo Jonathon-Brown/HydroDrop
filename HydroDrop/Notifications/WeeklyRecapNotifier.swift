@@ -96,6 +96,22 @@ final class AppRouter: ObservableObject {
     func settingsDidAppear() { settingsIsOnScreen = true }
     func settingsDidDismiss() { settingsIsOnScreen = false }
 
+    /// How many of the sheets Today and History put up on their own are up or still on
+    /// their way out: the custom amount, Say it, an edit, a paywall, a celebration,
+    /// History's recap. Anything presented from underneath has to wait for these the way
+    /// it waits for Settings, because a sheet or an alert asked for under one of them is
+    /// dropped rather than queued. A recap notification, an unknown bottle tag and a
+    /// milestone celebration were all lost that way. Counted rather than a flag, because
+    /// one sheet can be opening as another is still closing.
+    @Published private(set) var otherModalCount = 0
+
+    func modalDidAppear() { otherModalCount += 1 }
+    func modalDidDismiss() { otherModalCount = max(0, otherModalCount - 1) }
+
+    /// Whether anything is up, or still leaving, that a presentation from underneath
+    /// would be lost behind.
+    var somethingIsOnScreen: Bool { settingsIsOnScreen || otherModalCount > 0 }
+
     private init() {}
 
     /// Takes an address the app was opened with, from a tag read in the background, a

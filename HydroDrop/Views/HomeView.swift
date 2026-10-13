@@ -255,10 +255,15 @@ struct HomeView: View {
                 WorldView(state: world, streak: streak, todayTotalML: todayTotal)
                     .environmentObject(settings)
             }
-            .sheet(isPresented: $showingAddSheet) {
+            // Every sheet here tells the router it is up and when it has fully gone, so a
+            // recap notification, a bottle tag or a celebration arriving underneath waits
+            // rather than being dropped. The milestone check runs again once a sheet has
+            // gone, because the drink that earned it was usually logged from that sheet.
+            .sheet(isPresented: $showingAddSheet, onDismiss: { sheetDidDismiss() }) {
                 AddDrinkSheet { amount, drinkType, timestamp in
                     addEntry(amount: amount, drinkType: drinkType, timestamp: timestamp)
                 }
+                .onAppear { router.modalDidAppear() }
             }
             .alert(
                 "This tag is not linked to a bottle on this device",
@@ -302,12 +307,13 @@ struct HomeView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             }
-            .sheet(isPresented: $showingSayIt) {
+            .sheet(isPresented: $showingSayIt, onDismiss: { sheetDidDismiss() }) {
                 SayItSheet(defaultML: settings.quickAddPresets.first ?? 250) { drafts in
                     addEntries(drafts)
                 }
+                .onAppear { router.modalDidAppear() }
             }
-            .sheet(item: $editingEntry) { entry in
+            .sheet(item: $editingEntry, onDismiss: { sheetDidDismiss() }) { entry in
                 EditEntrySheet(entry: entry) {
                     // The edit may have moved the drink to another day or changed what
                     // it counts for, so everything downstream of the total is stale. Any
@@ -325,11 +331,13 @@ struct HomeView: View {
                     Task { @MainActor in delete(entry) }
                 }
                 .environmentObject(settings)
+                .onAppear { router.modalDidAppear() }
             }
-            .sheet(item: $paywallSource) { source in
+            .sheet(item: $paywallSource, onDismiss: { sheetDidDismiss() }) { source in
                 PaywallView(source: source)
+                    .onAppear { router.modalDidAppear() }
             }
-            .sheet(item: $celebration) { occasion in
+            .sheet(item: $celebration, onDismiss: { sheetDidDismiss() }) { occasion in
                 MilestoneCelebrationView(
                     occasion: occasion,
                     world: WorldCardContent(
@@ -343,6 +351,7 @@ struct HomeView: View {
                     goalML: settings.dailyGoalML,
                     system: settings.measurementSystem
                 )
+                .onAppear { router.modalDidAppear() }
             }
             .overlay(alignment: .bottom) {
                 if let pendingUndo {
@@ -365,8 +374,13 @@ struct HomeView: View {
         .onChange(of: router.pendingBottleTagID) { _, _ in
             handlePendingBottleTap()
         }
-        .onChange(of: router.settingsIsOnScreen) { _, isOnScreen in
-            if !isOnScreen { handlePendingBottleTap() }
+        // Settings, or one of this screen's own sheets, has fully gone: whatever waited
+        // on a clear screen can come up now.
+        .onChange(of: router.somethingIsOnScreen) { _, isOnScreen in
+            if !isOnScreen {
+                handlePendingBottleTap()
+                checkMilestones()
+            }
         }
         // One-shot pace-aware reminders only cover a few days, so they have to be
         // re-armed when the app is opened. Nothing did that before: the schedule was
@@ -503,6 +517,13 @@ struct HomeView: View {
         settings.noteWorld(goalDays: world.goalDays)
 
         guard celebration == nil else { return }
+        // A sheet asked for while another is up, or still on its way out, is dropped
+        // rather than queued, and the badge below is recorded before the sheet is shown,
+        // so a dropped celebration was one the user never got. The drink that earns a
+        // milestone is usually logged from the Custom or Say it sheet, whose dismissal is
+        // exactly when the streak moves. Wait for a clear screen; every sheet's dismissal
+        // and Settings' come back through here.
+        guard !router.somethingIsOnScreen else { return }
         let milestone = StreakMilestone.newlyReached(
             streak: streak,
             alreadyCelebrated: Set(settings.celebratedMilestones)
@@ -909,10 +930,12 @@ struct HomeView: View {
     /// (a background read, a link, the in-app scanner) ends up here.
     private func handlePendingBottleTap() {
         guard let tagID = router.pendingBottleTagID else { return }
-        // A scan from My Bottles closes Settings on its way here. Until the sheet has
-        // gone, an unknown tag's alert would have nowhere to appear, so the tap waits
-        // and is picked up again once it has.
-        guard !router.settingsIsOnScreen else { return }
+        // A scan from My Bottles closes Settings on its way here, and a tag read with
+        // the app in the background can find the paywall or an edit still up. Until
+        // whatever it is has gone, an unknown tag's alert would have nowhere to appear
+        // and the undo toast nowhere to be seen, so the tap waits and is picked up
+        // again once it has.
+        guard !router.somethingIsOnScreen else { return }
         router.pendingBottleTagID = nil
 
         guard let bottle = BottleTag.bottle(for: tagID, in: bottles) else {
@@ -1059,6 +1082,15 @@ struct HomeView: View {
         remaining.forEach(modelContext.delete)
         afterLogChange()
         retireHealthSamples(samples)
+    }
+
+    /// One of this screen's sheets has fully gone. The router's count is what the recap
+    /// and the bottle tap wait on; the milestone check runs again here because the
+    /// `onChange` that watches the count fires only when it reaches zero, and a second
+    /// sheet can already be counted by then.
+    private func sheetDidDismiss() {
+        router.modalDidDismiss()
+        checkMilestones()
     }
 
     /// Everything that has to catch up after the log changes in any way. The reminder

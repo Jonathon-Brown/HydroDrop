@@ -210,12 +210,16 @@ struct HistoryView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingPaywall) {
+            // Each sheet tells the router it is up, so a recap notification or a bottle
+            // tag arriving underneath waits for it rather than being dropped.
+            .sheet(isPresented: $showingPaywall, onDismiss: { router.modalDidDismiss() }) {
                 PaywallView(source: .historyBanner)
+                    .onAppear { router.modalDidAppear() }
             }
-            .sheet(isPresented: $showingWeeklyRecap) {
+            .sheet(isPresented: $showingWeeklyRecap, onDismiss: { router.modalDidDismiss() }) {
                 WeeklyRecapView()
                     .environmentObject(settings)
+                    .onAppear { router.modalDidAppear() }
             }
         }
     }

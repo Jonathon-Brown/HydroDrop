@@ -116,10 +116,13 @@ struct RootTabView: View {
         router.handle(url)
     }
 
-    /// The recap a notification asked for, held back while Settings is still leaving.
+    /// The recap a notification asked for, held back while Settings, or one of the tabs'
+    /// own sheets, is up or still leaving. It used to wait on Settings alone, so a tap on
+    /// the notification with the paywall or an edit left open brought the app forward
+    /// to nothing, and the flag stayed set.
     private var weeklyRecapIsPresented: Binding<Bool> {
         Binding(
-            get: { router.showingWeeklyRecap && !router.settingsIsOnScreen },
+            get: { router.showingWeeklyRecap && !router.somethingIsOnScreen },
             set: { router.showingWeeklyRecap = $0 }
         )
     }
