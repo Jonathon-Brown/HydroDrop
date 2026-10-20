@@ -351,12 +351,15 @@ final class StoreManager: ObservableObject {
     }
 
     /// Renewal changes such as auto-renew being turned off, or billing retry starting or
-    /// ending, arrive here rather than through `Transaction.updates`.
+    /// ending, arrive here rather than through `Transaction.updates`. So does an expiry,
+    /// which makes no transaction at all: re-reading only the renewal flag here left a
+    /// subscription that lapsed while the app stayed in memory granting Plus until the
+    /// next launch, so the whole entitlement is re-read, which refreshes the flag too.
     private func listenForSubscriptionStatusUpdates() -> Task<Void, Never> {
         Task { [weak self] in
             for await _ in Product.SubscriptionInfo.Status.updates {
                 guard let self else { return }
-                await self.refreshRenewalState()
+                await self.refreshEntitlement()
             }
         }
     }

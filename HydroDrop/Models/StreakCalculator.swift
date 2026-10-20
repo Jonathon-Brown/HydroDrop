@@ -31,8 +31,23 @@ enum StreakCalculator {
         frozenDayKeys: [String] = [],
         calendar: Calendar = .current
     ) -> Int {
+        longestStreak(
+            totals: totalsByDay(entries, calendar: calendar),
+            goalML: goalML,
+            frozenDayKeys: frozenDayKeys,
+            calendar: calendar
+        )
+    }
+
+    /// The same, from totals already grouped by day (see `LogCache`), so a screen that
+    /// derives several things from one log walks it once.
+    static func longestStreak(
+        totals: [String: Int],
+        goalML: Int,
+        frozenDayKeys: [String] = [],
+        calendar: Calendar = .current
+    ) -> Int {
         guard goalML > 0 else { return 0 }
-        let totals = totalsByDay(entries, calendar: calendar)
         let metDays = Set(totals.filter { $0.value >= goalML }.keys)
         let frozen = Set(frozenDayKeys)
         let linked = metDays.union(frozen)
@@ -66,8 +81,24 @@ enum StreakCalculator {
         now: Date = Date(),
         calendar: Calendar = .current
     ) -> Int {
+        currentStreak(
+            totals: totalsByDay(entries, calendar: calendar),
+            goalML: goalML,
+            frozenDayKeys: frozenDayKeys,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    /// The same, from totals already grouped by day.
+    static func currentStreak(
+        totals: [String: Int],
+        goalML: Int,
+        frozenDayKeys: [String] = [],
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Int {
         guard goalML > 0 else { return 0 }
-        let totals = totalsByDay(entries, calendar: calendar)
         let frozen = Set(frozenDayKeys)
         var streak = 0
         var day = calendar.startOfDay(for: now)

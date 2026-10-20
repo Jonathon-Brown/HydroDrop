@@ -55,13 +55,31 @@ enum StreakFreeze {
         now: Date = Date(),
         calendar: Calendar = .current
     ) -> String? {
+        dayToProtect(
+            totals: StreakCalculator.totalsByDay(entries, calendar: calendar),
+            goalML: goalML,
+            frozenDayKeys: frozenDayKeys,
+            isSubscribed: isSubscribed,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    /// The same, from totals already grouped by day (see `LogCache`).
+    static func dayToProtect(
+        totals: [String: Int],
+        goalML: Int,
+        frozenDayKeys: [String],
+        isSubscribed: Bool,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> String? {
         guard isSubscribed, goalML > 0 else { return nil }
         guard freezesRemaining(frozenDayKeys: frozenDayKeys, now: now, calendar: calendar) > 0 else { return nil }
 
         guard let yesterday = DayKey.previousDayKey(before: now, calendar: calendar) else { return nil }
         guard !frozenDayKeys.contains(yesterday) else { return nil }
 
-        let totals = StreakCalculator.totalsByDay(entries, calendar: calendar)
         guard (totals[yesterday] ?? 0) < goalML else { return nil }
 
         // Only spend a freeze when there is actually a streak behind it to save.
@@ -96,18 +114,36 @@ enum StreakFreeze {
         now: Date = Date(),
         calendar: Calendar = .current
     ) -> LostStreak? {
+        lostStreakAFreezeWouldHaveSaved(
+            totals: StreakCalculator.totalsByDay(entries, calendar: calendar),
+            goalML: goalML,
+            frozenDayKeys: frozenDayKeys,
+            minimumLength: minimumLength,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    /// The same, from totals already grouped by day (see `LogCache`).
+    static func lostStreakAFreezeWouldHaveSaved(
+        totals: [String: Int],
+        goalML: Int,
+        frozenDayKeys: [String],
+        minimumLength: Int = 2,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> LostStreak? {
         guard goalML > 0 else { return nil }
         guard let yesterday = DayKey.previousDayKey(before: now, calendar: calendar),
               !frozenDayKeys.contains(yesterday),
               let yesterdayDate = DayKey.date(from: yesterday, calendar: calendar) else { return nil }
 
-        let totals = StreakCalculator.totalsByDay(entries, calendar: calendar)
         guard (totals[yesterday] ?? 0) < goalML else { return nil }
 
         // Evaluated as of yesterday, an unmet yesterday is treated as in progress, so this
         // counts the run that ended the day before — the streak that was lost.
         let length = StreakCalculator.currentStreak(
-            entries: entries,
+            totals: totals,
             goalML: goalML,
             frozenDayKeys: frozenDayKeys,
             now: yesterdayDate,
