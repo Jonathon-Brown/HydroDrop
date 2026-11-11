@@ -75,10 +75,14 @@ enum StreakFreeze {
         calendar: Calendar = .current
     ) -> String? {
         guard isSubscribed, goalML > 0 else { return nil }
-        guard freezesRemaining(frozenDayKeys: frozenDayKeys, now: now, calendar: calendar) > 0 else { return nil }
 
         guard let yesterday = DayKey.previousDayKey(before: now, calendar: calendar) else { return nil }
         guard !frozenDayKeys.contains(yesterday) else { return nil }
+        // The allowance belongs to the protected day. Checking today's month used to
+        // grant a second freeze for the previous month on the first day of a new one.
+        let protectedMonth = DayKey.month(ofDayKey: yesterday)
+        let spentInProtectedMonth = frozenDayKeys.filter { DayKey.month(ofDayKey: $0) == protectedMonth }.count
+        guard spentInProtectedMonth < monthlyAllowance else { return nil }
 
         guard (totals[yesterday] ?? 0) < goalML else { return nil }
 
