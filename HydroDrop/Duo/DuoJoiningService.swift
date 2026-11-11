@@ -92,7 +92,12 @@ final class DuoJoiningService: DuoJoining {
 
     // MARK: - The running flow
 
+    private func ageOperationIsCurrent(_ epoch: Int) -> Bool {
+        dependencies.ageNetworkAllowed && !Task.isCancelled && host.wipeEpoch == epoch
+    }
+
     private func beginFlow() -> Int? {
+        guard dependencies.ageNetworkAllowed else { return nil }
         if let running = runningFlow, running.epoch == host.wipeEpoch { return nil }
         flowsStarted += 1
         runningFlow = (flowsStarted, host.wipeEpoch)
@@ -133,7 +138,7 @@ final class DuoJoiningService: DuoJoining {
                 try await self.dependencies.transport.createDuo(request, key: key)
             }
         } catch {
-            guard host.wipeEpoch == epoch else { return nil }
+            guard ageOperationIsCurrent(epoch) else { return nil }
             // A create whose answer was lost made a pending duo, and a second tap with other bytes
             // (a new name, a day that moved on) meets it here: it is adopted rather than left where
             // the person cannot see it (AND F11).
@@ -143,7 +148,7 @@ final class DuoJoiningService: DuoJoining {
             fail(error, context: .invite)
             return nil
         }
-        guard host.wipeEpoch == epoch else { return nil }
+        guard ageOperationIsCurrent(epoch) else { return nil }
 
         guard var duo = DuoMapping.duo(from: response.duo, previous: nil, now: now) else {
             host.sheetError = DuoUserMessage.generic
@@ -172,6 +177,7 @@ final class DuoJoiningService: DuoJoining {
         if dependencies.secrets.linkSecret(forDuo: duo.id) == nil {
             try? dependencies.secrets.saveLinkSecret(DuoLinkSecret.make(random: dependencies.random), forDuo: duo.id)
         }
+        clearOtherPendingInvites(except: duo.id)
         host.upsert(duo)
         host.myDisplayName = cleaned ?? ""
         identityNowHoldsADuo()
@@ -193,11 +199,11 @@ final class DuoJoiningService: DuoJoining {
         do {
             changes = try await dependencies.transport.fetchChanges(duoID: id.uuidString.lowercased(), since: 0)
         } catch {
-            guard host.wipeEpoch == epoch else { return nil }
+            guard ageOperationIsCurrent(epoch) else { return nil }
             fail(error, context: .invite, duoID: id)
             return nil
         }
-        guard host.wipeEpoch == epoch else { return nil }
+        guard ageOperationIsCurrent(epoch) else { return nil }
         let now = dependencies.clock.now
         guard var duo = DuoFeedReducer.apply(changes, to: host.duo(id), myToday: dependencies.clock.today, now: now)?.duo else {
             host.sheetError = DuoUserMessage.generic
@@ -219,39 +225,37 @@ final class DuoJoiningService: DuoJoining {
     // MARK: - Looking at a code
 
     func peek(code: String) async -> DuoPeek? {
+        guard dependencies.ageNetworkAllowed else { return nil }
         host.sheetError = nil
         guard let canonical = DuoInviteCode.normalize(code) else {
             host.sheetError = DuoCopy.notACode
             return nil
         }
         let epoch = host.wipeEpoch
-        // A phone with an identity peeks with its bearer (D34: the pair row is applied, so a person
-        // someone blocked sees nothing of them), which makes this a bearer request like any other:
-        // it waits for the launch's answer and is not sent while the restore question is up, when
-        // the bearer may be a previous owner's. A disconnected phone's credential is one another
-        // phone took over, which earns nothing but `device_revoked`, and the transport sends the
-        // bearer whenever a credential is stored, so it is not asked at all: the Duo screen already
-        // says the phone was disconnected. The throwaway a Reconnect minted is a fresh member with
-        // no pair rows, as good as anonymous, and goes. A phone with no identity peeks anonymously
-        // and nothing is asked of the identity.
-        if let credential = dependencies.identity.credential {
-            if host.availability == .disconnected, credential.deviceID != dependencies.cache.throwawayDeviceID { return nil }
-            let launch = await dependencies.identity.prepare()
-            guard host.wipeEpoch == epoch else { return nil }
-            if launch != .ready, dependencies.identity.credential != nil {
-                stop(for: launch)
-                return nil
-            }
-        }
+        // Looking at a code is not consent to resolve a restored identity. The transport uses
+        // only an already settled bearer; otherwise it peeks anonymously, without prepare (D82).
+        if let credential = dependencies.identity.credential,
+           host.availability == .disconnected,
+           credential.deviceID != dependencies.cache.throwawayDeviceID { return nil }
         var retriedAnonymously = false
         while true {
+            let sentCredential = dependencies.identity.peekCredential
             do {
-                let wire = try await dependencies.transport.peekInvite(code: canonical)
-                guard host.wipeEpoch == epoch else { return nil }
+                let wire = try await dependencies.transport.peekInvite(code: canonical, credential: sentCredential)
+                guard ageOperationIsCurrent(epoch) else { return nil }
                 dependencies.noteSuccess()
                 return DuoMapping.peek(wire)
             } catch {
-                guard host.wipeEpoch == epoch else { return nil }
+                guard ageOperationIsCurrent(epoch) else { return nil }
+                // An anonymous response says nothing about an unrelated restored identity.
+                // A response under an older credential cannot invalidate its replacement either.
+                guard let sentCredential, dependencies.identity.credential == sentCredential else {
+                    if !(error is CancellationError) {
+                        host.diagnostics.record(error, duoID: nil, now: dependencies.clock.now)
+                        host.sheetError = DuoUserMessage.text(for: error, context: .invite)
+                    }
+                    return nil
+                }
                 let verdict = dependencies.noteFailure(error)
                 // A stale credential (the identity was deleted from another copy): `noteFailure` has
                 // discarded it, so the one retry goes anonymously, as a phone with no identity
@@ -267,6 +271,7 @@ final class DuoJoiningService: DuoJoining {
     }
 
     func receive(_ invite: DuoParsedInvite, now: Date) {
+        guard dependencies.ageNetworkAllowed else { return }
         // Kept (and saved by the store) before anything else, so a kill during onboarding loses
         // nothing (§4.1); the store drops it after 48 hours, and a join drops it. `k` stays in memory.
         host.pendingInvite = DuoPendingInvite(code: invite.code, k: invite.k, receivedAt: now)
@@ -300,7 +305,7 @@ final class DuoJoiningService: DuoJoining {
         let request = DuoWireRedeemRequest(code: code, displayName: cleaned, skin: skin, myToday: dependencies.clock.today,
                                            e2eeCapable: invite.k != nil, statuses: dependencies.firstRows(role: .partner, now: now))
         do {
-            guard let outcome = try await redeem(request, epoch: epoch), host.wipeEpoch == epoch else { return nil }
+            guard let outcome = try await redeem(request, epoch: epoch), ageOperationIsCurrent(epoch) else { return nil }
             let (result, sent) = outcome
             let previous = UUID(uuidString: result.changes.duo.id).flatMap { host.duo($0) }
             // The 201 is the whole duo as this person now sees it (§4.3 step 9): both sides' rows,
@@ -317,7 +322,7 @@ final class DuoJoiningService: DuoJoining {
             finishJoin(code: code, name: sent.displayName)
             return host.duo(joined.id) ?? joined
         } catch {
-            guard host.wipeEpoch == epoch else { return nil }
+            guard ageOperationIsCurrent(epoch) else { return nil }
             // The seat a lost answer took shows itself as the code gone or taken (D70). An identity
             // made in this very tap has never redeemed anything, so it has no seat to find.
             if Self.mayMeanASeatIsTaken(error) {
@@ -394,11 +399,11 @@ final class DuoJoiningService: DuoJoining {
         do {
             me = try await dependencies.transport.me()
         } catch {
-            guard host.wipeEpoch == epoch else { return .dropped }
+            guard ageOperationIsCurrent(epoch) else { return .dropped }
             if dependencies.noteFailure(error) != .cancelled { host.sheetError = DuoUserMessage.text(for: error, context: .invite) }
             return .unknown
         }
-        guard host.wipeEpoch == epoch else { return .dropped }
+        guard ageOperationIsCurrent(epoch) else { return .dropped }
         let now = dependencies.clock.now
         let lost = me.duos.filter { header in
             guard header.state != .ended, let id = UUID(uuidString: header.id) else { return false }
@@ -410,10 +415,10 @@ final class DuoJoiningService: DuoJoining {
             var read: DuoState?
             do {
                 let changes = try await dependencies.transport.fetchChanges(duoID: id.uuidString.lowercased(), since: 0)
-                guard host.wipeEpoch == epoch else { return .dropped }
+                guard ageOperationIsCurrent(epoch) else { return .dropped }
                 read = DuoFeedReducer.apply(changes, to: nil, myToday: dependencies.clock.today, now: now)?.duo
             } catch {
-                guard host.wipeEpoch == epoch else { return .dropped }
+                guard ageOperationIsCurrent(epoch) else { return .dropped }
                 // A 401 has just forgotten the identity and ended the duos it held, so a seat kept
                 // now would be a live card with no identity behind it, which this used to leave.
                 if dependencies.noteFailure(error, duoID: id) == .reidentify {
@@ -438,7 +443,7 @@ final class DuoJoiningService: DuoJoining {
             return .none
         }
         await keepTheTypedName(typedName, serverHas: me.member.displayName ?? "", epoch: epoch)
-        guard host.wipeEpoch == epoch else { return .dropped }
+        guard ageOperationIsCurrent(epoch) else { return .dropped }
         return .found(seat)
     }
 
@@ -446,7 +451,7 @@ final class DuoJoiningService: DuoJoining {
     /// name typed for this tap is the person's latest word, so it is queued as `PATCH /me` when it
     /// differs: through the op queue like any rename, so an offline phone sends it later.
     private func keepTheTypedName(_ typed: String?, serverHas server: String, epoch: Int) async {
-        guard host.wipeEpoch == epoch else { return }
+        guard ageOperationIsCurrent(epoch) else { return }
         host.myDisplayName = typed ?? ""
         guard (typed ?? "") != server else { return }
         await queueName(typed, epoch: epoch)
@@ -484,7 +489,7 @@ final class DuoJoiningService: DuoJoining {
         do {
             return try await send(first, epoch: epoch)
         } catch {
-            guard first.isReplay, Self.isAttestRefusal(error), host.wipeEpoch == epoch else { throw error }
+            guard first.isReplay, Self.isAttestRefusal(error), ageOperationIsCurrent(epoch) else { throw error }
         }
         // The refusal settled the request, so `send` has cleared its record and this attempt is new.
         guard let fresh = try await redeemAttempt(request, epoch: epoch) else { return nil }
@@ -496,6 +501,7 @@ final class DuoJoiningService: DuoJoining {
     private func send(_ attempt: RedeemAttempt, epoch: Int) async throws -> (DuoWireChangesWithResult, DuoWireRedeemRequest) {
         do {
             let result = try await dependencies.transport.redeemInvite(attempt.request, key: attempt.key)
+            guard ageOperationIsCurrent(epoch) else { throw CancellationError() }
             settleJournal(Self.redeemOperation, epoch: epoch)
             return (result, attempt.request)
         } catch {
@@ -537,7 +543,7 @@ final class DuoJoiningService: DuoJoining {
         } else {
             var fresh = request
             fresh.deviceCheckToken = await dependencies.deviceCheck.token()
-            guard host.wipeEpoch == epoch else { return nil }
+            guard ageOperationIsCurrent(epoch) else { return nil }
             body = try DuoWireCoding.encode(fresh)
             journal = cache.loadInflight(now: dependencies.clock.now)
         }
@@ -571,12 +577,25 @@ final class DuoJoiningService: DuoJoining {
             try? dependencies.secrets.saveLinkSecret(DuoLinkSecret.make(random: dependencies.random), forDuo: current.id)
         }
         let invite = DuoMapping.invite(wire)
+        // The server keeps one open invite per creator, including across pending duos (D86).
+        clearOtherPendingInvites(except: current.id)
         // The new code replaces the old one, which the server has just made void (§4.1).
         host.update(current.id) {
             $0.invite = invite
             $0.openInviteExpiresAt = wire.expiresAt
         }
         return invite
+    }
+
+    /// Run only after the server confirms an invite was made. A failed attempt does not prove
+    /// an older code was cancelled, and a partner's or already joined duo is not ours to clear.
+    private func clearOtherPendingInvites(except id: UUID) {
+        for other in host.duos where other.id != id && other.isPending {
+            host.update(other.id) {
+                $0.invite = nil
+                $0.openInviteExpiresAt = nil
+            }
+        }
     }
 
     func createReconnectCode(for duo: DuoState) async -> DuoInvite? {
@@ -614,11 +633,11 @@ final class DuoJoiningService: DuoJoining {
             let wire = try await journaled(Self.inviteOperation(duoID: duoID), DuoWireCreateInviteRequest(purpose: purpose), epoch: epoch) { key in
                 try await self.dependencies.transport.createInvite(duoID: duoID, purpose: purpose, key: key)
             }
-            guard host.wipeEpoch == epoch else { return nil }
+            guard ageOperationIsCurrent(epoch) else { return nil }
             dependencies.noteSuccess()
             return wire
         } catch {
-            guard host.wipeEpoch == epoch else { return nil }
+            guard ageOperationIsCurrent(epoch) else { return nil }
             // `duo_ended` and `duo_unknown`: the duo is over, and the card says so, with no words of
             // its own (§6.7: "mark ended locally, no alert"). `conflict` (an invite asked for a duo
             // that went live meanwhile) leaves it as it is, for the next read to show live.
@@ -660,7 +679,7 @@ final class DuoJoiningService: DuoJoining {
         // Before any mint: a Leave queued by a disconnected phone goes out under the credential it was
         // made with, which a superseded device keeps for its exits (§3.5), not under the throwaway.
         guard await noExitIsStillQueued(for: .reconnect, epoch: epoch) else {
-            if host.wipeEpoch == epoch, disconnectedAtTheTap { keepDisconnected() }
+            if ageOperationIsCurrent(epoch), disconnectedAtTheTap { keepDisconnected() }
             return false
         }
         // Judged after the drain, which can itself learn that another phone took the identity (an
@@ -682,7 +701,7 @@ final class DuoJoiningService: DuoJoining {
             if let ready = await ensureIdentity(for: .reconnect, epoch: epoch) {
                 identity = ready
             } else {
-                guard host.wipeEpoch == epoch else { return false }
+                guard ageOperationIsCurrent(epoch) else { return false }
                 // The launch this very tap asked can be the one that learns another phone took the
                 // identity (`device_revoked` on the way). That is the phone "I had a duo" is for, so
                 // the tap goes on as a disconnected phone's would, rather than sending nothing and
@@ -700,7 +719,7 @@ final class DuoJoiningService: DuoJoining {
         if mintsAThrowaway {
             let revoked = dependencies.identity.credential
             guard await mint(epoch: epoch, throwaway: true, replacing: revoked) else {
-                if host.wipeEpoch == epoch { keepDisconnected() }
+                if ageOperationIsCurrent(epoch) { keepDisconnected() }
                 return false
             }
             identity = .minted
@@ -715,7 +734,7 @@ final class DuoJoiningService: DuoJoining {
                 try await self.dependencies.transport.reconnect(request, key: key)
             }
         } catch {
-            guard host.wipeEpoch == epoch else { return false }
+            guard ageOperationIsCurrent(epoch) else { return false }
             if Self.mayMeanASeatIsTaken(error) {
                 // A reconnect that landed and lost its answer moved this device already; a later
                 // attempt (another code, a code that has since lapsed) then hears the code is gone.
@@ -726,7 +745,7 @@ final class DuoJoiningService: DuoJoining {
                 switch check {
                 case .landed(let me):
                     settleJournal(Self.reconnectOperation, epoch: epoch)
-                    finishReconnect(memberID: me.member.id, supportID: me.member.supportId, duos: me.duos, sentAs: sentAs)
+                    guard finishReconnect(memberID: me.member.id, supportID: me.member.supportId, duos: me.duos, sentAs: sentAs) else { return false }
                     host.memberInfo = DuoMapping.member(me, now: dependencies.clock.now)
                     await sendTheHeldExits()
                     return true
@@ -754,12 +773,12 @@ final class DuoJoiningService: DuoJoining {
         }
         // The answer is about the device the request went as; if the identity changed under it, it
         // is not this phone's to keep.
-        guard host.wipeEpoch == epoch, dependencies.identity.credential?.deviceID == sentAs.deviceID else { return false }
-        finishReconnect(memberID: response.memberId, supportID: response.supportId, duos: response.duos, sentAs: sentAs)
+        guard ageOperationIsCurrent(epoch), dependencies.identity.credential?.deviceID == sentAs.deviceID else { return false }
+        guard finishReconnect(memberID: response.memberId, supportID: response.supportId, duos: response.duos, sentAs: sentAs) else { return false }
         await sendTheHeldExits()
         // Best effort: the rest of the member record (the name, the limits, the devices) comes from
         // `GET /me`, and whatever reads it when stale asks again later if this one fails.
-        if host.wipeEpoch == epoch { await refreshMember(epoch: epoch) }
+        if ageOperationIsCurrent(epoch) { await refreshMember(epoch: epoch) }
         return true
     }
 
@@ -774,9 +793,14 @@ final class DuoJoiningService: DuoJoining {
     /// The device now belongs to the member the code is for. Nothing rotates (§3.5): the same id and
     /// secret, under that member. The member id in the credential is kept, never sent, so a Keychain
     /// that refuses this write leaves a bearer that still works. The throwaway is one no longer.
-    private func finishReconnect(memberID: String, supportID: String, duos: [DuoWireHeader], sentAs: DuoCredential) {
-        try? dependencies.identity.store(DuoCredential(memberID: memberID, deviceID: sentAs.deviceID,
-                                                       deviceSecret: sentAs.deviceSecret, secretVersion: sentAs.secretVersion))
+    private func finishReconnect(memberID: String, supportID: String, duos: [DuoWireHeader], sentAs: DuoCredential) -> Bool {
+        do {
+            try dependencies.identity.store(DuoCredential(memberID: memberID, deviceID: sentAs.deviceID,
+                                                          deviceSecret: sentAs.deviceSecret, secretVersion: sentAs.secretVersion))
+        } catch {
+            host.sheetError = DuoUserMessage.generic
+            return false
+        }
         dependencies.cache.throwawayDeviceID = nil
         let now = dependencies.clock.now
         for header in duos {
@@ -806,6 +830,7 @@ final class DuoJoiningService: DuoJoining {
         dependencies.noteSuccess()
         dependencies.push?.reevaluate(.duoStarted)
         dependencies.ops?.startMonitoring()
+        return true
     }
 
     private enum ReconnectCheck {
@@ -820,16 +845,18 @@ final class DuoJoiningService: DuoJoining {
     private func reconnectLanded(sentAs: DuoCredential, epoch: Int) async -> ReconnectCheck {
         do {
             let me = try await dependencies.transport.me()
-            guard host.wipeEpoch == epoch else { return .dropped }
+            guard ageOperationIsCurrent(epoch) else { return .dropped }
             return me.member.id != sentAs.memberID ? .landed(me) : .notLanded
         } catch {
-            guard host.wipeEpoch == epoch else { return .dropped }
+            guard ageOperationIsCurrent(epoch) else { return .dropped }
             if dependencies.noteFailure(error) != .cancelled { host.sheetError = DuoUserMessage.text(for: error, context: .invite) }
             return .unknown
         }
     }
 
     private func holdsTheThrowaway() -> Bool {
+        if let identity = dependencies.identity as? DuoRecoveryIdentity,
+           let record = try? identity.journal.read(), record.active != nil { return record.activeRole == .reconnectThrowaway }
         guard let throwaway = dependencies.cache.throwawayDeviceID else { return false }
         return dependencies.identity.credential?.deviceID == throwaway
     }
@@ -848,10 +875,10 @@ final class DuoJoiningService: DuoJoining {
     private func refreshMember(epoch: Int) async {
         do {
             let me = try await dependencies.transport.me()
-            guard host.wipeEpoch == epoch else { return }
+            guard ageOperationIsCurrent(epoch) else { return }
             host.memberInfo = DuoMapping.member(me, now: dependencies.clock.now)
         } catch {
-            guard host.wipeEpoch == epoch else { return }
+            guard ageOperationIsCurrent(epoch) else { return }
             dependencies.noteFailure(error)
         }
     }
@@ -859,6 +886,7 @@ final class DuoJoiningService: DuoJoining {
     // MARK: - Name and terms
 
     func changeMyName(_ name: String?) async {
+        guard dependencies.ageNetworkAllowed else { return }
         // Nothing is kept or sent for someone the birth-year screen refused.
         guard !ageRefused() else { return }
         let cleaned = dependencies.cleanedNameOrNil(name)
@@ -876,7 +904,7 @@ final class DuoJoiningService: DuoJoining {
     private func queueName(_ cleaned: String?, epoch: Int) async {
         guard dependencies.identity.credential != nil, let ops = dependencies.ops else { return }
         let launch = await dependencies.identity.prepare()
-        guard host.wipeEpoch == epoch, launch == .ready, host.availability.allowsWrites, dependencies.identity.credential != nil else { return }
+        guard ageOperationIsCurrent(epoch), launch == .ready, host.availability.allowsWrites, dependencies.identity.credential != nil else { return }
         let request = DuoWireUpdateMeRequest(displayName: cleaned.map { DuoWireField<String>.value($0) } ?? .null,
                                              skin: .value(dependencies.activeSkin()))
         guard let op = try? DuoQueuedOp.updateMe(request, key: DuoIdempotencyKey.make(random: dependencies.random).value,
@@ -886,6 +914,7 @@ final class DuoJoiningService: DuoJoining {
     }
 
     func acceptTerms() async -> Bool {
+        guard dependencies.ageNetworkAllowed else { return false }
         // A Create sent while this request is out could meet `428` again, so it waits its turn.
         guard let flow = beginFlow() else { return false }
         defer { endFlow(flow) }
@@ -899,7 +928,7 @@ final class DuoJoiningService: DuoJoining {
         }
         let epoch = host.wipeEpoch
         let launch = await dependencies.identity.prepare()
-        guard host.wipeEpoch == epoch else { return false }
+        guard ageOperationIsCurrent(epoch) else { return false }
         guard dependencies.identity.credential != nil else {
             host.needsTerms = false
             return true
@@ -910,7 +939,7 @@ final class DuoJoiningService: DuoJoining {
         }
         do {
             let member = try await dependencies.transport.updateMe(DuoWireUpdateMeRequest(termsVersion: .value(DuoProtocolConstants.termsVersion)))
-            guard host.wipeEpoch == epoch else { return false }
+            guard ageOperationIsCurrent(epoch) else { return false }
             host.needsTerms = false
             if var info = host.memberInfo {
                 info.termsVersion = member.termsVersion
@@ -919,7 +948,7 @@ final class DuoJoiningService: DuoJoining {
             dependencies.noteSuccess()
             return true
         } catch {
-            guard host.wipeEpoch == epoch else { return false }
+            guard ageOperationIsCurrent(epoch) else { return false }
             fail(error, context: .general)
             return false
         }
@@ -943,7 +972,7 @@ final class DuoJoiningService: DuoJoining {
     private func noExitIsStillQueued(for flow: ConsentFlow, epoch: Int) async -> Bool {
         guard let ops = dependencies.ops else { return true }
         await ops.drain()
-        guard host.wipeEpoch == epoch else { return false }
+        guard ageOperationIsCurrent(epoch) else { return false }
         guard writesAllowed(for: flow) else { return false }
         guard dependencies.identity.credential != nil, !dependencies.credentialIsAThrowaway else { return true }
         guard ops.pending.contains(where: { $0.kind == .leave || $0.kind == .block }) else { return true }
@@ -970,7 +999,7 @@ final class DuoJoiningService: DuoJoining {
     /// reinstall (D60). The store asks the same before it calls this service; asking here too means
     /// no caller that comes straight to the service can send for someone who was refused.
     private func ageRefused() -> Bool {
-        dependencies.cache.ageStatus == .refused || dependencies.secrets.isAgeRefused()
+        !dependencies.ageNetworkAllowed
     }
 
     /// The preconditions a consent flow must meet before it may send anything at all. Each one that
@@ -979,7 +1008,7 @@ final class DuoJoiningService: DuoJoining {
     private func mayStart(_ flow: ConsentFlow) -> Bool {
         guard writesAllowed(for: flow) else { return false }
         // The birth-year screen is the UI's (§12.6); until it has said yes, nothing is sent.
-        guard dependencies.cache.ageStatus == .allowed, !dependencies.secrets.isAgeRefused() else { return false }
+        guard dependencies.cache.ageStatus == .allowed, dependencies.ageNetworkAllowed else { return false }
         guard dependencies.cache.acceptedTermsVersion >= DuoProtocolConstants.termsVersion else {
             host.needsTerms = true
             return false
@@ -1021,7 +1050,7 @@ final class DuoJoiningService: DuoJoining {
     private func ensureIdentity(for flow: ConsentFlow, epoch: Int) async -> IdentitySource? {
         let identity: DuoIdentityProviding = dependencies.identity
         let launch = await identity.prepare()
-        guard host.wipeEpoch == epoch else { return nil }
+        guard ageOperationIsCurrent(epoch) else { return nil }
         if identity.credential != nil {
             guard launch == .ready else {
                 stop(for: launch)
@@ -1034,14 +1063,14 @@ final class DuoJoiningService: DuoJoining {
             return nil
         }
         guard writesAllowed(for: flow) else { return nil }
-        return await mint(epoch: epoch, throwaway: flow == .reconnect, replacing: nil) ? .minted : nil
+        return await mint(epoch: epoch, throwaway: flow == .reconnect, replacing: nil, recoveryRole: flow == .join ? .join : .create) ? .minted : nil
     }
 
     /// For a request that needs the identity this phone already has: never mints.
     private func readyIdentity(epoch: Int) async -> Bool {
         guard dependencies.identity.credential != nil else { return false }
         let launch = await dependencies.identity.prepare()
-        guard host.wipeEpoch == epoch, dependencies.identity.credential != nil else { return false }
+        guard ageOperationIsCurrent(epoch), dependencies.identity.credential != nil else { return false }
         guard launch == .ready else {
             stop(for: launch)
             return false
@@ -1070,9 +1099,25 @@ final class DuoJoiningService: DuoJoining {
     /// takes the place of, a disconnected phone's revoked one: given up only now that the new one
     /// is stored, with its attestation key and the devices the person was told about (D45), which
     /// belonged to that identity and would make this phone's own device look like an added one.
-    private func mint(epoch: Int, throwaway: Bool, replacing replaced: DuoCredential?) async -> Bool {
+    private func mint(epoch: Int, throwaway: Bool, replacing replaced: DuoCredential?, recoveryRole: DuoRecoveryPending.Role = .create) async -> Bool {
+        if let identity = dependencies.identity as? DuoRecoveryIdentity {
+            guard let answer = await identity.mint(role: throwaway ? .reconnectThrowaway : recoveryRole, replacing: replaced),
+                  ageOperationIsCurrent(epoch), identity.credential?.deviceID == answer.deviceID else { return false }
+            if throwaway { dependencies.cache.throwawayDeviceID = answer.deviceID }
+            dependencies.ops?.discardIdentityBound()
+            if let replaced, replaced.deviceID != answer.deviceID {
+                dependencies.attester.forgetKeys(forDevice: replaced.deviceID)
+                dependencies.cache.forgetSeenDeviceIDs()
+            }
+            dependencies.cache.savePushUpload(nil)
+            host.memberInfo = partialMember(memberID: answer.memberID, supportID: answer.supportID,
+                                            tier: DuoTier(rawValue: answer.deviceTier) ?? .low,
+                                            termsVersion: dependencies.cache.acceptedTermsVersion)
+            dependencies.noteSuccess()
+            return true
+        }
         let token = await dependencies.deviceCheck.token()
-        guard host.wipeEpoch == epoch else { return false }
+        guard ageOperationIsCurrent(epoch) else { return false }
         // The version the person accepted on the rules screen, which `mayStart` found recorded: the
         // store records exactly this build's version, and nothing here records it for them.
         let request = DuoWireCreateDeviceRequest(appVersion: dependencies.client.appVersion, termsVersion: DuoProtocolConstants.termsVersion,
@@ -1083,11 +1128,11 @@ final class DuoJoiningService: DuoJoining {
         do {
             response = try await dependencies.transport.createDevice(request)
         } catch {
-            guard host.wipeEpoch == epoch else { return false }
+            guard ageOperationIsCurrent(epoch) else { return false }
             fail(error, context: .invite)
             return false
         }
-        guard host.wipeEpoch == epoch else { return false }
+        guard ageOperationIsCurrent(epoch) else { return false }
         // The throwaway's marker goes down before the throwaway is stored. The other way round, a
         // kill between the two left the throwaway stored with nothing to say what it was, behind
         // another member's duos, which the next launch could read with as the person's own and
@@ -1123,6 +1168,9 @@ final class DuoJoiningService: DuoJoining {
     /// A throwaway that now holds a duo of its own (a Create or a Join it carried) is this person's
     /// identity, not a stand-in behind another member's duos.
     private func identityNowHoldsADuo() {
+        if let identity = dependencies.identity as? DuoRecoveryIdentity {
+            do { try identity.establishRole() } catch { host.sheetError = DuoUserMessage.generic; return }
+        }
         if holdsTheThrowaway() { dependencies.cache.throwawayDeviceID = nil }
     }
 
@@ -1225,7 +1273,7 @@ final class DuoJoiningService: DuoJoining {
     /// After a wipe it writes nothing: the wipe took the journal, and a write now would put the key
     /// back on disk.
     private func settleJournal(_ operation: String, epoch: Int) {
-        guard host.wipeEpoch == epoch else { return }
+        guard ageOperationIsCurrent(epoch) else { return }
         var journal = dependencies.cache.loadInflight(now: dependencies.clock.now)
         guard journal.entries.contains(where: { $0.operation == operation }) else { return }
         journal.clear(operation: operation)

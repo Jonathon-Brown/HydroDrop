@@ -311,7 +311,7 @@ final class DuoInviteViewTests: XCTestCase {
     private func realKit() -> DuoTestKit {
         let kit = DuoTestKit(credential: DuoFixtures.credential())
         kit.identity.launch = .ready
-        kit.dependencies.cache.ageStatus = .allowed
+        kit.dependencies.cache.recordConfirmedAgeStatus(.allowed)
         kit.dependencies.cache.acceptedTermsVersion = DuoProtocolConstants.termsVersion
         kit.dependencies.joining = DuoJoiningService(dependencies: kit.dependencies)
         return kit
@@ -324,37 +324,59 @@ final class DuoInviteViewTests: XCTestCase {
         }
     }
 
-    private func render<Content: View>(_ view: Content, _ name: String) {
-        let renderer = ImageRenderer(content: AnyView(view.frame(width: 390, height: 844)))
-        renderer.proposedSize = ProposedViewSize(width: 390, height: 844)
-        XCTAssertNotNil(renderer.uiImage, "\(name) draws")
+    /// Navigation and timeline state need an installed hosting controller. Drawing the whole
+    /// sheet with ImageRenderer bypassed that lifecycle and crashed SwiftUI on iOS 27.
+    private func render<Content: View>(_ view: Content, _ name: String,
+                                      expecting identifier: String = "duo.invite.done",
+                                      ready: () -> Bool = { true }) async throws {
+        let previousKey = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first?.keyWindow
+        let screen = try host(view)
+        defer {
+            screen.window.endEditing(true)
+            screen.close()
+            previousKey?.makeKey()
+        }
+        await jExpect("\(name) installs its controls") { screen.hasElement(identifier) && ready() }
+        screen.window.layoutIfNeeded()
+        var drew = false
+        let image = UIGraphicsImageRenderer(bounds: screen.window.bounds).image { _ in
+            drew = screen.window.drawHierarchy(in: screen.window.bounds, afterScreenUpdates: true)
+        }
+        XCTAssertTrue(drew, "\(name) draws its installed hierarchy")
+        XCTAssertGreaterThan(image.size.width, 0, name)
+        XCTAssertGreaterThan(image.size.height, 0, name)
     }
 
     // MARK: - Every state draws
 
-    func testEveryStateOfBothSheetsDraws() {
+    func testEveryStateOfBothSheetsDraws() async throws {
         func inviteSheet(_ duo: DuoState?, configure: (DuoStore) -> Void = { _ in }) -> some View {
             let kit = DuoTestKit()
             if let duo { kit.store.upsert(duo) }
             configure(kit.store)
             return DuoInviteSheet(duoStore: kit.store, duoID: DuoFixtures.duoID)
         }
-        render(inviteSheet(pendingDuo(invite())), "an open code")
-        render(inviteSheet(pendingDuo(invite(expiringIn: -60))), "an expired code")
-        render(inviteSheet(pendingDuo(nil)), "no code")
+        try await render(inviteSheet(pendingDuo(invite())), "an open code")
+        try await render(inviteSheet(pendingDuo(invite(expiringIn: -60))), "an expired code")
+        try await render(inviteSheet(pendingDuo(nil)), "no code")
         var reinstalled = pendingDuo(nil)
         reinstalled.openInviteExpiresAt = Date().addingTimeInterval(3600)
-        render(inviteSheet(reinstalled), "a reinstalled owner")
-        render(inviteSheet(pendingDuo(nil)) { $0.isWorking = true }, "making a new code")
-        render(inviteSheet(pendingDuo(nil)) { $0.availability = .disconnected; $0.sheetError = DuoUserMessage.generic }, "a refusal")
-        render(inviteSheet(DuoFixtures.duo()), "a duo the partner joined")
-        render(inviteSheet(nil), "a duo that is gone")
+        try await render(inviteSheet(reinstalled), "a reinstalled owner")
+        try await render(inviteSheet(pendingDuo(nil)) { $0.isWorking = true }, "making a new code")
+        try await render(inviteSheet(pendingDuo(nil)) { $0.availability = .disconnected; $0.sheetError = DuoUserMessage.generic }, "a refusal")
+        try await render(inviteSheet(DuoFixtures.duo()), "a duo the partner joined")
+        try await render(inviteSheet(nil), "a duo that is gone")
 
         let kit = DuoTestKit()
         kit.store.upsert(silentDuo())
-        render(DuoReconnectCodeSheet(duoStore: kit.store, duo: silentDuo(), memory: DuoReconnectCodeMemory()), "a reconnect code on its way")
-        render(DuoCodeDisplay(invite: invite("R3C0NN3C"), link: DuoLink.url(code: "R3C0NN3C", k: nil), now: Date(), kind: .reconnect), "a reconnect code")
-        render(DuoCodeDisplay(invite: invite(), link: nil, now: Date()), "a code with no link")
+        // Keep the request pending while the installed sheet runs its task, so this case still
+        // covers loading rather than immediately becoming the fake service's failure state.
+        let slow = JSlowReconnect()
+        kit.dependencies.joining = slow
+        try await render(DuoReconnectCodeSheet(duoStore: kit.store, duo: silentDuo(), memory: DuoReconnectCodeMemory()), "a reconnect code on its way", ready: { slow.reconnectAsks == 1 })
+        XCTAssertEqual(slow.reconnectAsks, 1, "the loading sheet actually starts its held request")
+        try await render(DuoCodeDisplay(invite: invite("R3C0NN3C"), link: DuoLink.url(code: "R3C0NN3C", k: nil), now: Date(), kind: .reconnect), "a reconnect code", expecting: "duo.invite.code")
+        try await render(DuoCodeDisplay(invite: invite(), link: nil, now: Date()), "a code with no link", expecting: "duo.invite.code")
     }
 
     /// The code, the QR and the error states that only a real window shows (a task has to run).
@@ -789,10 +811,10 @@ final class DuoInviteViewTests: XCTestCase {
         kit.store.upsert(duo)
         kit.transport.onCreateInvite = { _, purpose, _ in
             XCTAssertEqual(purpose, .reconnect)
-            throw DuoTransportError.targetActive(DuoErrorContext(httpStatus: 409, requestID: "req-j1"))
+            throw DuoTransportError.targetActive(DuoErrorContext(httpStatus: 409, requestID: "0123456789abcdef"))
         }
         let sheet = try host(DuoReconnectCodeSheet(duoStore: kit.store, duo: duo, memory: DuoReconnectCodeMemory()))
-        await jExpect("\(sheet.labels())") { sheet.labels().contains("That did not work. Please try again. (ref req-j1)") }
+        await jExpect("\(sheet.labels())") { sheet.labels().contains("That did not work. Please try again. (ref 0123456789abcdef)") }
         XCTAssertEqual(kit.transport.calls.count, 1, "one request, on appear")
         XCTAssertFalse(sheet.hasElement("duo.invite.code"))
         XCTAssertNil(kit.store.duo(duo.id)?.invite)

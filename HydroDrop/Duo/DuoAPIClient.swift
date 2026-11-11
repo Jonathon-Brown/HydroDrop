@@ -62,7 +62,7 @@ import Foundation
 // conflict, §6.5) and a nudge (its id is its key, §6.6), or because the op queue replays the
 // very bytes it recorded (`PATCH /me`).
 
-final class DuoAPIClient: DuoTransport, Sendable {
+final class DuoAPIClient: DuoTransport, DuoCredentialRecoveryTransport, Sendable {
     private let baseURL: URL
     private let client: DuoClientInfo
     private let credentials: DuoCredentialProviding
@@ -77,6 +77,171 @@ final class DuoAPIClient: DuoTransport, Sendable {
         self.credentials = credentials
         self.attester = attester
         self.session = session
+    }
+
+    // MARK: - Versioned credential recovery
+
+    func recoveryCapabilities() async throws -> DuoRecoveryCapabilities {
+        try recoveryDecode(try await recoverySend(method: "GET", path: "/capabilities", success: [200]))
+    }
+
+    func prepareDeviceIssuance(_ request: DuoRecoveryPrepareRequest) async throws -> DuoRecoveryIssuance {
+        do { try request.validate() } catch { throw recoveryLocalFailure() }
+        let body = try recoveryEncode(request)
+        return try recoveryDecode(try await recoverySend(method: "POST", path: "/device-issuances", body: body, success: [201]))
+    }
+
+    func credentialState(as credential: DuoRecoveryCredential) async throws -> DuoRecoveryCredentialState {
+        let answer: DuoRecoveryCredentialState = try recoveryDecode(try await recoverySend(method: "GET", path: "/devices/me/credential-state", credential: credential, success: [200]))
+        guard answer.deviceID == credential.deviceID else { throw recoveryLocalFailure() }
+        return answer
+    }
+
+    func rotateCredential(_ request: DuoRecoveryRotateRequest, as credential: DuoRecoveryCredential) async throws -> DuoRecoveryCredentialState {
+        do { try request.validate() } catch { throw recoveryLocalFailure() }
+        guard credential.isValid, request.nextDeviceSecret != credential.deviceSecret,
+              request.expectedSecretVersion < Int(Int32.max) else { throw recoveryLocalFailure() }
+        let answer: DuoRecoveryCredentialState = try recoveryDecode(try await recoverySend(method: "POST", path: "/devices/me/rotate", credential: credential,
+                                                                            body: try recoveryEncode(request), success: [200]))
+        guard answer.deviceID == credential.deviceID, answer.secretVersion == request.expectedSecretVersion + 1,
+              answer.credentialProtocol == "1.1" else { throw recoveryLocalFailure() }
+        return answer
+    }
+
+    func cancelDeviceIssuance(deviceID: String, as credential: DuoRecoveryCredential) async throws -> DuoRecoveryCancelResponse {
+        guard credential.isValid, deviceID == credential.deviceID else { throw recoveryLocalFailure() }
+        let answer: DuoRecoveryCancelResponse = try recoveryDecode(try await recoverySend(method: "POST", path: "/device-issuances/\(deviceID)/cancel", credential: credential,
+                                                                            body: Data("{}".utf8), success: [200]))
+        guard answer.deviceID == deviceID else { throw recoveryLocalFailure() }
+        return answer
+    }
+
+    func deleteMe(as credential: DuoRecoveryCredential, _ request: DuoWireDeleteMeRequest, key: DuoIdempotencyKey) async throws {
+        guard credential.isValid, DuoRecoveryWire.isUUID(key.value) else { throw recoveryLocalFailure() }
+        // Explicit captured authentication matters during cleanup: ordinary identity getters
+        // intentionally hide a pending credential and must not select another member here.
+        _ = try await recoverySend(method: "DELETE", path: "/me", credential: credential, body: try Self.encode(request),
+                                   key: key, success: [204], legacyDelete: true)
+    }
+
+    func commitDevice(_ request: DuoRecoveryCommitRequest, as credential: DuoRecoveryCredential) async throws -> DuoRecoveryCredentialState {
+        do { try request.validate() } catch { throw recoveryLocalFailure() }
+        guard credential.isValid, request.deviceID == credential.deviceID else { throw recoveryLocalFailure() }
+        let body = try recoveryEncode(request)
+        // The request never chooses a different reserved ID or candidate during a proof retry.
+        // A lost answer exits immediately; only explicit attestation refusals are retried here.
+        return try await attestedCall {
+            var attach = attester.isSupported
+            var retriedChallenge = false
+            var sentHeaderless = false
+            while true {
+                try Task.checkCancellation()
+                var http = try recoveryRequest(method: "POST", path: "/devices", credential: credential, body: body)
+                let proof = attach ? try await recoveryAttestation(deviceID: credential.deviceID, body: body) : nil
+                if let proof { http.setValue(proof.header, forHTTPHeaderField: "X-HD-Attest") }
+                else { sentHeaderless = true }
+                do {
+                    let raw = try await recoveryPerform(http, success: [200, 201])
+                    let answer: DuoRecoveryCredentialState = try recoveryDecode(raw)
+                    guard answer.deviceID == credential.deviceID, answer.secretVersion == 1, answer.credentialProtocol == "1.1" else { throw recoveryLocalFailure() }
+                    // An already-current200 deliberately bypasses server attestation. Adopting
+                    // the new proof's key for that answer would replace the accepted old key.
+                    if raw.status == 201, let proof { attester.adoptPendingKey(proof.token.keyID, forDevice: credential.deviceID) }
+                    return answer
+                } catch DuoRecoveryError.refused(let code, let context) where code == .attestRequired || code == .attestInvalid {
+                    if code == .attestRequired, proof != nil, !retriedChallenge {
+                        retriedChallenge = true; continue
+                    }
+                    if !sentHeaderless { sentHeaderless = true; attach = false; continue }
+                    throw DuoRecoveryError.refused(code, context)
+                }
+            }
+        }
+    }
+
+    private func recoveryAttestation(deviceID: String, body: Data) async throws -> Attestation? {
+        let challenge: DuoWireAttestChallenge
+        do { challenge = try await attestChallenge() }
+        catch { if error is CancellationError || Task.isCancelled { throw CancellationError() }; return nil }
+        let hash = Self.recoveryBind(challengeID: challenge.challengeId, deviceID: deviceID, body: body)
+        let attester = self.attester
+        do {
+            // A reserved device has no accepted server key yet. Assertions cannot prove a
+            // first commit, even if this install happens to remember a similarly named key.
+            let token = try await Self.untilCancelled { try await attester.attestNewKey(clientDataHash: hash) }
+            let header = "v1.ios.\(challenge.challengeId).\(token.token)"
+            guard header.utf8.count <= 16_384 else { return nil }
+            return Attestation(header: header, token: token)
+        } catch { if error is CancellationError || Task.isCancelled { throw CancellationError() }; return nil }
+    }
+
+    static func recoveryBind(challengeID: String, deviceID: String, body: Data) -> Data {
+        var bytes = Data("\(challengeID)\ndevice_create_v11\n\(deviceID)\n".utf8)
+        bytes.append(contentsOf: SHA256.hash(data: body))
+        return Data(SHA256.hash(data: bytes))
+    }
+
+    private func recoveryLocalFailure() -> DuoRecoveryError { .unavailable(DuoErrorContext(httpStatus: 0)) }
+    private func recoveryEncode<T: Encodable>(_ value: T) throws -> Data {
+        do { return try DuoRecoveryWire.encode(value) } catch { throw recoveryLocalFailure() }
+    }
+    private func recoveryDecode<T: DuoRecoveryResponse>(_ answer: Answer) throws -> T {
+        do { return try DuoRecoveryWire.decode(T.self, from: answer.data) }
+        catch { throw DuoRecoveryError.unavailable(DuoErrorContext(httpStatus: answer.status, requestID: answer.requestID)) }
+    }
+    private func recoverySend(method: String, path: String, credential: DuoRecoveryCredential? = nil, body: Data? = nil,
+                              key: DuoIdempotencyKey? = nil, success: Set<Int>, legacyDelete: Bool = false) async throws -> Answer {
+        let request = try recoveryRequest(method: method, path: path, credential: credential, body: body, key: key, legacyDelete: legacyDelete)
+        return try await recoveryPerform(request, success: success, legacyDelete: legacyDelete)
+    }
+    private func recoveryRequest(method: String, path: String, credential: DuoRecoveryCredential?, body: Data?,
+                                 key: DuoIdempotencyKey? = nil, legacyDelete: Bool = false) throws -> URLRequest {
+        if let credential, !credential.isValid { throw recoveryLocalFailure() }
+        guard body.map({ $0.count <= DuoRecoveryWire.maximumBodyBytes }) ?? true,
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
+              components.scheme == "https", components.host?.isEmpty == false,
+              components.user == nil, components.password == nil, components.query == nil, components.fragment == nil else { throw recoveryLocalFailure() }
+        var prefix = components.percentEncodedPath
+        while prefix.hasSuffix("/") { prefix.removeLast() }
+        guard prefix.hasSuffix("/v1") else { throw recoveryLocalFailure() }
+        if !legacyDelete { prefix.removeLast(3); prefix += "/v1.1" }
+        components.percentEncodedPath = prefix + path
+        guard let url = components.url else { throw recoveryLocalFailure() }
+        var request = URLRequest(url: url)
+        request.httpMethod = method; request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData; request.httpShouldHandleCookies = false
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("en", forHTTPHeaderField: "Accept-Language")
+        request.setValue(client.clientHeader, forHTTPHeaderField: "X-HD-Client")
+        if let credential { request.setValue("Bearer \(credential.deviceID).\(credential.deviceSecret)", forHTTPHeaderField: "Authorization") }
+        if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        if let key { request.setValue(key.value, forHTTPHeaderField: "Idempotency-Key") }
+        return request
+    }
+    private func recoveryPerform(_ request: URLRequest, success: Set<Int>, legacyDelete: Bool = false) async throws -> Answer {
+        try Task.checkCancellation()
+        let pair: (Data, URLResponse)
+        do { pair = try await session.data(for: request) }
+        catch { if error is CancellationError || Task.isCancelled { throw CancellationError() }; throw DuoRecoveryError.offline }
+        guard let http = pair.1 as? HTTPURLResponse else { throw recoveryLocalFailure() }
+        let id = DuoErrorClassifier.headerRequestID(xRequestID: http.value(forHTTPHeaderField: "X-Request-Id"), cfRay: http.value(forHTTPHeaderField: "CF-Ray"))
+        let context = DuoErrorContext(httpStatus: http.statusCode, requestID: id)
+        guard Self.isSameEndpoint(http.url, as: request.url), http.url?.query == request.url?.query,
+              http.url?.user == nil, http.url?.password == nil, http.url?.fragment == nil,
+              !(300...399).contains(http.statusCode) else { throw DuoRecoveryError.unavailable(context) }
+        guard success.contains(http.statusCode) else {
+            if legacyDelete {
+                throw DuoRecoveryWire.classifyDeletion(status: http.statusCode, contentType: http.value(forHTTPHeaderField: "Content-Type"),
+                                                      retryAfter: http.value(forHTTPHeaderField: "Retry-After"), requestID: id, body: pair.0)
+            }
+            throw DuoRecoveryWire.classify(status: http.statusCode, contentType: http.value(forHTTPHeaderField: "Content-Type"),
+                                           retryAfter: http.value(forHTTPHeaderField: "Retry-After"), requestID: id, body: pair.0)
+        }
+        if http.statusCode == 204 {
+            guard pair.0.isEmpty else { throw DuoRecoveryError.unavailable(context) }
+        } else if !DuoRecoveryWire.isJSON(http.value(forHTTPHeaderField: "Content-Type")) || pair.0.count > DuoRecoveryWire.maximumBodyBytes {
+            throw DuoRecoveryError.unavailable(context)
+        }
+        return Answer(status: http.statusCode, data: pair.0, requestID: id)
     }
 
     // MARK: - Identity and device
@@ -150,11 +315,14 @@ final class DuoAPIClient: DuoTransport, Sendable {
     }
 
     func peekInvite(code: String) async throws -> DuoWirePeekResponse {
-        // Anonymous for a phone with no identity, and with its bearer when it has one, so the
-        // server applies the pair row and a person someone blocked sees nothing (D34). The
-        // code rides in the body, never the path, so no log line anywhere holds it (SEC F3).
-        try Self.decode(try await send(Route("POST", "/invites/peek", auth: .bearerIfAny,
-                                             body: try Self.encode(DuoWirePeekRequest(code: code)), success: [200])))
+        try await peekInvite(code: code, credential: credentials.peekCredential)
+    }
+
+    func peekInvite(code: String, credential: DuoCredential?) async throws -> DuoWirePeekResponse {
+        // Snapshot the settled bearer at the call site. If identity changes while awaiting this
+        // request, its error must not discard a different credential (D82).
+        try Self.decode(try await send(Route("POST", "/invites/peek", auth: credential.map(Auth.given) ?? .anonymous,
+                                            body: try Self.encode(DuoWirePeekRequest(code: code)), success: [200])))
     }
 
     func redeemInvite(_ request: DuoWireRedeemRequest, key: DuoIdempotencyKey) async throws -> DuoWireChangesWithResult {
@@ -223,7 +391,7 @@ final class DuoAPIClient: DuoTransport, Sendable {
         case anonymous
         /// Every other route: the bearer, or nothing sent at all.
         case bearer
-        /// `POST /invites/peek`: the bearer when this phone has one, else anonymous.
+        /// `POST /invites/peek`: the bearer only after the launch is settled, else anonymous.
         case bearerIfAny
         /// `POST /devices/me/rotate`: the bearer of this credential, whatever the identity holds now.
         case given(DuoCredential)
@@ -285,7 +453,11 @@ final class DuoAPIClient: DuoTransport, Sendable {
         // and the device a new key is adopted for all come from it, retries included. A rotate
         // brings its own and does not read it.
         let credential: DuoCredential?
-        if case .given = route.auth { credential = nil } else { credential = credentials.credential }
+        switch route.auth {
+        case .anonymous, .given: credential = nil
+        case .bearer: credential = credentials.credential
+        case .bearerIfAny: credential = credentials.peekCredential
+        }
         let bearer: DuoCredential?
         switch route.auth {
         case .anonymous:

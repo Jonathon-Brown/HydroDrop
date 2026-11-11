@@ -47,7 +47,7 @@ import Network
 /// would wait for itself), or keep anything about an answer after a wipe (`host.wipeEpoch` moved)
 /// or a discard.
 @MainActor
-final class DuoOpQueueService: DuoOpQueueing {
+final class DuoOpQueueService: DuoOpQueueing, DuoAgeNetworkStopping {
     /// Watches the network path. The app's is `NWPathMonitor`; a test hands in its own and says
     /// when the path changes. It reports every reading (true when the path is satisfied); deciding
     /// which readings are a connection coming back is the service's, so a test can hold it to it.
@@ -109,6 +109,7 @@ final class DuoOpQueueService: DuoOpQueueing {
     /// Written to disk at once, before anything is sent: the caller shows the result of the
     /// request straight away (an ended card), and a kill a moment later must not lose it.
     func enqueue(_ op: DuoQueuedOp) {
+        guard dependencies.ageNetworkAllowed else { return }
         var queue = Self.load(dependencies.cache)
         if queue.enqueue(op) == .conflicting {
             // Every key is a fresh UUID, so another entry under a queued key is a bug in the caller.
@@ -121,6 +122,13 @@ final class DuoOpQueueService: DuoOpQueueing {
     /// Everything queued goes, from disk and from whatever drain is under way. A card still marked
     /// as waiting for its leave or block is told nothing is waiting any more: left as it was, it
     /// would claim a request is queued that never will be sent (after a 401, or a wipe).
+    func stopForAgeNetwork(refused: Bool) {
+        generation += 1
+        running?.cancel()
+        cancelScheduledRetry()
+        if refused { discardAll() }
+    }
+
     func discardAll() {
         generation += 1
         cancelScheduledRetry()
@@ -187,6 +195,7 @@ final class DuoOpQueueService: DuoOpQueueing {
     /// `asOf` is the moment a retry waited for: the drain it starts treats the delay as over even
     /// on a clock that has not moved as far (a test's), and measures the next delay from there.
     private func drainNow(asOf: Date?, exitsOnly: Bool, ignoringWindows: Bool) async {
+        guard dependencies.ageNetworkAllowed else { return }
         if let underWay = running {
             // The drain under way sends only what it found when it began, and may have stopped on an
             // answer from before a discard: what this caller queued goes in a drain of its own.
@@ -217,6 +226,7 @@ final class DuoOpQueueService: DuoOpQueueing {
     /// Schedules the retry the paused groups need: the soonest end of a pause whose group still
     /// has tries left in a row. A group that used its three waits only for the next trigger.
     private func rearm(from now: Date) {
+        guard dependencies.ageNetworkAllowed else { return }
         let queued = Set(Self.load(dependencies.cache).ops.map { DuoOpQueue.group(of: $0.kind) })
         let due = paused.filter { queued.contains($0.key) && waitsInARow[$0.key, default: 0] < DuoRetry.maximumAttempts }
             .map(\.value.due).min()
@@ -338,6 +348,12 @@ final class DuoOpQueueService: DuoOpQueueing {
                 // `noteFailure` has already discarded the identity, and with it this queue; this is
                 // the same rule said where the queue is.
                 discardAll()
+                // Losing the identity clears the queue inside noteFailure, bypassing settle.
+                // Tell the person the requested exit was not confirmed, unless that failure
+                // finished an earlier Delete and already wiped this entire screen's state.
+                if dependencies.host.wipeEpoch == epoch, op.kind == .leave || op.kind == .block {
+                    dependencies.host.notice = DuoUserMessage.text(for: sent.error ?? DuoTransportError.offline)
+                }
                 return
             case .wait(let delay):
                 // §6.7: honour the delay, at most three tries of one entry in a row, then wait for
@@ -350,7 +366,8 @@ final class DuoOpQueueService: DuoOpQueueing {
     }
 
     private func isCurrent(_ generation: Int, _ epoch: Int) -> Bool {
-        generation == self.generation && epoch == dependencies.host.wipeEpoch
+        guard dependencies.ageNetworkAllowed else { return false }
+        return generation == self.generation && epoch == dependencies.host.wipeEpoch
     }
 
     /// What one attempt brought back.
@@ -407,6 +424,9 @@ final class DuoOpQueueService: DuoOpQueueing {
         switch op.kind {
         case .leave, .block:
             guard let id = op.duoID.flatMap(UUID.init(uuidString:)) else { return }
+            // The void block transport returns normally only for its validated 204. A queue
+            // entry being settled (including an unreadable answer) is not proof of a block.
+            let confirmed = succeeded && (op.kind != .block || sent.error == nil)
             // A block queued behind this leave still waits, and the card says so; otherwise nothing
             // is waiting for this duo any more.
             let stillWaiting = queue.ops.last { $0.duoID?.lowercased() == op.duoID?.lowercased() && ($0.kind == .leave || $0.kind == .block) }
@@ -414,10 +434,10 @@ final class DuoOpQueueService: DuoOpQueueing {
             if case .banned = sent.error as? DuoTransportError { barred = true } else { barred = false }
             host.update(id) { duo in
                 let mine: DuoEndedBy = duo.myRole == .owner ? .owner : .partner
-                if succeeded, let left = sent.left {
+                if confirmed, let left = sent.left {
                     duo.endedAt = left.endedAt
                     duo.endedBy = left.endedBy
-                } else if succeeded, duo.endedAt == nil {
+                } else if confirmed, duo.endedAt == nil {
                     // A block's 204 has no body. It ends the duo on the server, so a card still shown
                     // live (a kill between the queue and the card's write, a fetch that read it live
                     // while the block waited) ends here too.
@@ -435,7 +455,13 @@ final class DuoOpQueueService: DuoOpQueueing {
             }
             // Whatever arrived for the duo between the tap and the landing goes too.
             if host.duo(id)?.hasEnded == true { dependencies.announcer?.removeDelivered(for: id) }
-            if succeeded, asksForARefresh { refreshAfterDrain = true }
+            if confirmed, op.kind == .block { host.rememberConfirmedBlock(id) }
+            if !confirmed {
+                // An ended-looking local card does not mean the server accepted this exit. A
+                // judged refusal leaves the queue, so it must also tell the person it did not go.
+                host.notice = DuoUserMessage.text(for: sent.error ?? DuoTransportError.offline)
+            }
+            if confirmed, asksForARefresh { refreshAfterDrain = true }
         case .updateMe:
             if succeeded {
                 // The name and the skin the server now holds, and nothing else: the rest of the member
@@ -461,6 +487,7 @@ final class DuoOpQueueService: DuoOpQueueing {
 
     /// Starts watching the network once; later calls do nothing.
     func startMonitoring() {
+        guard dependencies.ageNetworkAllowed else { return }
         guard monitor == nil else { return }
         let monitor = makeMonitor()
         self.monitor = monitor

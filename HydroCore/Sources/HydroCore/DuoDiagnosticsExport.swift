@@ -261,17 +261,9 @@ public enum DuoDiagnosticsExport {
         (100...599).contains(status) ? String(status) : Label.none
     }
 
-    /// The only shape the Worker writes (`src/http/response.ts`): a `cf-ray`, 16 lowercase hex
-    /// characters and an optional data-centre code, or 16 hex characters of its own. Only the 16
-    /// hex characters are printed: the code names a city (`-LHR`), and support finds the request
-    /// by the rest (D76). The shared filter (`DuoDiagnostics.usableRequestID`, used by the error
-    /// sheet's `(ref ...)` line and the Duo screen's footer) is looser: it let a 43-character
-    /// secret, a push token, a UUID, a dashed IP address and a name through, because whatever
-    /// answers the request writes the header, a proxy the phone trusts included. So an id the
-    /// error sheet shows can read as a dash here.
+    /// Old cached records are checked again, using the same rule as new records and alerts.
     private static func requestID(_ raw: String?) -> String? {
-        guard let raw, raw.range(of: #"^[0-9a-f]{16}(-[A-Z]{3})?$"#, options: .regularExpression) != nil else { return nil }
-        return String(raw.prefix(16))
+        DuoDiagnostics.usableRequestID(raw)
     }
 
     /// Newest first by the time printed beside each line. The lists are kept newest first as

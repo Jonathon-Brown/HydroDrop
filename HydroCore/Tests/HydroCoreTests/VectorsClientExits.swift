@@ -147,7 +147,7 @@ extension Vectors {
         let rows: [(String, DuoOpKind, ExitAnswer, String)] = [
             ("leaveDone", .leave, .success, "done"),
             ("leaveDuoUnknown", .leave, coded(404, "duo_unknown"), "done"),
-            ("blockDuoUnknown", .block, coded(404, "duo_unknown"), "done"),
+            ("blockDuoUnknown", .block, coded(404, "duo_unknown"), "drop"),
             ("leaveDuoEnded", .leave, coded(409, "duo_ended"), "done"),
             ("leaveUnauthenticated", .leave, coded(401, "unauthenticated"), "discardAll"),
             ("leaveNoCredential", .leave, .noCredential, "hold"),

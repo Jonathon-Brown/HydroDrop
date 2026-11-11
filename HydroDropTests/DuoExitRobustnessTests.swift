@@ -321,7 +321,7 @@ final class DuoExitRobustnessTests: XCTestCase {
         try secrets.writeInstallMarker(random: rig.kit.random)
         try secrets.saveLinkSecret("ABCDEFGHJKMNPQRSTVWXYZ0123", forDuo: id)
         try secrets.saveLinkSecret("ZYXWVTSRQPNMKJHGFEDCBA3210", forDuo: orphan)
-        XCTAssertEqual(store.recordBirthYear(1990, now: now), .allowed)
+        XCTAssertEqual(store.recordBirthYear(1990, month: 1, now: now), .allowed)
     }
 
     private func assertWiped(_ rig: Rig, file: StaticString = #filePath, line: UInt = #line) {

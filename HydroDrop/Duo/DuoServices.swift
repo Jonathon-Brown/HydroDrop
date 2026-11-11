@@ -21,6 +21,7 @@ protocol DuoHost: AnyObject {
     /// Adds a duo, or replaces the one with the same id in place.
     func upsert(_ duo: DuoState)
     func remove(_ id: UUID)
+    func rememberConfirmedBlock(_ id: UUID)
     func replaceAll(with duos: [DuoState])
 
     var availability: DuoAvailability { get set }
@@ -55,9 +56,13 @@ protocol DuoHost: AnyObject {
     /// old value back to disk.
     func resetLocalState()
 
+    /// An identity's cached presence changed; publish it to the screen on the main actor.
+    func identityPresenceChanged()
+
     /// Takes an "allowed" age answer back to unknown (a refusal stays). Called after "Not me, start
     /// fresh" only; the default does nothing, so a host without an age answer needs no change.
     func forgetAnAllowedAge()
+    func ageNetworkStatusChanged()
 
     /// Counts how many times `resetLocalState()` has run. A service reads it before it sends a
     /// request and compares it after the answer: if it moved, a wipe happened while the request
@@ -67,7 +72,10 @@ protocol DuoHost: AnyObject {
 }
 
 extension DuoHost {
+    func identityPresenceChanged() {}
+    func rememberConfirmedBlock(_ id: UUID) {}
     func forgetAnAllowedAge() {}
+    func ageNetworkStatusChanged() {}
 }
 
 /// Reads the water log, which lives in SwiftData in the app. The only thing in Duo that
@@ -238,6 +246,8 @@ protocol DuoBackgrounding: AnyObject {
 
 /// The credential and the install: what makes this phone a member (final design §3).
 protocol DuoIdentityProviding: DuoCredentialProviding, AnyObject {
+    /// Rendering may inspect the already loaded identity, but must never retry the Keychain.
+    var cachedCredentialPresence: Bool { get }
     /// The local date of the first run, kept in a file excluded from backup (§3.2). Today
     /// for a phone that has no file yet.
     var installDay: String { get }
@@ -255,6 +265,11 @@ protocol DuoIdentityProviding: DuoCredentialProviding, AnyObject {
     /// The two buttons of "This phone was connected to a duo with <partner>. Continue as
     /// <name>?": Continue seeds the cache from `GET /me`; "Not me" is `DuoExiting.startFresh`.
     func continueAsRestored() async
+}
+
+extension DuoIdentityProviding {
+    // Test identities keep their credential in memory already.
+    var cachedCredentialPresence: Bool { credential != nil }
 }
 
 enum DuoIdentityLaunch: Equatable {
@@ -347,16 +362,87 @@ struct DuoObservedSession: DuoHTTPSession {
     }
 }
 
+/// Service-owned timers and permission work must stop along with requests. The default protocol
+/// seams remain unchanged, so tests can replace services without pretending to own those tasks.
+@MainActor
+protocol DuoAgeNetworkStopping: AnyObject {
+    func stopForAgeNetwork(refused: Bool)
+}
+
 /// Everything a service may need, filled in by `DuoComposition` in dependency order. A
 /// service reads these when it uses them, so one built before another still finds it.
 @MainActor
 final class DuoDependencies {
     unowned let host: DuoHost
+    // Services can outlive a dropped store through their dependency cycle. Consent checks
+    // must close their gate without dereferencing that store or changing its saved answer.
+    private weak var liveHost: DuoHost?
     let cache: DuoCache
     let secrets: DuoSecrets
     let clock: DuoClock
     let random: DuoRandom
     let client: DuoClientInfo
+    let ageNetworkGate = DuoNetworkGate()
+
+    /// Unknown age and unreadable storage are different: a restored identity may have no defaults,
+    /// but an unreadable refusal must stop work until it can be checked. Only known refusal drops
+    /// queued changes; a temporary storage failure pauses them.
+    var ageNetworkAllowed: Bool {
+        refreshAgeNetworkState()
+        return ageNetworkGate.state == .open
+    }
+
+    func refreshAgeNetworkState(forceStop: Bool = false) {
+        guard let host = liveHost else {
+            ageNetworkGate.transition(to: .unavailable)
+            return
+        }
+        let next: DuoNetworkGate.State
+        let unavailable: Bool
+        let wasRecheck = cache.needsAgeRecheck
+        do {
+            let refused = try secrets.readAgeRefused()
+            // Defaults can disappear while a Keychain credential survives reinstall or restore.
+            // Discover that locally, before lazy identity loading can start GET or rotation.
+            if !refused, cache.ageStatus != .refused, !cache.hasCurrentAgePolicy,
+               try hasPersistedIdentity() {
+                cache.requireAgeRecheck()
+            }
+            next = cache.ageStatus == .refused || refused ? .refused : (cache.needsAgeRecheck ? .unavailable : .open)
+            unavailable = false
+        } catch {
+            next = cache.ageStatus == .refused ? .refused : .unavailable
+            unavailable = true
+        }
+        let changed = ageNetworkGate.transition(to: next)
+        let effective = ageNetworkGate.state
+        let widgetChanged = ((changed || forceStop) && cache.needsAgeRecheck) || wasRecheck != cache.needsAgeRecheck || cache.ageCheckUnavailable != unavailable || (effective == .refused && cache.ageStatus != .refused)
+        if cache.ageCheckUnavailable != unavailable { cache.ageCheckUnavailable = unavailable }
+        if effective == .refused, cache.ageStatus != .refused { cache.ageStatus = .refused }
+        if widgetChanged { host.ageNetworkStatusChanged() }
+        guard changed || forceStop else { return }
+        if ageNetworkGate.state != .open {
+            host.isWorking = false
+            let refused = ageNetworkGate.state == .refused
+            (sync as? DuoAgeNetworkStopping)?.stopForAgeNetwork(refused: refused)
+            (push as? DuoAgeNetworkStopping)?.stopForAgeNetwork(refused: refused)
+            (ops as? DuoAgeNetworkStopping)?.stopForAgeNetwork(refused: refused)
+            (background as? DuoAgeNetworkStopping)?.stopForAgeNetwork(refused: refused)
+            if refused { announcer?.removeAllPending() }
+        }
+    }
+
+    private func hasPersistedIdentity() throws -> Bool {
+        if try secrets.store.read(service: DuoSecrets.service, account: DuoSecrets.deviceAccount) != nil { return true }
+        // A missing defaults age answer must not turn a restored journal or portable mirror
+        // into an anonymous install. Unreadable storage closes the gate in the caller.
+        for environment in [DuoRecoveryEnvironment.staging, .production] {
+            let journal = DuoRecoveryJournal(store: secrets.store, environment: environment)
+            if let record = try journal.read(), record.phase != .abandoned { return true }
+            if try journal.readMirror() != nil { return true }
+        }
+        return false
+    }
 
     /// Whether HydroDrop+ is active (`StoreManager.shared.isSubscribed`): how many duos may be started.
     var isSubscribed: @MainActor () -> Bool = { false }
@@ -374,6 +460,8 @@ final class DuoDependencies {
     }
 
     var transport: DuoTransport = DuoUnwiredTransport()
+    var recoveryTransport: DuoCredentialRecoveryTransport?
+    var recoveryEnvironment: DuoRecoveryEnvironment?
     /// Built after the dependencies (it reads them), so it is filled in by `DuoComposition`.
     var identity: DuoIdentityProviding!
     var attester: DuoAttesting
@@ -390,6 +478,7 @@ final class DuoDependencies {
     init(host: DuoHost, cache: DuoCache, secrets: DuoSecrets, clock: DuoClock = DuoSystemClock(), random: DuoRandom = DuoSystemRandom(),
          client: DuoClientInfo, attester: DuoAttesting, deviceCheck: DuoDeviceCheckProviding) {
         self.host = host
+        self.liveHost = host
         self.cache = cache
         self.secrets = secrets
         self.clock = clock

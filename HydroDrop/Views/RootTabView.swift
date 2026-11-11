@@ -23,8 +23,13 @@ struct RootTabView: View {
     /// screen. Every root sheet waits while it is true, and the alert is asked for only while
     /// nothing else of the root's is asked for, up or leaving (D82): an alert and a sheet asked for
     /// in one turn wedged every root presentation until the app was killed.
+    // Keep the displayed failure stable while a newer failure waits in the store. Otherwise
+    // re-rendering for the new failure makes the old alert's dismissal acknowledge the new one.
+    @State private var duoPresentedNotice: String?
+    @State private var duoNoticeGeneration = UUID()
     @State private var duoNoticeIsUp = false
     @State private var duoNoticeIsLeaving = false
+    @State private var duoSettingsPresented = false
     /// When a tapped Duo notification asked for the Duo screen, while something it waits for is still
     /// in the way; nil when no such tap is waiting. Only a new tap starts one, so a flag the Duo row
     /// has not lowered yet never reopens Settings each time it closes.
@@ -129,11 +134,22 @@ struct RootTabView: View {
                 isShared: SharedModelContainer.isShared(modelContext.container)
             )
         }
+        #if DUO_V2
+        .task(id: [router.showingSettings, duoNoticeIsUp, duoNoticeIsLeaving]) {
+            await reconcileDuoSettingsPresentation()
+        }
+        .sheet(isPresented: duoSettingsIsPresented, onDismiss: { router.settingsDidDismiss() }) {
+            SettingsView()
+                .environmentObject(settings)
+                .onAppear { router.settingsDidAppear() }
+        }
+        #else
         .sheet(isPresented: $router.showingSettings, onDismiss: { router.settingsDidDismiss() }) {
             SettingsView()
                 .environmentObject(settings)
                 .onAppear { router.settingsDidAppear() }
         }
+        #endif
         #if DUO_V2
         // The same recap, with its time on screen kept: a tapped Duo notification closes it and
         // opens Settings only from here, once it has gone.
@@ -162,7 +178,7 @@ struct RootTabView: View {
         .alert("Duo Streaks", isPresented: duoNoticeIsPresented) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(duoStore.notice ?? "")
+            Text(duoPresentedNotice ?? "")
         }
         #else
         .sheet(isPresented: weeklyRecapIsPresented) {
@@ -303,12 +319,56 @@ struct RootTabView: View {
         }
     }
 
+    /// The router records intent immediately, but UIKit must finish the alert above Settings
+    /// before its sheet can leave. Closing both during the alert's entrance crashes UIKit on
+    /// iOS 27. Opening Settings likewise waits for the root's notice to finish leaving.
+    private var duoSettingsIsPresented: Binding<Bool> {
+        Binding(get: { duoSettingsPresented }, set: { showing in
+            duoSettingsPresented = showing
+            guard !showing, router.settingsIsOnScreen, router.showingSettings else { return }
+            Task { @MainActor in
+                guard !duoSettingsPresented else { return }
+                router.showingSettings = false
+            }
+        })
+    }
+
+    @MainActor
+    private func reconcileDuoSettingsPresentation() async {
+        let requested = router.showingSettings
+        // Let the child alert observe the changed request and begin its own dismissal first.
+        do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return }
+        while !Task.isCancelled {
+            guard router.showingSettings == requested else { return }
+            if requested {
+                if !duoNoticeIsUp, !duoNoticeIsLeaving, !Self.duoAnAlertIsUp() {
+                    duoSettingsPresented = true
+                    return
+                }
+            } else if !Self.duoAnAlertIsUp() {
+                duoSettingsPresented = false
+                return
+            }
+            do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return }
+        }
+    }
+
     // MARK: - Duo: the notice alert
 
     private var duoNoticeIsPresented: Binding<Bool> {
-        Binding(
+        let dismissedNotice = duoPresentedNotice
+        let generation = duoNoticeGeneration
+        return Binding(
             get: { duoNoticeIsUp && !duoNoticeIsLeaving && duoStore.notice != nil },
-            set: { if !$0 { duoNoticeWentAway() } }
+            set: { showing in
+                guard !showing else { return }
+                // SwiftUI resets bindings during its presentation update. Publish after that
+                // update and do not consume a replacement failure that arrived in the meantime.
+                Task { @MainActor in
+                    guard duoNoticeGeneration == generation else { return }
+                    duoNoticeWentAway(acknowledging: dismissedNotice)
+                }
+            }
         )
     }
 
@@ -326,11 +386,16 @@ struct RootTabView: View {
     /// of again, so it cannot hold every root sheet back for good; the notice keeps for the next try.
     private func showDuoNoticeIfFree() {
         guard DuoJoinPlan.noticeMayShow(hasNotice: duoStore.notice != nil, duoRootSheets) else { return }
+        let generation = UUID()
+        duoNoticeGeneration = generation
+        duoPresentedNotice = duoStore.notice
         duoNoticeIsUp = true
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard duoNoticeGeneration == generation else { return }
             if duoNoticeIsUp, !duoNoticeIsLeaving, !Self.duoAnAlertIsUp() {
                 duoNoticeIsUp = false
+                duoPresentedNotice = nil
                 duoSomethingLeft()
             }
         }
@@ -339,17 +404,20 @@ struct RootTabView: View {
     /// The notice was answered (or taken away). Root sheets go on waiting until the alert has left
     /// the screen, not just until it was answered: SwiftUI sets the binding as the alert starts to
     /// leave, and a sheet asked for then is dropped like one asked for under it.
-    private func duoNoticeWentAway() {
-        duoStore.notice = nil
+    private func duoNoticeWentAway(acknowledging notice: String? = nil) {
         guard duoNoticeIsUp, !duoNoticeIsLeaving else { return }
+        if let notice, duoStore.notice == notice { duoStore.notice = nil }
         duoNoticeIsLeaving = true
+        let generation = duoNoticeGeneration
         Task { @MainActor in
             for _ in 0..<60 {
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 if !Self.duoAnAlertIsUp() { break }
             }
+            guard duoNoticeGeneration == generation else { return }
             duoNoticeIsLeaving = false
             duoNoticeIsUp = false
+            duoPresentedNotice = nil
             duoSomethingLeft()
         }
     }

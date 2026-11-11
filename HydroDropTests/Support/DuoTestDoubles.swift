@@ -153,6 +153,8 @@ final class RecordingSession: DuoHTTPSession, @unchecked Sendable {
 
 final class FakeDuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     var credential: DuoCredential?
+    var peekCredentialOverride: DuoCredential??
+    var peekCredential: DuoCredential? { peekCredentialOverride ?? credential }
     var installDay = "2026-09-01"
     var launch: DuoIdentityLaunch = .none
     private(set) var stored: [DuoCredential] = []
@@ -215,6 +217,8 @@ final class FakeSyncing: DuoSyncing {
 @MainActor
 final class FakeJoining: DuoJoining {
     private(set) var calls: [String] = []
+    /// Keep a view test's observations separate from its explicit consent setup.
+    func resetCalls() { calls.removeAll() }
     /// What each call answers, settable so a view's test can drive every state through this one
     /// double instead of forking a fake of its own (a copy would collide with the next stage's).
     var createResult: DuoState?
@@ -374,6 +378,9 @@ struct DuoTestKit {
         defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let cache = DuoCache(defaults: defaults)
+        // Ordinary service fixtures represent the current age policy. Migration regressions
+        // explicitly remove this marker before supplying legacy defaults or credentials.
+        defaults.set(2, forKey: DuoCache.agePolicyKey)
         store = DuoStore(cache: cache, usesServer: true, reloadWidget: {})
         self.secretStore = secretStore
         clock = TestClock(now)

@@ -62,6 +62,8 @@ public protocol DuoTransport: Sendable {
     /// `POST /invites/peek`. Anonymous when this phone has no identity, with its bearer when
     /// it has one (so the pair row is applied and a person someone blocked sees nothing, D34).
     func peekInvite(code: String) async throws -> DuoWirePeekResponse
+    /// Uses the caller's settled credential snapshot, or nil for an explicitly anonymous peek.
+    func peekInvite(code: String, credential: DuoCredential?) async throws -> DuoWirePeekResponse
     /// `POST /invites/redeem`, idempotent (I). Attested as `invite_redeem`.
     func redeemInvite(_ request: DuoWireRedeemRequest, key: DuoIdempotencyKey) async throws -> DuoWireChangesWithResult
     /// `POST /invites/reconnect`, idempotent (I). Attested as `invite_redeem`.
@@ -143,4 +145,17 @@ public protocol DuoCredentialProviding: Sendable {
     /// Nil before the first Create, Join or Reconnect tap (§3.1: no request carries
     /// `Authorization` until then).
     var credential: DuoCredential? { get }
+    /// A peek may use a bearer only after this launch has independently settled its identity.
+    /// Reading this must never start restore, rotation or GET /me merely to preview a code (D82).
+    var peekCredential: DuoCredential? { get }
+}
+
+extension DuoCredentialProviding {
+    public var peekCredential: DuoCredential? { credential }
+}
+
+extension DuoTransport {
+    public func peekInvite(code: String, credential: DuoCredential?) async throws -> DuoWirePeekResponse {
+        try await peekInvite(code: code)
+    }
 }

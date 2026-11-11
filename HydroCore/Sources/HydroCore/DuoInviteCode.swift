@@ -75,11 +75,15 @@ public enum DuoLink {
 
     /// The strict parser. The scheme is `https`, the host `hydrodrop.us`, the path `/duo`,
     /// and the fragment is the code, then optionally a `.` and the 26-character secret.
-    /// Anything else, a query string included, is not a Duo link. The code is normalised
+    /// Anything else, including credentials, a port, an encoded path or a query, is not a Duo link. The code is normalised
     /// (a link retyped in lower case still works); the secret is kept verbatim.
     public static func parse(_ url: URL) -> DuoParsedInvite? {
-        guard url.scheme?.lowercased() == scheme, url.host?.lowercased() == host, url.path == path,
-              url.query == nil, let fragment = url.fragment else { return nil }
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == scheme, components.host?.lowercased() == host,
+              url.absoluteString.split(separator: "/", omittingEmptySubsequences: false).dropFirst(2).first?.lowercased() == host,
+              components.user == nil, components.password == nil, components.port == nil,
+              components.percentEncodedPath == path,
+              components.query == nil, let fragment = components.percentEncodedFragment else { return nil }
         let parts = fragment.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
         guard let first = parts.first, let code = DuoInviteCode.normalize(String(first)) else { return nil }
         if parts.count == 1 { return DuoParsedInvite(code: code) }

@@ -44,8 +44,15 @@ final class DuoStore: ObservableObject, DuoHost {
     }
     /// True after `GET /me` showed a device this phone had not been told about (D45).
     @Published var newDeviceNotice = false
+    /// Publishes changes to the identity's memory snapshot without making rendering read Keychain.
+    @Published private var lastObservedIdentityPresence = false
+    /// Only a successful server response records this; both Today and Settings read the same set.
+    @Published private(set) var blockedDuoIDs: Set<UUID> {
+        didSet { if blockedDuoIDs != oldValue { cache.saveBlockedDuoIDs(blockedDuoIDs) } }
+    }
     @Published var needsTerms = false
     @Published private(set) var ageStatus: DuoAgeStatus
+    @Published private(set) var ageCheckUnavailable = false
     @Published private(set) var acceptedTermsVersion: Int
     /// The Duo notifications toggle (§9.6). Turning it off changes what is uploaded, not the token.
     @Published var notificationsEnabled: Bool {
@@ -81,7 +88,12 @@ final class DuoStore: ObservableObject, DuoHost {
         self.cache = cache
         self.usesServer = usesServer
         self.reloadWidget = reloadWidget
-        duos = cache.loadDuos()
+        let cachedDuos = cache.loadDuos()
+        duos = cachedDuos
+        let savedBlocks = cache.loadBlockedDuoIDs()
+        let keptBlocks = savedBlocks.intersection(Set(cachedDuos.map(\.id)))
+        blockedDuoIDs = keptBlocks
+        if savedBlocks != keptBlocks { cache.saveBlockedDuoIDs(keptBlocks) }
         diagnostics = cache.loadDiagnostics()
         memberInfo = cache.loadMember()
         ageStatus = cache.ageStatus
@@ -102,7 +114,12 @@ final class DuoStore: ObservableObject, DuoHost {
     /// try at the birth-year screen (the defaults it was first kept in went with the app).
     func install(_ dependencies: DuoDependencies) {
         self.dependencies = dependencies
+        // One initial read belongs to installation, never to Today's body. If it fails,
+        // prepare or an explicit credential lookup retries later and publishes its answer.
+        _ = dependencies.identity?.credential
+        identityPresenceChanged()
         refusedNow()
+        dependencies.refreshAgeNetworkState(forceStop: true)
         applyThrowawayMarker()
     }
 
@@ -112,6 +129,10 @@ final class DuoStore: ObservableObject, DuoHost {
     /// again at every way into the sync engine, because a process that started before the first
     /// unlock cannot read the credential at install, and the answer changes when it can.
     func applyThrowawayMarker() {
+        if let identity = dependencies?.identity as? DuoRecoveryIdentity,
+           let record = try? identity.journal.read(), record.active != nil {
+            cache.throwawayDeviceID = record.activeRole == .reconnectThrowaway ? record.active?.deviceID : nil
+        }
         guard let throwaway = cache.throwawayDeviceID else { return }
         // A credential that reads as nil may only be a Keychain that is not readable yet, so the
         // marker is dropped only for a credential that reads and is some other one.
@@ -143,10 +164,47 @@ final class DuoStore: ObservableObject, DuoHost {
     /// is found even if this process started before the first unlock and said "unknown".
     func recheckAge() { refusedNow() }
 
+    var needsAgeRecheck: Bool { cache.needsAgeRecheck }
+
+    func ageNetworkStatusChanged() {
+        if cache.ageStatus == .refused {
+            ageStatus = .refused
+            if pendingInvite != nil { pendingInvite = nil }
+        }
+        if cache.needsAgeRecheck, ageStatus != .refused { ageStatus = .unknown }
+        ageCheckUnavailable = cache.ageCheckUnavailable
+        if usesServer { reloadWidget() }
+    }
+
     @discardableResult
     private func refusedNow() -> Bool {
-        let inKeychain = dependencies?.secrets.isAgeRefused() == true
-        guard ageStatus == .refused || cache.ageStatus == .refused || inKeychain else { return false }
+        defer {
+            if let dependencies {
+                dependencies.refreshAgeNetworkState()
+                // A second failed credential read may leave the cached flag unchanged, so the
+                // dependency callback need not fire. Do not clear the published failure merely
+                // because the separate refusal item was readable.
+                ageCheckUnavailable = cache.ageCheckUnavailable
+            }
+        }
+        let inKeychain: Bool
+        do {
+            inKeychain = try dependencies?.secrets.readAgeRefused() == true
+            ageCheckUnavailable = false
+        } catch {
+            // A read failure must neither unlock Duo nor manufacture a permanent refusal.
+            // Returning true blocks the guarded actions until a later read succeeds.
+            ageCheckUnavailable = true
+            ageStatus = ageStatus == .refused || cache.ageStatus == .refused ? .refused : .unknown
+            // An unreadable marker does not undo a refusal already known locally. Its invite
+            // must go too, just as it does when the Keychain can be read.
+            if ageStatus == .refused, pendingInvite != nil { pendingInvite = nil }
+            return true
+        }
+        guard ageStatus == .refused || cache.ageStatus == .refused || inKeychain else {
+            if ageStatus == .unknown, cache.ageStatus == .allowed { ageStatus = .allowed }
+            return false
+        }
         if ageStatus != .refused { ageStatus = .refused }
         if cache.ageStatus != .refused { cache.ageStatus = .refused }
         if !inKeychain { try? dependencies?.secrets.markAgeRefused() }
@@ -180,6 +238,7 @@ final class DuoStore: ObservableObject, DuoHost {
     func remove(_ id: UUID) {
         guard let removed = duos.first(where: { $0.id == id }) else { return }
         duos.removeAll { $0.id == id }
+        blockedDuoIDs.remove(id)
         diagnostics.forget(duoID: id)
         if usesServer {
             // Clear takes a duo "together with its vers, rejectedDays and ledger keys" (§12.2).
@@ -196,9 +255,15 @@ final class DuoStore: ObservableObject, DuoHost {
         save()
     }
 
+    func rememberConfirmedBlock(_ id: UUID) {
+        guard duo(id) != nil else { return }
+        blockedDuoIDs.insert(id)
+    }
+
     func replaceAll(with duos: [DuoState]) {
         guard self.duos != duos else { return }
         self.duos = duos
+        blockedDuoIDs.formIntersection(Set(duos.map(\.id)))
         save()
     }
 
@@ -216,6 +281,7 @@ final class DuoStore: ObservableObject, DuoHost {
     /// the notifications switch and the one-time suggestion and goal-raise note, as
     /// `DuoCache.keptKeys` says.
     func resetLocalState() {
+        blockedDuoIDs = []
         duos = []
         memberInfo = nil
         pendingInvite = nil
@@ -264,7 +330,7 @@ final class DuoStore: ObservableObject, DuoHost {
 
     /// The id of the last response of any kind, for the small `(ref ...)` line the Duo screen
     /// ends with and the Diagnostics screen's list.
-    var lastRequestID: String? { diagnostics.recentRequests.first?.requestID }
+    var lastRequestID: String? { DuoDiagnostics.usableRequestID(diagnostics.recentRequests.first?.requestID) }
 
     /// How many requests are waiting in the op queue, for Diagnostics.
     var queuedOpCount: Int { dependencies?.ops?.pending.count ?? 0 }
@@ -274,7 +340,14 @@ final class DuoStore: ObservableObject, DuoHost {
     /// credential, so it answers for a phone that has duos: otherwise those rows could never be
     /// drawn, looked at or tested there (the `empty` and `restore` scenarios have none).
     var hasIdentity: Bool {
-        usesServer ? dependencies?.identity?.credential != nil : !duos.isEmpty
+        usesServer ? dependencies?.identity?.cachedCredentialPresence == true : !duos.isEmpty
+    }
+
+    func identityPresenceChanged() {
+        // Read the current snapshot when this callback runs. A store/discard pair can queue
+        // callbacks from different threads; an old captured Boolean must not win later.
+        let present = dependencies?.identity?.cachedCredentialPresence == true
+        if lastObservedIdentityPresence != present { lastObservedIdentityPresence = present }
     }
 
     func streak(of duo: DuoState, now: Date = Date()) -> Int {
@@ -325,6 +398,7 @@ final class DuoStore: ObservableObject, DuoHost {
     /// hands them to the sync service. The shared streak is measured against the saved goal,
     /// like the solo one, so a bump accepted for today can never cost a partner the streak.
     func logChanged(entries: [WaterEntry], goalML: Int, now: Date = Date()) {
+        guard !refusedNow() else { return }
         let horizon = now.addingTimeInterval(-Double(DuoStreak.correctionWindowDays + 2) * 86_400)
         let recent = entries.filter { $0.timestamp >= horizon }
         let earliest = entries.map(\.timestamp).min().map { DayKey.key(for: $0) }
@@ -334,12 +408,16 @@ final class DuoStore: ObservableObject, DuoHost {
     }
 
     func activate(logReader: DuoLogReading) {
+        guard !refusedNow() else { return }
         dependencies?.sync?.activate(logReader: logReader)
     }
 
     // MARK: - Reading and publishing
 
-    func refresh() async { applyThrowawayMarker(); await dependencies?.sync?.refresh() }
+    func refresh() async {
+        guard !refusedNow() else { return }
+        applyThrowawayMarker(); await dependencies?.sync?.refresh()
+    }
 
     /// The Duo screen has come on screen (final design §3.4 step 2). Along with a cached duo, this
     /// is the one time the phone's identity is asked about without a tap: a phone that was
@@ -349,15 +427,34 @@ final class DuoStore: ObservableObject, DuoHost {
     /// `GET /me` under the previous owner's bearer, which moves their `last_seen_at`. Anything
     /// else that is on screen with no duo (the Today section, a card) calls `refresh()`, not this.
     func duoScreenOpened() async {
+        guard !refusedNow() else { return }
         _ = await dependencies?.identity?.prepare()
         await refresh()
     }
-    func flush() async { applyThrowawayMarker(); await dependencies?.sync?.flush() }
-    func backgroundRefresh() async -> Bool { applyThrowawayMarker(); return await dependencies?.sync?.backgroundRefresh() ?? false }
-    func scheduleBackgroundRefresh() { dependencies?.background?.scheduleRefresh() }
-    func pushArrived(_ payload: DuoPushPayload) async { applyThrowawayMarker(); await dependencies?.sync?.pushArrived(payload) }
-    func pushTokenArrived(_ token: Data, environment: DuoAPNsEnvironment) { dependencies?.push?.tokenArrived(token, environment: environment) }
-    func sendNudge(_ preset: DuoNudgePreset, in duo: DuoState) async { await dependencies?.sync?.sendNudge(preset, in: duo) }
+    func flush() async {
+        guard !refusedNow() else { return }
+        applyThrowawayMarker(); await dependencies?.sync?.flush()
+    }
+    func backgroundRefresh() async -> Bool {
+        guard !refusedNow() else { return false }
+        applyThrowawayMarker(); return await dependencies?.sync?.backgroundRefresh() ?? false
+    }
+    func scheduleBackgroundRefresh() {
+        guard !refusedNow() else { return }
+        dependencies?.background?.scheduleRefresh()
+    }
+    func pushArrived(_ payload: DuoPushPayload) async {
+        guard !refusedNow() else { return }
+        applyThrowawayMarker(); await dependencies?.sync?.pushArrived(payload)
+    }
+    func pushTokenArrived(_ token: Data, environment: DuoAPNsEnvironment) {
+        guard !refusedNow() else { return }
+        dependencies?.push?.tokenArrived(token, environment: environment)
+    }
+    func sendNudge(_ preset: DuoNudgePreset, in duo: DuoState) async {
+        guard !refusedNow() else { return }
+        await dependencies?.sync?.sendNudge(preset, in: duo)
+    }
 
     // MARK: - Starting, joining, reconnecting
 
@@ -386,14 +483,26 @@ final class DuoStore: ObservableObject, DuoHost {
         return await joining.join(invite, named: name, skin: dependencies?.activeSkin() ?? "classic")
     }
 
-    func newInvite(for duo: DuoState) async -> DuoInvite? { await dependencies?.joining?.newInvite(for: duo) }
-    func createReconnectCode(for duo: DuoState) async -> DuoInvite? { await dependencies?.joining?.createReconnectCode(for: duo) }
-    func createLinkCode() async -> DuoInvite? { await dependencies?.joining?.createLinkCode() }
+    func newInvite(for duo: DuoState) async -> DuoInvite? {
+        guard !refusedNow() else { return nil }
+        return await dependencies?.joining?.newInvite(for: duo)
+    }
+    func createReconnectCode(for duo: DuoState) async -> DuoInvite? {
+        guard !refusedNow() else { return nil }
+        return await dependencies?.joining?.createReconnectCode(for: duo)
+    }
+    func createLinkCode() async -> DuoInvite? {
+        guard !refusedNow() else { return nil }
+        return await dependencies?.joining?.createLinkCode()
+    }
     func reconnect(code: String) async -> Bool {
         guard !refusedNow() else { return false }
         return await dependencies?.joining?.reconnect(code: code) ?? false
     }
-    func changeMyName(_ name: String?) async { await dependencies?.joining?.changeMyName(name) }
+    func changeMyName(_ name: String?) async {
+        guard !refusedNow() else { return }
+        await dependencies?.joining?.changeMyName(name)
+    }
 
     /// The person accepted the terms on a sheet: recorded here, then sent as `terms_version`.
     func acceptTerms() async -> Bool {
@@ -405,29 +514,52 @@ final class DuoStore: ObservableObject, DuoHost {
 
     /// The neutral birth-year screen's answer. Only the status is kept, never the year.
     @discardableResult
-    func recordBirthYear(_ year: Int, now: Date = Date()) -> DuoAgeStatus {
+    func recordBirthYear(_ year: Int, month: Int, now: Date = Date()) -> DuoAgeStatus {
         // A refusal is final, and it is read from every place it is kept rather than trusted from
         // memory (see `refusedNow`): an adult year given afterwards must not overwrite it.
-        if refusedNow() { return .refused }
-        let status = DuoAgeGate.decide(birthYear: year, now: now, calendar: .current)
+        if refusedNow() || ageCheckUnavailable || (dependencies != nil && cache.ageCheckUnavailable) { return ageStatus }
+        let status = DuoAgeGate.decide(birthYear: year, birthMonth: month, now: now, calendar: .current)
         // An unreadable year is not an answer: the screen asks again.
         guard status != .unknown else { return ageStatus }
-        cache.ageStatus = status
+        cache.recordConfirmedAgeStatus(status)
         ageStatus = status
         // The refusing answer itself: keep it in the Keychain too, and let go of any invite the
         // person was holding (`refusedNow` does both, now that every place says refused).
         if status == .refused { refusedNow() }
+        dependencies?.refreshAgeNetworkState()
+        if usesServer { reloadWidget() }
         return status
+    }
+
+    /// Only the recheck sheet calls this after its explicit confirmed answer. Ordinary
+    /// refresh resumes existing sharing; this is not a Create/Join or notification permission tap.
+    func resumeAfterAgeRecheck() async {
+        guard ageStatus == .allowed, !cache.needsAgeRecheck,
+              dependencies?.ageNetworkAllowed == true else { return }
+        await duoScreenOpened()
+        guard dependencies?.ageNetworkAllowed == true else { return }
+        await dependencies?.ops?.drain()
+        dependencies?.push?.reevaluate(.launch)
+        scheduleBackgroundRefresh()
     }
 
     // MARK: - Leaving
 
-    func leave(_ duo: DuoState) async { await dependencies?.exiting?.leave(duo) }
-    func block(_ duo: DuoState) async { await dependencies?.exiting?.block(duo) }
+    func leave(_ duo: DuoState) async {
+        guard !refusedNow() else { return }
+        await dependencies?.exiting?.leave(duo)
+    }
+    func block(_ duo: DuoState) async {
+        guard !refusedNow() else { return }
+        await dependencies?.exiting?.block(duo)
+    }
     func clear(_ duo: DuoState) { dependencies?.exiting?.clear(duo) }
     func deleteMyData() async -> Bool { await dependencies?.exiting?.deleteMyData() ?? false }
     func startFresh() { dependencies?.exiting?.startFresh() }
-    func continueAsRestored() async { await dependencies?.identity?.continueAsRestored() }
+    func continueAsRestored() async {
+        guard !refusedNow() else { return }
+        await dependencies?.identity?.continueAsRestored()
+    }
 
     // MARK: - Local only
 

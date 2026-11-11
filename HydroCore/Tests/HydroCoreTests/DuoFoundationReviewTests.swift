@@ -56,7 +56,7 @@ final class DuoFoundationReviewTests: XCTestCase {
         for error in [maintenance, DuoTransportError.unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c-LHR")] {
             let text = DuoUserMessage.text(for: error, context: .deletion)
             XCTAssertFalse(text.contains("catch up"), "nothing is queued for a delete, so nothing will catch up: \(text)")
-            XCTAssertEqual(text, "\(DuoUserMessage.generic) (ref 9b1c2d3e4f5a6b7c-LHR)")
+            XCTAssertEqual(text, "\(DuoUserMessage.generic) (ref 9b1c2d3e4f5a6b7c)")
         }
         XCTAssertEqual(DuoUserMessage.text(for: DuoTransportError.offline, context: .deletion), "No connection right now. Try again in a bit.")
     }
@@ -87,7 +87,7 @@ final class DuoFoundationReviewTests: XCTestCase {
             diagnostics.record(DuoTransportError(code: .maintenance, context: DuoErrorContext(httpStatus: 503, requestID: id)), duoID: nil, now: Date())
             return diagnostics.recentErrors.first?.requestID
         }
-        XCTAssertEqual(record("9b1c-YYZ"), "9b1c-YYZ")
+        XCTAssertEqual(record("9b1c2d3e4f5a6b7c-LHR"), "9b1c2d3e4f5a6b7c")
         XCTAssertNil(record("has spaces & <tags>"))
         XCTAssertNil(record(String(repeating: "a", count: DuoDiagnostics.maximumRequestIDLength + 1)))
         XCTAssertNil(record("é-not-ascii"))
@@ -143,7 +143,7 @@ final class DuoFoundationReviewTests: XCTestCase {
         func text(_ id: String?) -> String {
             DuoUserMessage.text(for: DuoTransportError(code: .schema, context: DuoErrorContext(httpStatus: 400, requestID: id)))
         }
-        XCTAssertEqual(text("9b1c-YYZ"), "\(DuoUserMessage.generic) (ref 9b1c-YYZ)")
+        XCTAssertEqual(text("9b1c2d3e4f5a6b7c-LHR"), "\(DuoUserMessage.generic) (ref 9b1c2d3e4f5a6b7c)")
         let hostile = "call 555-0100 or visit https://evil.example/ now <b>" + String(repeating: "x", count: 200)
         XCTAssertEqual(text(hostile), DuoUserMessage.generic, "an id off a body is the server's to write, so it is not printed unfiltered")
         XCTAssertEqual(text(nil), DuoUserMessage.generic)

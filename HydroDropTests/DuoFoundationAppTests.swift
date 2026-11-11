@@ -83,7 +83,7 @@ final class DuoFoundationAppTests: XCTestCase {
         cache.saveDuos([DuoFixtures.duo()])
         cache.myDisplayName = "Jo"
         cache.saveOps([try! DuoQueuedOp.leave(duoID: DuoFixtures.duoID, key: "k", now: Date())])
-        cache.ageStatus = .allowed
+        cache.recordConfirmedAgeStatus(.allowed)
         cache.notificationsEnabled = false
         cache.clearEverything()
         XCTAssertTrue(cache.loadDuos().isEmpty)
@@ -172,13 +172,13 @@ final class DuoFoundationAppTests: XCTestCase {
     func testARefusalSurvivesDeletingTheAppAndStartingFresh() throws {
         let secretStore = DuoMemorySecretStore()
         let first = DuoTestKit(secretStore: secretStore)
-        XCTAssertEqual(first.store.recordBirthYear(2020, now: first.clock.now), .refused)
+        XCTAssertEqual(first.store.recordBirthYear(2020, month: 1, now: first.clock.now), .refused)
         XCTAssertTrue(first.dependencies.secrets.isAgeRefused())
         XCTAssertEqual(secretStore.accounts(service: DuoSecrets.ageService), [DuoSecrets.ageRefusedAccount], "only the fact is kept, as one byte")
         // The app is deleted and installed again: new defaults, same Keychain.
         let reinstalled = DuoTestKit(secretStore: secretStore)
         XCTAssertEqual(reinstalled.store.ageStatus, .refused, "the defaults went with the app, the Keychain did not")
-        XCTAssertEqual(reinstalled.store.recordBirthYear(1990, now: reinstalled.clock.now), .refused, "no second try")
+        XCTAssertEqual(reinstalled.store.recordBirthYear(1990, month: 1, now: reinstalled.clock.now), .refused, "no second try")
         // Delete my Duo data and Start fresh wipe Duo's own service and leave the refusal.
         try reinstalled.dependencies.secrets.deleteEverything()
         reinstalled.dependencies.cache.clearEverything()
@@ -186,7 +186,7 @@ final class DuoFoundationAppTests: XCTestCase {
         XCTAssertEqual(DuoTestKit(secretStore: secretStore).store.ageStatus, .refused)
         // An adult answer is not remembered in the Keychain at all.
         let adult = DuoTestKit()
-        XCTAssertEqual(adult.store.recordBirthYear(1990, now: adult.clock.now), .allowed)
+        XCTAssertEqual(adult.store.recordBirthYear(1990, month: 1, now: adult.clock.now), .allowed)
         XCTAssertFalse(adult.dependencies.secrets.isAgeRefused())
         XCTAssertTrue(adult.secretStore.accounts(service: DuoSecrets.ageService).isEmpty)
     }
@@ -231,7 +231,7 @@ final class DuoFoundationAppTests: XCTestCase {
         _ = try await observed.data(for: request)
         headers["X-Request-Id"] = "has spaces & <tags>"
         _ = try await observed.data(for: request)
-        XCTAssertEqual(seen.all, ["403:8f1a2b3c4d5e6f70-AMS", "403:9b1c2d3e4f5a6b7c-LHR", "403:8f1a2b3c4d5e6f70-AMS"],
+        XCTAssertEqual(seen.all, ["403:8f1a2b3c4d5e6f70", "403:9b1c2d3e4f5a6b7c", "403:8f1a2b3c4d5e6f70"],
                        "the server's own id wins when both are there, and an unusable one gives way to the ray")
     }
 
@@ -251,19 +251,27 @@ final class DuoFoundationAppTests: XCTestCase {
         XCTAssertEqual(data, Data("{}".utf8), "the response is passed through untouched")
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
         _ = try await observed.data(for: post)
-        XCTAssertEqual(seen.all, ["200:9b1c2d3e4f5a6b7c-LHR", "503:nil"])
+        XCTAssertEqual(seen.all, ["200:9b1c2d3e4f5a6b7c", "503:nil"])
         recording.respond = nil
         do { _ = try await observed.data(for: get); XCTFail("a lost connection is still an error") } catch {}
         XCTAssertEqual(seen.all.count, 2, "no response, nothing to note")
         var diagnostics = DuoDiagnostics()
-        diagnostics.recordRequest(status: 200, requestID: "9b1c2d3e4f5a6b7c-LHR", at: Date())
+        diagnostics.recordRequest(status: 200, requestID: "9b1c2d3e4f5a6b7c", at: Date())
         diagnostics.recordRequest(status: 503, requestID: nil, at: Date())
         XCTAssertEqual(diagnostics.recentRequests.count, 1)
         let kit = DuoTestKit()
         XCTAssertNil(kit.store.lastRequestID)
         kit.store.diagnostics = diagnostics
-        XCTAssertEqual(kit.store.lastRequestID, "9b1c2d3e4f5a6b7c-LHR")
-        XCTAssertEqual(DuoStore(cache: DuoCache(defaults: kit.defaults), reloadWidget: {}).lastRequestID, "9b1c2d3e4f5a6b7c-LHR", "kept across a launch")
+        XCTAssertEqual(kit.store.lastRequestID, "9b1c2d3e4f5a6b7c")
+        XCTAssertEqual(DuoStore(cache: DuoCache(defaults: kit.defaults), reloadWidget: {}).lastRequestID, "9b1c2d3e4f5a6b7c", "kept across a launch")
+    }
+
+    func testOldCachedRequestIDsAreFilteredBeforeTheFooterReadsThem() {
+        let kit = DuoTestKit()
+        kit.store.diagnostics = DuoDiagnostics(recentRequests: [.init(status: 200, requestID: "Samantha", at: Date())])
+        XCTAssertNil(kit.store.lastRequestID)
+        kit.store.diagnostics = DuoDiagnostics(recentRequests: [.init(status: 200, requestID: "0123456789abcdef-LHR", at: Date())])
+        XCTAssertEqual(kit.store.lastRequestID, "0123456789abcdef")
     }
 
     // MARK: - Derived state
@@ -330,9 +338,9 @@ final class DuoFoundationAppTests: XCTestCase {
         let kit = DuoTestKit()
         let now = kit.clock.now
         XCTAssertEqual(kit.store.ageStatus, .unknown)
-        XCTAssertEqual(kit.store.recordBirthYear(1800, now: now), .unknown)
-        XCTAssertEqual(kit.store.recordBirthYear(2020, now: now), .refused)
-        XCTAssertEqual(kit.store.recordBirthYear(1990, now: now), .refused, "no second try")
+        XCTAssertEqual(kit.store.recordBirthYear(1800, month: 1, now: now), .unknown)
+        XCTAssertEqual(kit.store.recordBirthYear(2020, month: 1, now: now), .refused)
+        XCTAssertEqual(kit.store.recordBirthYear(1990, month: 1, now: now), .refused, "no second try")
         XCTAssertEqual(DuoStore(cache: DuoCache(defaults: kit.defaults), reloadWidget: {}).ageStatus, .refused)
     }
 
@@ -421,7 +429,7 @@ final class DuoCompositionTests: XCTestCase {
 @MainActor
 final class DuoServiceSupportTests: XCTestCase {
     private func failure(_ code: DuoErrorCode, status: Int = 400, retryAfter: Int? = nil) -> DuoTransportError {
-        DuoTransportError(code: code, context: DuoErrorContext(httpStatus: status, requestID: "r1", retryAfter: retryAfter))
+        DuoTransportError(code: code, context: DuoErrorContext(httpStatus: status, requestID: "0123456789abcdef", retryAfter: retryAfter))
     }
 
     func testAFailureIsRecordedAndActedOn() {
@@ -435,7 +443,7 @@ final class DuoServiceSupportTests: XCTestCase {
         XCTAssertEqual(kit.dependencies.noteFailure(failure(.termsRequired)), .termsRequired)
         XCTAssertTrue(kit.store.needsTerms)
         XCTAssertEqual(kit.store.diagnostics.recentErrors.first?.code, "terms_required")
-        XCTAssertEqual(kit.store.diagnostics.recentErrors.first?.requestID, "r1")
+        XCTAssertEqual(kit.store.diagnostics.recentErrors.first?.requestID, "0123456789abcdef")
     }
 
     func testAnUnknownIdentityIsForgottenAndAServicePauseIsNoted() {

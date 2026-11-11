@@ -16,7 +16,7 @@ enum DuoComposition {
     static func makeLiveStore(session: DuoHTTPSession = URLSessionHTTP(), secretStore: DuoSecretStore = KeychainDuoSecretStore(),
                               cache: DuoCache = .live, baseURL: URL = DuoConfig.baseURL,
                               attester: DuoAttesting? = nil, deviceCheck: DuoDeviceCheckProviding? = nil,
-                              identityDirectory: URL? = nil) -> DuoStore {
+                              identityDirectory: URL? = nil, verifiedLegacyEnvironment: DuoRecoveryEnvironment? = nil) -> DuoStore {
         #if DEBUG
         // `-DuoPreview` draws sample duos and talks to nobody. Compiled out of Release.
         // The name after it picks a scenario (`DuoStore.previewScenarioNames`); alone it is `sample`.
@@ -32,6 +32,13 @@ enum DuoComposition {
             host: store, cache: store.cache, secrets: secrets, client: DuoConfig.client,
             attester: attester ?? DuoAppAttest(secrets: secrets), deviceCheck: deviceCheck ?? DuoDeviceCheck()
         )
+        // The environment names the new, labelled records. It is deliberately not used as
+        // provenance for an old unlabelled credential; migration requires a separate fact.
+        let environment = DuoConfig.recoveryEnvironment(for: baseURL)
+        dependencies.recoveryEnvironment = environment
+        dependencies.refreshAgeNetworkState()
+        dependencies.attester = DuoAgeGatedAttester(base: dependencies.attester, gate: dependencies.ageNetworkGate)
+        dependencies.deviceCheck = DuoAgeGatedDeviceCheck(base: dependencies.deviceCheck, gate: dependencies.ageNetworkGate)
         dependencies.isSubscribed = { StoreManager.shared.isSubscribed }
         dependencies.activeSkin = { AppSettings.shared.activeMascotSkin.rawValue }
         dependencies.wakingWindow = { (AppSettings.shared.quietStartMinutes, AppSettings.shared.quietEndMinutes) }
@@ -39,17 +46,21 @@ enum DuoComposition {
 
         // The identity is the API client's credential and the API client is the identity's
         // transport, so the first is built before and the second is handed over after.
-        let identity = identityDirectory.map { DuoIdentity(dependencies: dependencies, directory: $0) } ?? DuoIdentity(dependencies: dependencies)
+        let identity = DuoRecoveryIdentity(dependencies: dependencies, environment: environment, verifiedLegacyEnvironment: verifiedLegacyEnvironment, directory: identityDirectory ?? DuoIdentity.defaultDirectory)
         dependencies.identity = identity
         // Every response leaves its request id in Diagnostics (the observer hops to the main
         // actor, where the store lives, and holds the store weakly).
         let clock = dependencies.clock
-        let observed = DuoObservedSession(base: session) { [weak store] status, requestID in
+        let observed = DuoObservedSession(base: DuoAgeGatedSession(base: session, gate: dependencies.ageNetworkGate,
+                                                                 deletionURL: baseURL.appendingPathComponent("me"))) { [weak store] status, requestID in
             let at = clock.now
             Task { @MainActor in store?.diagnostics.recordRequest(status: status, requestID: requestID, at: at) }
         }
-        dependencies.transport = DuoAPIClient(baseURL: baseURL, client: DuoConfig.client, credentials: identity,
-                                              attester: dependencies.attester, session: observed)
+        let client = DuoAPIClient(baseURL: baseURL, client: DuoConfig.client, credentials: identity,
+                                              attester: dependencies.attester,
+                                              session: observed)
+        dependencies.transport = DuoAgeGatedTransport(base: client, gate: dependencies.ageNetworkGate)
+        dependencies.recoveryTransport = DuoAgeGatedRecoveryTransport(base: client, gate: dependencies.ageNetworkGate)
         dependencies.ops = DuoOpQueueService(dependencies: dependencies)
         dependencies.announcer = DuoNotifier(dependencies: dependencies)
         dependencies.push = DuoPushService(dependencies: dependencies)

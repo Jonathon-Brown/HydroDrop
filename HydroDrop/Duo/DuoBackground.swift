@@ -61,7 +61,7 @@ final class DuoFirstOf: @unchecked Sendable {
 /// and SwiftData's CloudKit mirror keeps `remote-notification`. Exactly one handler is registered
 /// for the identifier, in `HydroDropApp`, and it is `handleAppRefresh()`.
 @MainActor
-final class DuoBackground: DuoBackgrounding {
+final class DuoBackground: DuoBackgrounding, DuoAgeNetworkStopping {
     /// `<bundle id>.duo.refresh`, declared in `project.yml`'s `BGTaskSchedulerPermittedIdentifiers`.
     /// The same string the cleanup cancels on a tester's phone, read from the one place it is written.
     nonisolated static var refreshIdentifier: String { LegacyDuoCleanup.refreshIdentifier }
@@ -89,8 +89,18 @@ final class DuoBackground: DuoBackgrounding {
         self.observers = observers
     }
 
+    func stopForAgeNetwork(refused: Bool) { system.cancel(Self.refreshIdentifier) }
+
     func scheduleRefresh() {
-        guard let host else { return }
+        // A late observer closes the dropped store's gate without cancelling another store's OS request.
+        guard let host else {
+            dependencies.refreshAgeNetworkState()
+            return
+        }
+        guard dependencies.ageNetworkAllowed else {
+            system.cancel(Self.refreshIdentifier)
+            return
+        }
         // Nothing to keep fresh without a live duo, and nothing can be fetched without a credential
         // (a cached live duo with none is a person who has not tapped yet, or an identity the server
         // forgot). Nor for a phone the server has shut out (another phone took the identity, a ban,

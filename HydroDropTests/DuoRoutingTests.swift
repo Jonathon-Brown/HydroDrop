@@ -202,7 +202,7 @@ final class DuoRoutingTests: XCTestCase {
     func testARefusedPersonsLinkIsKeptNowhereButComesBackToShowTheRefusal() async {
         let kit = DuoTestKit()
         defer { for key in kit.defaults.dictionaryRepresentation().keys { kit.defaults.removeObject(forKey: key) } }
-        kit.store.recordBirthYear(Calendar(identifier: .gregorian).component(.year, from: Date()) - 5)
+        kit.store.recordBirthYear(Calendar(identifier: .gregorian).component(.year, from: Date()) - 5, month: 1)
         XCTAssertEqual(kit.store.ageStatus, .refused)
         let now = Date()
         let shown = RootTabView.duoTake(DuoParsedInvite(code: "H7K39QWX", k: k), router: AppRouter.shared, store: kit.store, now: now)
@@ -268,7 +268,54 @@ fileprivate func kDescribe() -> String {
         + "duo=\(router.showingDuoScreen) invite=\(DuoStore.shared.pendingInvite?.code ?? "nil") notice=\(DuoStore.shared.notice != nil)"
 }
 
-private let kJoinTitle = "Join a duo streak"
+/// Unknown-age routing must present the real birth-year gate, not the form's old title.
+/// Looking inside the presented controller also proves a missing/bypassed gate cannot pass.
+@MainActor
+private func kShowingJoinGate() -> Bool {
+    for controller in kChain() {
+        var pending: [NSObject] = [controller.view]
+        var seen = Set<ObjectIdentifier>()
+        while let object = pending.popLast() {
+            guard seen.insert(ObjectIdentifier(object)).inserted else { continue }
+            var identifier = (object as? UIAccessibilityIdentification)?.accessibilityIdentifier
+            if identifier == nil {
+                let selector = NSSelectorFromString("accessibilityIdentifier")
+                if object.responds(to: selector) {
+                    identifier = object.perform(selector)?.takeUnretainedValue() as? String
+                }
+            }
+            if identifier == "duo.agegate.year" { return true }
+            if let view = object as? UIView { pending.append(contentsOf: view.subviews) }
+            if let children = object.accessibilityElements as? [NSObject] {
+                pending.append(contentsOf: children)
+            } else {
+                let count = object.accessibilityElementCount()
+                if count != NSNotFound, count > 0 {
+                    pending.append(contentsOf: (0..<count).compactMap { object.accessibilityElement(at: $0) as? NSObject })
+                }
+            }
+        }
+    }
+    return false
+}
+
+private enum KRoutingAutomation {
+    private typealias Getter = @convention(c) () -> UInt8
+    private typealias Setter = @convention(c) (UInt8) -> Void
+    nonisolated(unsafe) private static var previous: UInt8?
+    private static let library = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW)
+    static func enable() -> Bool {
+        guard let library, let get = dlsym(library, "_AXSAutomationEnabled"), let set = dlsym(library, "_AXSSetAutomationEnabled") else { return false }
+        previous = unsafeBitCast(get, to: Getter.self)()
+        unsafeBitCast(set, to: Setter.self)(1)
+        return unsafeBitCast(get, to: Getter.self)() != 0
+    }
+    static func restore() {
+        guard let previous, let library, let set = dlsym(library, "_AXSSetAutomationEnabled") else { return }
+        unsafeBitCast(set, to: Setter.self)(previous)
+        self.previous = nil
+    }
+}
 private let kRecapTitle = "Your week"
 private let kSettingsTitle = "Settings"
 
@@ -311,11 +358,13 @@ final class DuoRoutingRootTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        XCTAssertTrue(KRoutingAutomation.enable(), "the real consent gate must be observable")
         try await kClean()
     }
 
     override func tearDown() async throws {
         try? await kClean()
+        KRoutingAutomation.restore()
         try await super.tearDown()
     }
 
@@ -337,7 +386,7 @@ final class DuoRoutingRootTests: XCTestCase {
 
     private func kShowJoinSheet() async {
         duoStore.pendingInvite = invite
-        let up = await kSettle { kShowing(kJoinTitle) }
+        let up = await kSettle { kShowingJoinGate() }
         XCTAssertTrue(up, kDescribe())
     }
 
@@ -346,7 +395,7 @@ final class DuoRoutingRootTests: XCTestCase {
     func testALinkWithSettingsOpenClosesSettingsThenShowsTheSheet() async {
         await kOpenSettings()
         XCTAssertTrue(router.handle(URL(string: "https://hydrodrop.us/duo#H7K39QWX")!))
-        let shown = await kSettle(8) { kShowing(kJoinTitle) && !self.router.settingsIsOnScreen }
+        let shown = await kSettle(8) { kShowingJoinGate() && !self.router.settingsIsOnScreen }
         XCTAssertTrue(shown, kDescribe())
         XCTAssertNil(router.pendingDuoLink)
         XCTAssertEqual(duoStore.pendingInvite?.code, "H7K39QWX")
@@ -358,11 +407,11 @@ final class DuoRoutingRootTests: XCTestCase {
     func testDismissingTheSheetDropsTheInvite() async {
         await kShowJoinSheet()
         kChain().first?.dismiss(animated: false)
-        let gone = await kSettle { !kShowing(kJoinTitle) }
+        let gone = await kSettle { !kShowingJoinGate() }
         XCTAssertTrue(gone)
         _ = await kSettle(1) { false }
         XCTAssertNil(duoStore.pendingInvite, "the invite outlived its sheet")
-        XCTAssertFalse(kShowing(kJoinTitle), "the sheet came back: \(kDescribe())")
+        XCTAssertFalse(kShowingJoinGate(), "the sheet came back: \(kDescribe())")
         await kGearStillWorks()
     }
 
@@ -371,9 +420,9 @@ final class DuoRoutingRootTests: XCTestCase {
         _ = await kSettle { !kChain().isEmpty }
         duoStore.pendingInvite = invite
         _ = await kSettle(1.5) { false }
-        XCTAssertFalse(kShowing(kJoinTitle), "join sheet over the intro: \(kDescribe())")
+        XCTAssertFalse(kShowingJoinGate(), "join sheet over the intro: \(kDescribe())")
         AppSettings.shared.hasCompletedOnboarding = true
-        let shown = await kSettle(8) { kShowing(kJoinTitle) }
+        let shown = await kSettle(8) { kShowingJoinGate() }
         XCTAssertTrue(shown, kDescribe())
     }
 
@@ -381,9 +430,9 @@ final class DuoRoutingRootTests: XCTestCase {
         router.duoEntrySheetIsOnScreen = true
         duoStore.pendingInvite = invite
         _ = await kSettle(1.5) { false }
-        XCTAssertFalse(kShowing(kJoinTitle), kDescribe())
+        XCTAssertFalse(kShowingJoinGate(), kDescribe())
         router.duoEntrySheetIsOnScreen = false
-        let shown = await kSettle { kShowing(kJoinTitle) }
+        let shown = await kSettle { kShowingJoinGate() }
         XCTAssertTrue(shown, kDescribe())
     }
 
@@ -392,7 +441,7 @@ final class DuoRoutingRootTests: XCTestCase {
         let sheet = kChain().first
         router.showingWeeklyRecap = true
         _ = await kSettle(1.5) { false }
-        XCTAssertTrue(kChain().first === sheet && kShowing(kJoinTitle), "the recap replaced the join sheet: \(kDescribe())")
+        XCTAssertTrue(kChain().first === sheet && kShowingJoinGate(), "the recap replaced the join sheet: \(kDescribe())")
         duoStore.pendingInvite = nil
         let recap = await kSettle(8) { kShowing(kRecapTitle) }
         XCTAssertTrue(recap, kDescribe())
@@ -407,7 +456,7 @@ final class DuoRoutingRootTests: XCTestCase {
         await kShowJoinSheet()
         router.showingDuoScreen = true
         _ = await kSettle(1.5) { false }
-        XCTAssertTrue(kShowing(kJoinTitle), "the join sheet was taken down: \(kDescribe())")
+        XCTAssertTrue(kShowingJoinGate(), "the join sheet was taken down: \(kDescribe())")
         XCTAssertFalse(router.showingSettings)
         duoStore.pendingInvite = nil
         let settings = await kSettle(8) { self.router.settingsIsOnScreen && kShowing(kSettingsTitle) }
@@ -420,7 +469,7 @@ final class DuoRoutingRootTests: XCTestCase {
     func testADuoTapRightAfterALinkWaitsForTheSheetTheLinkBrings() async {
         XCTAssertTrue(router.handle(URL(string: "https://hydrodrop.us/duo#H7K39QWX")!))
         router.showingDuoScreen = true
-        let join = await kSettle(8) { kShowing(kJoinTitle) }
+        let join = await kSettle(8) { kShowingJoinGate() }
         XCTAssertTrue(join, kDescribe())
         _ = await kSettle(1) { false }
         XCTAssertFalse(router.showingSettings, "Settings was asked for over the join sheet: \(kDescribe())")
@@ -487,24 +536,25 @@ final class DuoRoutingRootTests: XCTestCase {
         router.showingSettings = false
         let closed = await kSettle { kChain().isEmpty && !self.router.settingsIsOnScreen }
         XCTAssertTrue(closed, kDescribe())
-        // No stage H lowers the flag yet; the root does once Settings has gone, and Settings stays shut.
+        // Stage H takes the flag while Settings is up; dismissing Settings must not replay it.
         XCTAssertFalse(router.showingDuoScreen)
         _ = await kSettle(2) { false }
         XCTAssertTrue(kChain().isEmpty, "Settings came back by itself: \(kDescribe())")
         await kGearStillWorks()
     }
 
-    func testATapWithSettingsUpLeavesOnlyTheFlagUntilSettingsCloses() async {
+    func testATapWithSettingsUpPushesDuoOnceAndConsumesTheFlag() async {
         await kOpenSettings()
         let settings = kChain().first
         router.showingDuoScreen = true
-        _ = await kSettle(1.5) { false }
+        let pushed = await kSettle { kShowing("Duo Streaks") && !self.router.showingDuoScreen }
         XCTAssertTrue(kChain().first === settings, "Settings was re-presented: \(kDescribe())")
-        XCTAssertTrue(router.showingDuoScreen)
+        XCTAssertTrue(pushed, "the existing Settings navigation stack pushes Duo")
+        XCTAssertFalse(router.showingDuoScreen, "Stage H consumes the request once")
         router.showingSettings = false
         let closed = await kSettle { kChain().isEmpty && !self.router.settingsIsOnScreen }
         XCTAssertTrue(closed, kDescribe())
-        XCTAssertFalse(router.showingDuoScreen, "a flag nobody took stays up for the next visit")
+        XCTAssertFalse(router.showingDuoScreen, "a consumed flag must not replay on the next visit")
         await kGearStillWorks()
     }
 
@@ -512,12 +562,23 @@ final class DuoRoutingRootTests: XCTestCase {
         await kShowJoinSheet()
         router.showingDuoScreen = true
         _ = await kSettle(1) { false }
+        // The simulator remains foreground while this test broadcasts background. Pair that
+        // synthetic event before exercising foreground UI, including if this test exits early.
+        var needsForeground = true
+        func restoreForeground() {
+            guard needsForeground else { return }
+            needsForeground = false
+            NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: UIApplication.shared)
+            NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: UIApplication.shared)
+        }
+        defer { restoreForeground() }
         NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: UIApplication.shared)
         _ = await kSettle(0.5) { false }
         duoStore.pendingInvite = nil
         _ = await kSettle(3) { false }
         XCTAssertFalse(router.showingSettings, "Settings opened for a tap the person had left behind: \(kDescribe())")
         XCTAssertFalse(router.showingDuoScreen)
+        restoreForeground()
         await kGearStillWorks()
     }
 
@@ -552,6 +613,54 @@ final class DuoRoutingRootTests: XCTestCase {
         kChain().last?.dismiss(animated: true)
         let cleared = await kSettle(8) { kChain().isEmpty && self.duoStore.notice == nil }
         XCTAssertTrue(cleared, kDescribe())
+        await kGearStillWorks()
+    }
+
+    func testANoticeClearedWhileItsAlertEntersFinishesDismissing() async {
+        duoStore.notice = "failure removed by a wipe"
+        let entering = await kSettle(8) {
+            guard let alert = kChain().compactMap({ $0 as? UIAlertController }).last else { return false }
+            return alert.isBeingPresented || alert.transitionCoordinator != nil
+        }
+        XCTAssertTrue(entering, "the regression must remove the notice during its actual entrance: \(kDescribe())")
+        guard entering else { return }
+        // A wipe can clear the store at any time, including before UIKit enables the alert.
+        duoStore.notice = nil
+        let closed = await kSettle(8) { kChain().isEmpty }
+        XCTAssertTrue(closed, "a notice removed during entrance must finish leaving: \(kDescribe())")
+        XCTAssertNil(duoStore.notice)
+        await kGearStillWorks()
+    }
+
+    func testANewerNoticeSurvivesAnOlderAlertsDismissal() async {
+        duoStore.notice = "first failure"
+        let shown = await kSettle(8) {
+            guard let alert = kChain().compactMap({ $0 as? UIAlertController }).last else { return false }
+            return !alert.isBeingPresented && !alert.isBeingDismissed && alert.transitionCoordinator == nil
+        }
+        XCTAssertTrue(shown, kDescribe())
+        guard shown else { return }
+        guard let oldAlert = kChain().compactMap({ $0 as? UIAlertController }).last else {
+            XCTFail("the first notice was not presented")
+            return
+        }
+        // Queue UIKit's dismissal callback, then replace the notice before yielding. The old
+        // binding must only acknowledge the failure it displayed, not this new failure.
+        oldAlert.dismiss(animated: true)
+        duoStore.notice = "second failure"
+        let replaced = await kSettle(8) {
+            !kChain().contains(where: { $0 === oldAlert })
+                && kChain().compactMap({ $0 as? UIAlertController }).contains {
+                    $0.message == "second failure" && !$0.isBeingPresented && !$0.isBeingDismissed
+                        && $0.transitionCoordinator == nil
+                }
+        }
+        XCTAssertTrue(replaced, kDescribe())
+        XCTAssertEqual(duoStore.notice, "second failure")
+        guard replaced else { return }
+        duoStore.notice = nil
+        let closed = await kSettle(8) { kChain().isEmpty }
+        XCTAssertTrue(closed, kDescribe())
         await kGearStillWorks()
     }
 
@@ -592,7 +701,7 @@ final class DuoRoutingRootTests: XCTestCase {
         duoStore.notice = "probe notice"
         _ = await kSettle(1) { false }
         XCTAssertTrue(router.handle(URL(string: "https://hydrodrop.us/duo#H7K39QWX")!))
-        let join = await kSettle(8) { kShowing(kJoinTitle) }
+        let join = await kSettle(8) { kShowingJoinGate() }
         XCTAssertTrue(join, kDescribe())
         XCTAssertFalse(kAlertUp())
         duoStore.pendingInvite = nil
@@ -625,13 +734,13 @@ final class DuoRoutingRootTests: XCTestCase {
         XCTAssertTrue(alert, kDescribe())
         duoStore.pendingInvite = invite
         _ = await kSettle(1) { false }
-        XCTAssertFalse(kShowing(kJoinTitle), "the join sheet was asked for under the alert: \(kDescribe())")
+        XCTAssertFalse(kShowingJoinGate(), "the join sheet was asked for under the alert: \(kDescribe())")
         duoStore.notice = nil
         // The sheet comes once the alert has left the screen, never beside it.
         var besideTheAlert = false
         let join = await kSettle(8) {
-            if kShowing(kJoinTitle) && kAlertUp() { besideTheAlert = true }
-            return kShowing(kJoinTitle) && !kAlertUp()
+            if kShowingJoinGate() && kAlertUp() { besideTheAlert = true }
+            return kShowingJoinGate() && !kAlertUp()
         }
         XCTAssertTrue(join, kDescribe())
         XCTAssertFalse(besideTheAlert, "the join sheet was shown with the alert still up")

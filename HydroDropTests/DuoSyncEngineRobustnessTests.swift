@@ -2852,4 +2852,30 @@ private struct RRNG: RandomNumberGenerator {
         return z ^ (z >> 31)
     }
 }
+
+extension DuoSyncEngineRobustnessTests {
+    func testPausedOwedWriteCanBeScheduledAfterConsentStorageRecovers() async {
+        let h = RH()
+        h.knowMember()
+        h.addDuo(rDuoA)
+        h.sched.auto = .ok
+        h.log([today: 250])
+        await h.spin()
+        h.clock.advance(5)
+        h.log([today: 500])
+        await h.spin()
+        XCTAssertEqual(h.sleeper.count, 1)
+        h.engine.stopForAgeNetwork(refused: false)
+        await h.spin()
+        h.log([today: 750])
+        await h.spin()
+        XCTAssertEqual(h.sleeper.count, 1, "recovery must re-arm the cancelled owed write")
+        h.clock.advance(25)
+        h.sleeper.releaseAll()
+        await h.engine.waitUntilIdle()
+        XCTAssertEqual(h.sched.puts.count, 2)
+        let times = h.sched.puts.map { $0.at.timeIntervalSince(RH.start) }
+        XCTAssertGreaterThanOrEqual(times.last! - times.first!, 30)
+    }
+}
 #endif

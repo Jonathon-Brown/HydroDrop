@@ -20,6 +20,13 @@ struct SettingsView: View {
     @State private var showingEventCounts = false
     @State private var showingBugReport = false
     @State private var showingIntroReplay = false
+    #if DUO_V2
+    @ObservedObject private var router = AppRouter.shared
+    @ObservedObject private var duoStore = DuoStore.shared
+    /// The Duo screen is pushed, by its row or for a tapped Duo notification: one state for both,
+    /// so a second request while it is up pushes nothing.
+    @State private var showingDuo = false
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -88,6 +95,9 @@ struct SettingsView: View {
                                              value: settings.healthKitSyncEnabled ? "On" : "Off")
                         }
                     }
+                    #if DUO_V2
+                    DuoSettingsRow(duoStore: duoStore, showingDuo: $showingDuo)
+                    #endif
                     if BottleTagSession.showsInterface {
                         NavigationLink {
                             BottlesView()
@@ -126,6 +136,13 @@ struct SettingsView: View {
                     versionFooter
                 }
             }
+            #if DUO_V2
+            // A tapped Duo notification raises `showingDuoScreen`, and the root opens Settings for
+            // it (or, with Settings already up, only raises the flag). The request is taken on
+            // appear (it was raised before this sheet existed) and whenever it changes, and lowered
+            // as it is taken, so it lands on the Duo screen once either way.
+            .modifier(DuoSettingsHooks(router: router, showingDuo: $showingDuo) { DuoView() })
+            #endif
             .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -177,6 +194,13 @@ struct SettingsView: View {
             } message: {
                 Text(store.lastErrorMessage ?? "")
             }
+            #if DUO_V2
+            // Duo Streaks lives in here, and what goes wrong there (a nudge that didn't send, a
+            // duo that couldn't be left, a delete that didn't go through) arrives as a notice. The
+            // root shows those too, but not while this sheet is covering it. Once the sheet is on
+            // its way out, the root takes over. While the Duo screen is pushed it says it itself.
+            .modifier(DuoSettingsNoticeAlert(router: router, duoStore: duoStore))
+            #endif
         }
         // The daily goal, the unit system and the quick-add sizes all appear on the
         // widget, and none of them flow through a store write that would republish

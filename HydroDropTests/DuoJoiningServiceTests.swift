@@ -270,7 +270,7 @@ fileprivate enum DFixtures {
     static var pendingInvite: DuoPendingInvite { DuoPendingInvite(code: "H7K39QWX", k: k, receivedAt: now) }
 
     static func context(_ status: Int, details: DuoWireErrorDetails? = nil) -> DuoErrorContext {
-        DuoErrorContext(httpStatus: status, requestID: "req-1", details: details)
+        DuoErrorContext(httpStatus: status, requestID: "0123456789abcdef", details: details)
     }
 
     static func member(termsVersion: Int) -> DuoMemberInfo {
@@ -770,7 +770,7 @@ final class DuoJoiningServiceTests: XCTestCase {
         let refused = await twice.service.peek(code: "H7K39QWX")
         XCTAssertNil(refused)
         XCTAssertEqual(twice.transport.calls.count, 2)
-        XCTAssertEqual(twice.store.sheetError, "That did not work. Please try again. (ref req-1)")
+        XCTAssertEqual(twice.store.sheetError, "That did not work. Please try again. (ref 0123456789abcdef)")
 
         // The client's own "no credential" at status 0 forgot nothing, so nothing is retried.
         let unsent = DHarness(credential: DuoFixtures.credential())
@@ -780,22 +780,28 @@ final class DuoJoiningServiceTests: XCTestCase {
         XCTAssertEqual(unsent.kit.identity.discardCount, 0)
     }
 
-    func testAPeekWithAnIdentityWaitsForTheLaunchAndSendsNothingWhileItIsUnsettled() async {
-        let restoring = DHarness(credential: DuoFixtures.credential())
-        restoring.answerEverything()
-        restoring.kit.identity.launch = .needsRestoreChoice(DuoRestorePrompt(partnerName: "Sam", myName: "Jo"))
-        let whileAsked = await restoring.service.peek(code: "H7K39QWX")
-        XCTAssertNil(whileAsked)
-        XCTAssertTrue(restoring.transport.calls.isEmpty, "the bearer may be a previous owner's")
-        XCTAssertNil(restoring.store.sheetError)
+    func testPeekingNeverStartsAnUnsettledIdentityLaunch() async {
+        for launch in [DuoIdentityLaunch.unavailable, .needsRestoreChoice(DuoRestorePrompt(partnerName: "Sam", myName: "Jo"))] {
+            let h = DHarness(credential: DuoFixtures.credential())
+            h.answerEverything()
+            h.kit.identity.launch = launch
+            let peek = await h.service.peek(code: "H7K39QWX")
+            XCTAssertNotNil(peek)
+            XCTAssertEqual(h.kit.identity.prepared, 0)
+            XCTAssertEqual(dNames(h.transport.calls), ["peekInvite"])
+            XCTAssertNil(h.store.sheetError)
+        }
+    }
 
-        let unknown = DHarness(credential: DuoFixtures.credential())
-        unknown.answerEverything()
-        unknown.kit.identity.launch = .unavailable
-        let unsure = await unknown.service.peek(code: "H7K39QWX")
-        XCTAssertNil(unsure)
-        XCTAssertTrue(unknown.transport.calls.isEmpty)
-        XCTAssertEqual(unknown.store.sheetError, "That did not work. Please try again.")
+    func testAnonymousPeekFailureCannotDiscardARestoredCredential() async {
+        let h = DHarness(credential: DuoFixtures.credential())
+        h.kit.identity.launch = .unavailable
+        h.kit.identity.peekCredentialOverride = .some(nil)
+        h.transport.onPeekInvite = { _ in throw DuoTransportError.unauthenticated(.init(httpStatus: 401)) }
+        _ = await h.service.peek(code: "H7K39QWX")
+        XCTAssertEqual(h.kit.identity.credential, DuoFixtures.credential())
+        XCTAssertEqual(h.kit.identity.discardCount, 0)
+        XCTAssertEqual(h.kit.identity.prepared, 0)
     }
 
     func testAReceivedCodeIsKeptUntilItIsDiscarded() {
@@ -889,9 +895,9 @@ final class DuoJoiningServiceTests: XCTestCase {
             (.nameRejected(DFixtures.context(422)), "Please choose a different name.", false),
             (.upgradeRequired(DFixtures.context(426)), "Update HydroDrop to keep using Duo Streaks.", false),
             (.banned(DFixtures.context(403)), "Duo Streaks are not available for this device. Contact support@hydrodrop.us.", false),
-            (.schema(DFixtures.context(400)), "That did not work. Please try again. (ref req-1)", false),
-            (.idempotencyMismatch(DFixtures.context(422)), "That did not work. Please try again. (ref req-1)", false),
-            (.unauthenticated(DFixtures.context(401)), "That did not work. Please try again. (ref req-1)", false),
+            (.schema(DFixtures.context(400)), "That did not work. Please try again. (ref 0123456789abcdef)", false),
+            (.idempotencyMismatch(DFixtures.context(422)), "That did not work. Please try again. (ref 0123456789abcdef)", false),
+            (.unauthenticated(DFixtures.context(401)), "That did not work. Please try again. (ref 0123456789abcdef)", false),
         ]
         for (error, words, asksMe) in table {
             let h = DHarness(credential: DuoFixtures.credential())
@@ -1207,11 +1213,11 @@ final class DuoJoiningServiceTests: XCTestCase {
             (.memberNotFresh(DFixtures.context(409)), "Finish or leave the duo you started on this phone first."),
             (.inviteUnknown(DFixtures.context(404)), "That invite is no longer open. Ask for a new one."),
             // A duo invite typed into the reconnect field: "Ask for a duo invite" would point the wrong way.
-            (.wrongPurpose(DFixtures.context(409)), "That did not work. Please try again. (ref req-1)"),
+            (.wrongPurpose(DFixtures.context(409)), "That did not work. Please try again. (ref 0123456789abcdef)"),
             (.rateLimited(DFixtures.context(429)), "Too many tries. Wait a bit and try again."),
             (.maintenance(DFixtures.context(503)), "Joining is paused for a few minutes. Try again soon."),
             (.attestInvalid(DFixtures.context(403)), "HydroDrop could not verify this phone. Try again in a few minutes."),
-            (.deviceLimit(DFixtures.context(409, details: DuoWireErrorDetails(max: 5))), "That did not work. Please try again. (ref req-1)"),
+            (.deviceLimit(DFixtures.context(409, details: DuoWireErrorDetails(max: 5))), "That did not work. Please try again. (ref 0123456789abcdef)"),
             (.offline, "No connection right now. Try again in a bit."),
             (.banned(DFixtures.context(403)), "Duo Streaks are not available for this device. Contact support@hydrodrop.us."),
         ]
@@ -1382,6 +1388,51 @@ final class DuoJoiningServiceTests: XCTestCase {
         XCTAssertEqual(dNames(h.transport.calls), ["createDevice", "reconnect"])
     }
 
+    func testConfirmedInviteCreationClearsOnlyOtherPendingCodes() async throws {
+        for replacing in [false, true] {
+            let h = DHarness(credential: DuoFixtures.credential(), subscribed: true)
+            h.answerEverything()
+            var old = DuoFixtures.duo(joined: false)
+            old.invite = DuoInvite(code: "AAAA1111", display: "AAAA-1111", expiresAt: DFixtures.inviteExpiry)
+            old.openInviteExpiresAt = DFixtures.inviteExpiry
+            h.store.upsert(old)
+            var live = DuoFixtures.duo(); live.id = DFixtures.otherID
+            live.invite = old.invite; live.openInviteExpiresAt = old.openInviteExpiresAt
+            h.store.upsert(live)
+            var current = DuoFixtures.duo(joined: false); current.id = DFixtures.createdID
+            h.store.upsert(current)
+            if replacing {
+                let made = await h.service.newInvite(for: current)
+                XCTAssertNotNil(made)
+            } else {
+                let made = await h.service.createDuo(named: "Jo", skin: "classic")
+                XCTAssertNotNil(made)
+            }
+            XCTAssertNil(h.store.duo(old.id)?.invite)
+            XCTAssertNil(h.store.duo(old.id)?.openInviteExpiresAt)
+            XCTAssertEqual(h.store.duo(live.id)?.invite, live.invite)
+            XCTAssertNotNil(h.store.duo(current.id)?.invite)
+            XCTAssertNil(h.cache.loadDuos().first(where: { $0.id == old.id })?.invite)
+        }
+    }
+
+    func testFailedInviteCreationDoesNotClearAnOlderCode() async {
+        let h = DHarness(credential: DuoFixtures.credential(), subscribed: true)
+        var old = DuoFixtures.duo(joined: false)
+        old.invite = DuoInvite(code: "AAAA1111", display: "AAAA-1111", expiresAt: DFixtures.inviteExpiry)
+        h.store.upsert(old)
+        var current = old; current.id = DFixtures.createdID
+        h.store.upsert(current)
+        h.transport.onCreateInvite = { _, _, _ in throw DuoTransportError.offline }
+        let result = await h.service.newInvite(for: current)
+        XCTAssertNil(result)
+        XCTAssertEqual(h.store.duo(old.id)?.invite, old.invite)
+        h.transport.onCreateDuo = { _, _ in throw DuoTransportError.offline }
+        let created = await h.service.createDuo(named: "Jo", skin: "classic")
+        XCTAssertNil(created)
+        XCTAssertEqual(h.store.duo(old.id)?.invite, old.invite)
+    }
+
     // MARK: Codes for a duo that exists
 
     func testANewCodeReplacesTheOldOneAndTheLinkKeepsItsSecret() async throws {
@@ -1432,7 +1483,7 @@ final class DuoJoiningServiceTests: XCTestCase {
         live.transport.onCreateInvite = { _, _, _ in throw DuoTransportError.conflict(DFixtures.context(409)) }
         let conflict = await live.service.newInvite(for: DuoFixtures.duo(joined: false))
         XCTAssertNil(conflict)
-        XCTAssertEqual(live.store.sheetError, "That did not work. Please try again. (ref req-1)")
+        XCTAssertEqual(live.store.sheetError, "That did not work. Please try again. (ref 0123456789abcdef)")
         XCTAssertEqual(live.store.duo(DuoFixtures.duoID)?.hasEnded, false, "a duo that went live is not ended")
         XCTAssertFalse(live.store.isWorking)
 
@@ -1487,7 +1538,7 @@ final class DuoJoiningServiceTests: XCTestCase {
             refused.transport.onCreateInvite = { _, _, _ in throw error }
             let none = await refused.service.createReconnectCode(for: silent)
             XCTAssertNil(none)
-            XCTAssertEqual(refused.store.sheetError, "That did not work. Please try again. (ref req-1)", "\(error)")
+            XCTAssertEqual(refused.store.sheetError, "That did not work. Please try again. (ref 0123456789abcdef)", "\(error)")
             XCTAssertEqual(refused.store.duo(silent.id)?.hasEnded, false)
         }
     }
@@ -1505,7 +1556,7 @@ final class DuoJoiningServiceTests: XCTestCase {
         limited.transport.onCreateInvite = { _, _, _ in throw DuoTransportError.deviceLimit(DFixtures.context(409, details: DuoWireErrorDetails(max: 5))) }
         let none = await limited.service.createLinkCode()
         XCTAssertNil(none)
-        XCTAssertEqual(limited.store.sheetError, "That did not work. Please try again. (ref req-1)")
+        XCTAssertEqual(limited.store.sheetError, "That did not work. Please try again. (ref 0123456789abcdef)")
 
         let lost = DHarness(credential: DuoFixtures.credential())
         _ = await lost.service.createLinkCode()

@@ -177,7 +177,7 @@ extension DuoOpQueue {
     /// - `device_revoked`: drop. The ended card stays ended. The rest of the queue is still sent:
     ///   a superseded phone keeps leave and block for its 30 days (§3.5, D33) while its `PATCH /me`
     ///   and push calls answer `device_revoked`, so one revoked answer says nothing about the next.
-    /// - `duo_unknown` or `duo_ended` on a leave or a block: done. Elsewhere they are judged by status.
+    /// - `duo_unknown` or `duo_ended` on a leave: done. Neither proves a block; other calls use status.
     /// - `rate_limited`, `maintenance` (whatever the status: the classifier makes a WAF 403, a bare
     ///   401 and any 5xx `maintenance`, none of them the server's refusal) and `offline`: wait, for
     ///   `DuoRetry`'s delay (`Retry-After` with its 30-second floor and two-day ceiling, else 60 s).
@@ -207,8 +207,12 @@ extension DuoOpQueue {
             return context.httpStatus == 401 ? .discardAll : .hold
         case .deviceRevoked:
             return .drop
-        case .duoUnknown(let context), .duoEnded(let context):
-            if op.kind == .leave || op.kind == .block { return .done }
+        case .duoUnknown(let context):
+            // A missing duo proves there is nothing left to leave, but proves no pair was blocked.
+            if op.kind == .leave { return .done }
+            return byStatus(context)
+        case .duoEnded(let context):
+            if op.kind == .leave { return .done }
             return byStatus(context)
         case .rateLimited, .maintenance:
             return wait(failure)

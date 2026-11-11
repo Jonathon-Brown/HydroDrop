@@ -15,6 +15,12 @@ enum DuoConfig {
         #endif
     }()
 
+    /// Namespaces new protected records. Custom test origins use staging; this is never
+    /// evidence that an old unlabelled credential belongs to the selected environment.
+    static func recoveryEnvironment(for url: URL) -> DuoRecoveryEnvironment {
+        url.host == "api.hydrodrop.us" ? .production : .staging
+    }
+
     /// `ios/2.0 (57)` and `2.0 (57)`: the marketing version and the build number.
     static var client: DuoClientInfo {
         client(info: Bundle.main.infoDictionary, arguments: ProcessInfo.processInfo.arguments)

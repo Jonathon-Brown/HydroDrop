@@ -43,10 +43,12 @@ fileprivate final class KGate: @unchecked Sendable {
 fileprivate final class KGatedTransport: DuoTransport, @unchecked Sendable {
     let base: FakeDuoTransport
     let gate: KGate
+    let peekGate: KGate?
 
-    init(_ base: FakeDuoTransport, holdingRedeemsAt gate: KGate) {
+    init(_ base: FakeDuoTransport, holdingRedeemsAt gate: KGate, holdingPeeksAt peekGate: KGate? = nil) {
         self.base = base
         self.gate = gate
+        self.peekGate = peekGate
     }
 
     func redeemInvite(_ request: DuoWireRedeemRequest, key: DuoIdempotencyKey) async throws -> DuoWireChangesWithResult {
@@ -64,7 +66,11 @@ fileprivate final class KGatedTransport: DuoTransport, @unchecked Sendable {
     func unregisterPush() async throws { try await base.unregisterPush() }
     func createDuo(_ request: DuoWireCreateDuoRequest, key: DuoIdempotencyKey) async throws -> DuoWireCreateDuoResponse { try await base.createDuo(request, key: key) }
     func createInvite(duoID: String, purpose: DuoWireInvitePurpose, key: DuoIdempotencyKey) async throws -> DuoWireInvite { try await base.createInvite(duoID: duoID, purpose: purpose, key: key) }
-    func peekInvite(code: String) async throws -> DuoWirePeekResponse { try await base.peekInvite(code: code) }
+    func peekInvite(code: String) async throws -> DuoWirePeekResponse {
+        if let peekGate { await peekGate.wait() }
+        try Task.checkCancellation()
+        return try await base.peekInvite(code: code)
+    }
     func reconnect(_ request: DuoWireReconnectRequest, key: DuoIdempotencyKey) async throws -> DuoWireReconnectResponse { try await base.reconnect(request, key: key) }
     func fetchDuo(id: String) async throws -> DuoWireHeader { try await base.fetchDuo(id: id) }
     func fetchChanges(duoID: String, since: Int64) async throws -> DuoWireChanges { try await base.fetchChanges(duoID: duoID, since: since) }
@@ -108,23 +114,6 @@ fileprivate enum KFixtures {
     }
 }
 
-/// Finds the first value under `value` (a view's body, say) whose type's name starts with `prefix`.
-@MainActor
-fileprivate func kFind(_ prefix: String, in value: Any, depth: Int = 0) -> Any? {
-    if String(describing: type(of: value)).hasPrefix(prefix) { return value }
-    guard depth < 40 else { return nil }
-    for child in Mirror(reflecting: value).children {
-        if let found = kFind(prefix, in: child.value, depth: depth + 1) { return found }
-    }
-    return nil
-}
-
-/// A closure stored under `label` in `value`.
-@MainActor
-fileprivate func kClosure(_ label: String, in value: Any) -> (() -> Void)? {
-    Mirror(reflecting: value).children.first { $0.label == label }?.value as? () -> Void
-}
-
 /// Every text field in a view hierarchy.
 @MainActor
 fileprivate func kTextFields(in view: UIView) -> [UITextField] {
@@ -155,7 +144,7 @@ fileprivate struct KSheetHost: View {
 /// peek, once, and only for someone the birth-year screen let through), and the Join tap, which is
 /// the consent and the first request that makes anything. Every decision is the model's, so these
 /// drive the very methods the sheet calls and read the very rows it draws; a handful read the drawn
-/// sheet itself (its body, its text field, its pixels) for what only the view does.
+/// sheet itself (its installed controls, its text field, its pixels) for what only the view does.
 @MainActor
 final class DuoJoinSheetTests: XCTestCase {
     private var kits: [DuoTestKit] = []
@@ -163,6 +152,7 @@ final class DuoJoinSheetTests: XCTestCase {
 
     override func tearDown() {
         for window in windows {
+            window.endEditing(true)
             window.rootViewController?.dismiss(animated: false)
             window.isHidden = true
             window.rootViewController = nil
@@ -182,7 +172,7 @@ final class DuoJoinSheetTests: XCTestCase {
         let kit = DuoTestKit(credential: credential)
         kits.append(kit)
         if credential != nil { kit.identity.launch = .ready }
-        if let birthYear { kit.store.recordBirthYear(birthYear) }
+        if let birthYear { kit.store.recordBirthYear(birthYear, month: 1) }
         if terms { _ = await kit.store.acceptTerms() }
         return kit
     }
@@ -196,7 +186,7 @@ final class DuoJoinSheetTests: XCTestCase {
         let service = DuoJoiningService(dependencies: kit.dependencies)
         service.holdInBackground = { _ in {} }
         kit.dependencies.joining = service
-        kit.store.recordBirthYear(1990)
+        kit.store.recordBirthYear(1990, month: 1)
         _ = await kit.store.acceptTerms()
         kit.transport.onPeekInvite = { _ in KFixtures.wirePeek }
         kit.transport.onCreateDevice = { _ in KFixtures.minted }
@@ -299,7 +289,7 @@ final class DuoJoinSheetTests: XCTestCase {
         XCTAssertEqual(kit.transport.calls, [])
 
         // Once the birth-year screen says yes, the content that is up asks, once.
-        kit.store.recordBirthYear(1990)
+        kit.store.recordBirthYear(1990, month: 1)
         let peeked = await kSettle { !kCalls(kit, since: before).isEmpty }
         XCTAssertTrue(peeked)
         XCTAssertEqual(kCalls(kit, since: before), ["peek:H7K39QWX"])
@@ -450,53 +440,66 @@ final class DuoJoinSheetTests: XCTestCase {
     // MARK: - The restore question (K3)
 
     func testTheRestoreQuestionIsAskedInTheSheet() async {
-        // The service refuses the peek during the question and says nothing; the sheet asks it.
+        // D82 allows an anonymous preview during restore; Join still waits for the answer.
         let kit = await kRealKit(credential: DuoFixtures.credential())
         kit.identity.launch = .needsRestoreChoice(KFixtures.prompt)
         kit.store.availability = .needsRestoreChoice(KFixtures.prompt)
         let model = DuoJoinSheetModel()
         await model.peekIfNeeded(kit.store, invite: KFixtures.invite)
-        XCTAssertEqual(kit.transport.kPeeks, [])
+        XCTAssertEqual(kit.transport.kPeeks, ["H7K39QWX"])
         let question = DuoJoinPlan.restoreQuestion(KFixtures.prompt)
-        XCTAssertEqual(model.stage, .failed(question))
-        XCTAssertEqual(model.rows(kit.store), [.restore(question)])
+        XCTAssertEqual(model.stage, .answered(KFixtures.peek(.invite)))
+        XCTAssertTrue(model.rows(kit.store).contains(.restore(question)))
+        XCTAssertTrue(model.rows(kit.store).contains(.join(enabled: false, working: false)))
         XCTAssertNotEqual(question, DuoUserMessage.generic)
     }
 
     func testStartFreshKeepsTheInviteAndAsksAgainFromAFreshPhone() async {
-        let kit = await kRealKit(credential: DuoFixtures.credential())
-        kit.dependencies.exiting = DuoExitService(dependencies: kit.dependencies)
-        kit.identity.launch = .needsRestoreChoice(KFixtures.prompt)
-        kit.store.availability = .needsRestoreChoice(KFixtures.prompt)
-        let invite = KFixtures.invite
-        kit.store.pendingInvite = invite
-        let model = DuoJoinSheetModel(stage: .failed(DuoJoinPlan.restoreQuestion(KFixtures.prompt)))
+        let stages: [DuoJoinSheetModel.Stage] = [.failed(DuoJoinPlan.restoreQuestion(KFixtures.prompt)), .answered(KFixtures.peek(.invite))]
+        for stage in stages {
+            let kit = await kRealKit(credential: DuoFixtures.credential())
+            kit.dependencies.exiting = DuoExitService(dependencies: kit.dependencies)
+            kit.identity.launch = .needsRestoreChoice(KFixtures.prompt)
+            kit.store.availability = .needsRestoreChoice(KFixtures.prompt)
+            let invite = KFixtures.invite
+            kit.store.pendingInvite = invite
+            let model = DuoJoinSheetModel(stage: stage, name: "Previous owner")
 
-        model.startFresh(kit.store, invite: invite)
-        // The wipe happened (the identity is gone, the question with it) and the invite is back,
-        // its link secret with it, in the same turn.
-        XCTAssertNil(kit.identity.credential)
-        XCTAssertEqual(kit.store.availability, .unknown)
-        XCTAssertEqual(kit.store.pendingInvite?.code, invite.code)
-        XCTAssertEqual(kit.store.pendingInvite?.k, invite.k)
-        XCTAssertEqual(model.stage, .waiting)
-        XCTAssertEqual(model.attempt, 1)
-        // Asked again, anonymously now.
-        let prepared = kit.identity.prepared
-        await model.peekIfNeeded(kit.store, invite: invite)
-        XCTAssertEqual(kit.transport.kPeeks, ["H7K39QWX"])
-        XCTAssertEqual(kit.identity.prepared, prepared)
-        XCTAssertTrue(model.offersJoin)
+            model.startFresh(kit.store, invite: invite)
+            // The wipe happened (the identity is gone, the question with it) and the invite is back,
+            // its link secret with it, in the same turn.
+            XCTAssertNil(kit.identity.credential)
+            XCTAssertEqual(kit.store.availability, .unknown)
+            XCTAssertEqual(kit.store.pendingInvite?.code, invite.code)
+            XCTAssertEqual(kit.store.pendingInvite?.k, invite.k)
+            XCTAssertEqual(model.stage, .waiting)
+            XCTAssertEqual(model.attempt, 1)
+            XCTAssertEqual(model.name, "", "the previous person's name must not prefill a fresh identity")
+            XCTAssertEqual(kit.store.ageStatus, .unknown)
+            let prepared = kit.identity.prepared
+            await model.peekIfNeeded(kit.store, invite: invite)
+            XCTAssertTrue(kit.transport.kPeeks.isEmpty, "Start fresh asks age again before previewing")
+            XCTAssertFalse(model.offersJoin)
+            XCTAssertEqual(kit.store.recordBirthYear(1990, month: 1), .allowed)
+            await model.peekIfNeeded(kit.store, invite: invite)
+            XCTAssertEqual(kit.transport.kPeeks, ["H7K39QWX"])
+            XCTAssertEqual(kit.identity.prepared, prepared)
+            XCTAssertTrue(model.offersJoin)
+        }
     }
 
     func testContinueTakesTheRestoredIdentityAndAsksAgain() async {
-        let kit = await kKit(credential: DuoFixtures.credential())
-        kit.store.availability = .needsRestoreChoice(KFixtures.prompt)
-        let model = DuoJoinSheetModel(stage: .failed(DuoJoinPlan.restoreQuestion(KFixtures.prompt)))
-        await model.continueRestored(kit.store)
-        XCTAssertEqual(kit.identity.continued, 1)
-        XCTAssertEqual(model.stage, .waiting)
-        XCTAssertEqual(model.attempt, 1)
+        let stages: [DuoJoinSheetModel.Stage] = [.failed(DuoJoinPlan.restoreQuestion(KFixtures.prompt)), .answered(KFixtures.peek(.invite))]
+        for stage in stages {
+            let kit = await kKit(credential: DuoFixtures.credential())
+            kit.store.availability = .needsRestoreChoice(KFixtures.prompt)
+            let model = DuoJoinSheetModel(stage: stage, name: "Jo")
+            await model.continueRestored(kit.store)
+            XCTAssertEqual(kit.identity.continued, 1)
+            XCTAssertEqual(model.name, "Jo", "Continue keeps the same person's input")
+            XCTAssertEqual(model.stage, .waiting)
+            XCTAssertEqual(model.attempt, 1)
+        }
     }
 
     func testTheFormDuringTheRestoreQuestionAsksItAndKeepsJoinOff() async {
@@ -736,32 +739,59 @@ final class DuoJoinSheetTests: XCTestCase {
     }
 
     func testTheDrawnGateCallsTheModelsCloseAndTapsJoinAfterTheRules() async throws {
-        let kit = await kKit()
-        kit.joining.joinResult = DuoFixtures.duo(id: KFixtures.joinedID, role: .partner)
-        let before = kit.joining.calls.count
+        let previousKey = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first?.keyWindow
+        defer { previousKey?.makeKey() }
+        let kit = await kRealKit(credential: DuoFixtures.credential())
+        let transport = kit.transport
+        transport.onRedeemInvite = { _, _ in
+            if transport.kRedeems.count == 1 {
+                throw DuoTransportError.termsRequired(.init(httpStatus: 428, details: .init(termsVersion: 1)))
+            }
+            return KFixtures.redeemResult
+        }
+        transport.onUpdateMe = { _ in DuoWireMember(id: DuoFixtures.credential().memberID, supportId: "ABCD1234EFGH", tier: .attested, termsVersion: 1) }
         let model = DuoJoinSheetModel(stage: .answered(KFixtures.peek(.invite)))
-        let sheet = DuoJoinSheet(duoStore: kit.store, invite: KFixtures.invite, model: model)
-        let gate = try XCTUnwrap(kFind("DuoConsentGate<", in: sheet.body))
-        XCTAssertNil(kFind("DuoReconnectSheet", in: sheet.body))
-        let accepted = try XCTUnwrap(kClosure("onTermsAccepted", in: gate))
-        accepted()
-        let joined = await kSettle { self.kCalls(kit, since: before).contains("join:H7K39QWX") }
-        XCTAssertTrue(joined)
-        XCTAssertEqual(kCalls(kit, since: before), ["join:H7K39QWX"])
+        let screen = try LScreen(DuoJoinSheet(duoStore: kit.store, invite: KFixtures.invite, model: model), test: self)
+        screen.scrollsToFindElements = true
+        let window = screen.window
+        window.makeKey()
+        let joinShown = await kSettle { screen.find("duo.join.confirm") != nil }
+        XCTAssertTrue(joinShown)
+        XCTAssertNil(screen.find("duo.reconnect.confirm"))
+        screen.tap("duo.join.confirm")
+        let termsShown = await kSettle { screen.find("duo.terms.accept") != nil }
+        XCTAssertTrue(termsShown)
+        XCTAssertEqual(transport.kRedeems.count, 1)
+        screen.tap("duo.terms.accept")
+        let joined = await kSettle(5) { model.wantsDismiss }
+        XCTAssertTrue(joined, "Accept must invoke this sheet's retry callback after the terms sheet dismisses")
+        XCTAssertEqual(transport.kRedeems.count, 2)
+        window.endEditing(true)
+        window.isHidden = true
+        window.rootViewController = nil
 
+        let unknown = await kKit(birthYear: nil)
         let closer = DuoJoinSheetModel(stage: .answered(KFixtures.peek(.invite)))
-        let closingGate = try XCTUnwrap(kFind("DuoConsentGate<", in: DuoJoinSheet(duoStore: kit.store, invite: KFixtures.invite, model: closer).body))
-        try XCTUnwrap(kClosure("onClose", in: closingGate))()
-        XCTAssertTrue(closer.wantsDismiss)
+        let closingScreen = try LScreen(DuoJoinSheet(duoStore: unknown.store, invite: KFixtures.invite, model: closer), test: self)
+        let cancelShown = await kSettle { closingScreen.find("duo.agegate.cancel") != nil }
+        XCTAssertTrue(cancelShown)
+        closingScreen.tap("duo.agegate.cancel")
+        let closed = await kSettle { closer.wantsDismiss }
+        XCTAssertTrue(closed, "the drawn age gate must invoke the sheet's close callback")
     }
 
-    func testAReconnectCodeDrawsTheReconnectSheetAlone() throws {
-        let kit = DuoTestKit()
-        kits.append(kit)
-        let sheet = DuoJoinSheet(duoStore: kit.store, invite: KFixtures.invite, model: DuoJoinSheetModel(stage: .answered(KFixtures.peek(.reconnect))))
-        let reconnect = try XCTUnwrap(kFind("DuoReconnectSheet", in: sheet.body))
-        XCTAssertEqual(Mirror(reflecting: reconnect).children.first { $0.label == "prefilledCode" }?.value as? String, "H7K39QWX")
-        XCTAssertNil(kFind("DuoConsentGate<", in: sheet.body))
+    func testAReconnectCodeDrawsTheReconnectSheetAlone() async throws {
+        let kit = await kKit()
+        let screen = try LScreen(DuoJoinSheet(duoStore: kit.store, invite: KFixtures.invite,
+                                       model: DuoJoinSheetModel(stage: .answered(KFixtures.peek(.reconnect)))), test: self)
+        screen.scrollsToFindElements = true
+        XCTAssertEqual(kit.store.acceptedTermsVersion, DuoProtocolConstants.termsVersion)
+        let shown = await kSettle { screen.find("duo.reconnect.field") != nil }
+        XCTAssertTrue(shown)
+        let field = try XCTUnwrap(screen.find("duo.reconnect.field"))
+        XCTAssertEqual(field.accessibilityLabel, DuoInviteCode.display("H7K39QWX"))
+        XCTAssertNil(screen.find("duo.join.name"))
+        XCTAssertNil(screen.find("duo.join.confirm"))
     }
 
     func testTheBannerIsDrawnVerbatim() throws {
@@ -817,8 +847,11 @@ final class DuoJoinSheetTests: XCTestCase {
         XCTAssertTrue(gone, "the sheet stayed after the model asked to close")
     }
 
-    func testTheSheetDrawsInEveryState() async {
-        let kit = await kKit()
+    func testTheSheetDrawsInEveryState() async throws {
+        let kit = await kRealKit()
+        let heldPeek = KGate()
+        kit.dependencies.transport = KGatedTransport(kit.transport, holdingRedeemsAt: KGate(), holdingPeeksAt: heldPeek)
+        defer { heldPeek.release() }
         let stages: [DuoJoinSheetModel.Stage] = [
             .waiting,
             .answered(KFixtures.peek(.invite)),
@@ -832,27 +865,60 @@ final class DuoJoinSheetTests: XCTestCase {
             .failed(DuoUserMessage.generic),
             .reconnect,
         ]
-        func draw(_ stage: DuoJoinSheetModel.Stage) {
-            XCTAssertNotNil(kRender(DuoJoinSheet(duoStore: kit.store, invite: KFixtures.invite, model: DuoJoinSheetModel(stage: stage))
-                .frame(width: 390, height: 844)), "\(stage)")
+        func draw(_ stage: DuoJoinSheetModel.Stage, store: DuoStore? = nil,
+                  typeSize: DynamicTypeSize = .large, dark: Bool = false) async throws {
+            let store = store ?? kit.store
+            let model = DuoJoinSheetModel(stage: stage)
+            let previousKey = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first?.keyWindow
+            let screen = try LScreen(DuoJoinSheet(duoStore: store, invite: KFixtures.invite, model: model)
+                .environment(\.dynamicTypeSize, typeSize).environment(\.colorScheme, dark ? .dark : .light), test: self)
+            screen.scrollsToFindElements = true
+            let window = screen.window
+            defer {
+                window.endEditing(true)
+                window.isHidden = true
+                window.rootViewController = nil
+                previousKey?.makeKey()
+            }
+            // A whole sheet needs an installed navigation/focus environment. ImageRenderer is
+            // retained below only for stateless Text/Button snapshots; using it here crashed iOS 27.
+            let expectedID: String
+            if store.ageStatus == .unknown { expectedID = "duo.agegate.year" }
+            else if model.showsReconnectSheet { expectedID = "duo.reconnect.field" }
+            else if model.offersJoin { expectedID = "duo.join.name" }
+            else { expectedID = "duo.join.cancel" }
+            let shown = await kSettle { screen.find(expectedID) != nil }
+            XCTAssertTrue(shown, "\(stage): missing \(expectedID)")
+            if case .failed(let text) = stage, store.availability != .needsRestoreChoice(KFixtures.prompt) {
+                XCTAssertTrue(screen.elements().contains { $0.element.accessibilityLabel == text }, "missing failure: \(text)")
+            }
+            if stage == .waiting, store.ageStatus == .allowed {
+                XCTAssertEqual(model.stage, .waiting, "the held peek must preserve loading coverage")
+            }
+            window.rootViewController?.view.layoutIfNeeded()
+            var drew = false
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                drew = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            XCTAssertTrue(drew, "\(stage): installed hierarchy did not draw")
+            XCTAssertGreaterThan(image.size.width, 0)
+            XCTAssertGreaterThan(image.size.height, 0)
         }
-        stages.forEach(draw)
+        for stage in stages { try await draw(stage) }
         kit.store.isWorking = true
         kit.store.sheetError = "Too many tries. Wait a bit and try again."
-        draw(.answered(KFixtures.peek(.invite)))
+        try await draw(.answered(KFixtures.peek(.invite)))
         kit.store.isWorking = false
         for availability in [DuoAvailability.disconnected, .upgradeRequired, .banned, .needsRestoreChoice(KFixtures.prompt)] {
             kit.store.availability = availability
-            draw(.answered(KFixtures.peek(.invite)))
-            draw(.failed("x"))
+            try await draw(.answered(KFixtures.peek(.invite)))
+            try await draw(.failed("x"))
         }
         kit.store.availability = .available
-        XCTAssertNotNil(kRender(DuoJoinSheet(duoStore: kit.store, invite: KFixtures.invite, model: DuoJoinSheetModel(stage: .answered(KFixtures.peek(.invite))))
-            .environment(\.dynamicTypeSize, .accessibility5)
-            .environment(\.colorScheme, .dark)
-            .frame(width: 390, height: 844)))
+        try await draw(.answered(KFixtures.peek(.invite)), typeSize: .accessibility5, dark: true)
         let unknown = await kKit(birthYear: nil)
-        XCTAssertNotNil(kRender(DuoJoinSheet(duoStore: unknown.store, invite: KFixtures.invite).frame(width: 390, height: 844)))
+        try await draw(.waiting, store: unknown.store)
+
     }
 }
 #endif

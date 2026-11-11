@@ -402,6 +402,19 @@ public enum DuoAgeStatus: String, Codable, Equatable, Sendable {
 }
 
 public enum DuoAgeGate {
+    /// Month/year never proves which day a birthday falls on. Eligibility therefore begins
+    /// only after the entire thirteenth-birthday month, and an implausibly early clock asks
+    /// again rather than creating a permanent refusal from a fabricated date.
+    public static func decide(birthYear: Int, birthMonth: Int, now: Date, calendar: Calendar) -> DuoAgeStatus {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let today = gregorian.dateComponents([.year, .month], from: now)
+        guard let year = today.year, let month = today.month, year >= earliestPlausibleYear,
+              (1...12).contains(birthMonth), birthYear >= 1900, birthYear <= year,
+              birthYear < year || birthMonth <= month else { return .unknown }
+        return (year - birthYear) * 12 + month - birthMonth > minimumAge * 12 ? .allowed : .refused
+    }
+
     public static let minimumAge = 13
     /// No clock is believed to be earlier than the year this rule shipped in. A phone whose date
     /// is wrong or unset (2001, say) made a person born in 1990 "refused", and a refusal is final
@@ -410,9 +423,8 @@ public enum DuoAgeGate {
     /// be told apart on a phone with a neutral screen, and the screen is not age assurance.
     public static let earliestPlausibleYear = 2026
 
-    /// A neutral birth-year screen can only compare years, so this is the plain reading:
-    /// old enough once the year is `minimumAge` years back or more. Policy, not copy, and
-    /// Jonathon's to confirm (it admits someone who turns 13 later this year).
+    /// Legacy year-only rule retained for historical pure test compatibility. The app requires
+    /// the month overload; this helper must never grant a current-policy approval.
     public static func decide(birthYear: Int, now: Date, calendar: Calendar) -> DuoAgeStatus {
         // The current year is read in the Gregorian calendar whatever calendar the caller holds,
         // keeping only its time zone: the birth-year screen offers Gregorian years, and under a

@@ -10,6 +10,9 @@ struct HomeView: View {
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var router = AppRouter.shared
     @ObservedObject private var nightOut = NightOutCoordinator.shared
+    #if DUO_V2
+    @ObservedObject private var duoStore: DuoStore
+    #endif
     @Query(sort: \WaterEntry.timestamp, order: .reverse) private var allEntries: [WaterEntry]
     @Query(sort: \Bottle.createdAt) private var bottles: [Bottle]
 
@@ -53,6 +56,18 @@ struct HomeView: View {
     /// store — and keyed by day so each broken streak is announced once, not every launch.
     @AppStorage("streakBreakNotice.dismissedDayKey") private var dismissedStreakNoticeDayKey = ""
     @AppStorage("streakBreakNotice.countedDayKey") private var countedStreakNoticeDayKey = ""
+    #if DUO_V2
+    /// The Duo screen, pushed from the one-time suggestion's Invite someone.
+    @State private var showingDuoFromInvite = false
+    /// "I had a duo" on the disconnected card: the reconnect sheet, once Settings is not in the way.
+    @State private var showingDuoReconnect = false
+
+    /// The app's own store, or a test's, so Today can be hosted and checked with a store that
+    /// talks to nobody.
+    init(duoStore: DuoStore = .shared) {
+        _duoStore = ObservedObject(wrappedValue: duoStore)
+    }
+    #endif
 
     private var todayEntries: [WaterEntry] {
         allEntries.filter { Calendar.current.isDateInToday($0.timestamp) }
@@ -218,6 +233,35 @@ struct HomeView: View {
 
                                 NightOutSection(nightOut: nightOut, entries: allEntries)
 
+                                #if DUO_V2
+                                // What needs the person first (the restore and disconnected
+                                // questions, the service line, a device that was added), then the
+                                // cards, then the one-time suggestion. None of them under screenshot
+                                // automation: its seeded history is a three day streak, so the
+                                // suggestion would sit half under the tab bar in every App Store
+                                // capture of Today, and a capture simulator holding a cached duo
+                                // would put its card there too. Screenshot mode is always off in
+                                // Release.
+                                let duoToday = DuoTodayRule.today(duoStore, soloStreak: streak)
+                                if duoToday.showsNotices {
+                                    DuoNoticeCards(duoStore: duoStore) { showingDuoReconnect = true }
+                                }
+
+                                if duoToday.showsCards {
+                                    DuoCardsSection(duoStore: duoStore)
+                                }
+
+                                if duoToday.showsSuggestion {
+                                    DuoInviteCard {
+                                        duoStore.dismissSuggestion()
+                                        showingDuoFromInvite = true
+                                    } onDismiss: {
+                                        withAnimation { duoStore.dismissSuggestion() }
+                                    }
+                                    .transition(.opacity)
+                                }
+
+                                #endif
                                 todayLogSection
 
                                 if !store.isSubscribed {
@@ -244,6 +288,17 @@ struct HomeView: View {
                             }
                         }
                     }
+                    #if DUO_V2
+                    // Only for someone with a duo or a Duo identity: for everyone else there is
+                    // nothing to fetch, and a spinner that does nothing is worse than no spinner. On
+                    // the scroll view itself: switching it on or off rebuilds what it is attached to,
+                    // and on the navigation stack's root that rebuilt all of Today, popped the Duo
+                    // screen pushed from it and closed its sheet (the moment a first duo was made),
+                    // and gave every sheet Today presents a Duo pull to refresh of its own.
+                    .modifier(DuoRefreshable(isEnabled: DuoTodayRule.today(duoStore, soloStreak: 0).refreshable) {
+                        await duoStore.refresh()
+                    })
+                    #endif
                 }
             }
             // Still named, for the back button on whatever is pushed from here.
@@ -255,6 +310,17 @@ struct HomeView: View {
                 WorldView(state: world, streak: streak, todayTotalML: todayTotal)
                     .environmentObject(settings)
             }
+            #if DUO_V2
+            .navigationDestination(isPresented: $showingDuoFromInvite) { DuoView() }
+            // A sheet asked for underneath Settings is dropped, not queued, so the reconnect
+            // sheet waits until Settings has gone.
+            .sheet(isPresented: Binding(
+                get: { showingDuoReconnect && !router.settingsIsOnScreen },
+                set: { showingDuoReconnect = $0 }
+            )) {
+                DuoReconnectSheet(duoStore: duoStore)
+            }
+            #endif
             .sheet(isPresented: $showingAddSheet) {
                 AddDrinkSheet { amount, drinkType, timestamp in
                     addEntry(amount: amount, drinkType: drinkType, timestamp: timestamp)
@@ -1103,6 +1169,14 @@ struct HomeView: View {
             isShared: SharedModelContainer.isShared(modelContext.container),
             goalMLOverride: todayGoal
         )
+        #if DUO_V2
+        // The shared streak is measured against the saved goal, like the solo one, so a
+        // bump accepted for today can never cost a partner the streak. Not during an App Store
+        // capture run, whose seeded history must never reach a partner.
+        if !AppSettings.isScreenshotMode {
+            duoStore.logChanged(entries: allEntries, goalML: settings.dailyGoalML)
+        }
+        #endif
         let total = todayTotal
         let goal = todayGoal
         let currentStreak = streak
@@ -1134,6 +1208,14 @@ struct HomeView: View {
         sayItIsAvailable = SayIt.isAvailable
         nightOut.expireIfNeeded()
         mirrorToCompanions()
+        #if DUO_V2
+        // After the log is handed over above, so a write carries today's. `refresh()`, never
+        // `duoScreenOpened()`: a foreground with no duo cached must not ask the identity, whose
+        // first question on an unsettled phone is a `GET /me` under the previous owner's bearer.
+        if !AppSettings.isScreenshotMode {
+            Task { await duoStore.refresh() }
+        }
+        #endif
         // iCloud may have brought an edit made on another device while the app was away.
         HealthKitManager.shared.requestPendingScan()
         syncHealth(.cameToForeground)
@@ -1222,3 +1304,19 @@ struct HomeView: View {
         .environmentObject(AppSettings.shared)
         .modelContainer(for: WaterEntry.self, inMemory: true)
 }
+#if DUO_V2
+
+/// Pull to refresh, only when there is something to refresh.
+private struct DuoRefreshable: ViewModifier {
+    let isEnabled: Bool
+    let action: @Sendable () async -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.refreshable { await action() }
+        } else {
+            content
+        }
+    }
+}
+#endif

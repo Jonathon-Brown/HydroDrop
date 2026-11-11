@@ -31,7 +31,7 @@ import Foundation
 ///   cannot tell which duos share that partner, and a pair-wide exit ends them all.
 /// - It logs nothing. A failure goes to `noteFailure`, which keeps an id, a time and a code.
 @MainActor
-final class DuoSyncEngine: DuoSyncing {
+final class DuoSyncEngine: DuoSyncing, DuoAgeNetworkStopping {
     private let dependencies: DuoDependencies
 
     init(dependencies: DuoDependencies) { self.dependencies = dependencies }
@@ -210,6 +210,7 @@ final class DuoSyncEngine: DuoSyncing {
     /// disconnected phone stays so until a Reconnect succeeds or the person starts fresh, so no
     /// foreground repeats the 401 that disconnected it.
     private var readsAllowed: Bool {
+        guard dependencies.ageNetworkAllowed else { return false }
         switch host.availability {
         case .banned, .disconnected, .needsRestoreChoice: return false
         case .unknown, .available, .maintenance, .upgradeRequired: return true
@@ -231,6 +232,35 @@ final class DuoSyncEngine: DuoSyncing {
         (logReader as? DuoLogSourceVetting)?.readsThePersonsLog == false
     }
 
+    func stopForAgeNetwork(refused: Bool) {
+        syncLoop?.cancel()
+        publishLoop?.cancel()
+        backgroundWork?.cancel()
+        backgroundStop = true
+        pendingSync = nil
+        publishStale = false
+        owedGeneration += 1
+        for task in spawned.values { task.cancel() }
+        spawned.removeAll()
+        syncWake = nil
+        publishWake = nil
+        owedWrite = nil
+        // The cancelled wake cannot clear its old generation's wait. Retain spacing from the
+        // last actual write, but let a recovered storage check schedule the owed work again.
+        if let last = coalescer.lastWriteAt { coalescer.waitEnded(now: last) }
+        else { coalescer = DuoWriteCoalescer() }
+        nudgeRetries.removeAll()
+        let waiters = backgroundWaiters.values
+        backgroundWaiters.removeAll()
+        for waiter in waiters { waiter.continuation.resume(returning: false) }
+        if refused {
+            heldRows.removeAll()
+            refusedAnnouncements.removeAll()
+            nudgeCopies.removeAll()
+            host.latest = nil
+        }
+    }
+
     // MARK: - DuoSyncing
 
     func activate(logReader: DuoLogReading) {
@@ -243,16 +273,24 @@ final class DuoSyncEngine: DuoSyncing {
     }
 
     func logChanged(_ summary: DuoLogSummary) {
+        guard dependencies.ageNetworkAllowed else { return }
         forgetWhatAWipeTook()
         take(summary)
         requestPublish()
     }
 
-    func refresh() async { await refresh(background: false) }
+    func refresh() async {
+        guard dependencies.ageNetworkAllowed else { return }
+        await refresh(background: false)
+    }
 
-    func flush() async { await flush(background: false) }
+    func flush() async {
+        guard dependencies.ageNetworkAllowed else { return }
+        await flush(background: false)
+    }
 
     func backgroundRefresh() async -> Bool {
+        guard dependencies.ageNetworkAllowed else { return false }
         let before = host.duos
         let epoch = host.wipeEpoch
         // A granted refresh and a push can land together: both wait on the one piece of work.
@@ -284,6 +322,7 @@ final class DuoSyncEngine: DuoSyncing {
     }
 
     func pushArrived(_ payload: DuoPushPayload) async {
+        guard dependencies.ageNetworkAllowed else { return }
         forgetWhatAWipeTook()
         // A push with nothing cached is not a reason to ask `prepare()` (see the header).
         guard !host.duos.isEmpty else { return }
@@ -301,6 +340,7 @@ final class DuoSyncEngine: DuoSyncing {
     }
 
     func sendNudge(_ preset: DuoNudgePreset, in stale: DuoState) async {
+        guard dependencies.ageNetworkAllowed else { return }
         forgetWhatAWipeTook()
         guard hasCredential, host.availability.allowsWrites, let duo = host.duo(stale.id), !duo.hasEnded, duo.pendingOp == nil else { return }
         let now = clock.now
@@ -336,6 +376,7 @@ final class DuoSyncEngine: DuoSyncing {
     // MARK: - Refresh, flush and the background run
 
     private func refresh(background: Bool) async {
+        guard dependencies.ageNetworkAllowed else { return }
         forgetWhatAWipeTook()
         // A refresh somebody asked for is the "next foreground" a spent run of retries waits
         // for, and replaces a retry still waiting. A wait the server asked for still holds it:
@@ -349,6 +390,7 @@ final class DuoSyncEngine: DuoSyncing {
     }
 
     private func flush(background: Bool) async {
+        guard dependencies.ageNetworkAllowed else { return }
         forgetWhatAWipeTook()
         if !background { rereadLog() } else { ensureLatest() }
         guard hasSomethingUnsent() else { return }
@@ -454,6 +496,7 @@ final class DuoSyncEngine: DuoSyncing {
     /// a goal change, a drink from another device or the end of an iCloud import reaches the duo
     /// without waiting for the next drink logged in the app.
     private func rereadLog() {
+        guard dependencies.ageNetworkAllowed else { return }
         guard let reader = logReader, host.duos.contains(where: { !$0.hasEnded }) else {
             ensureLatest()
             return
@@ -794,6 +837,7 @@ final class DuoSyncEngine: DuoSyncing {
     /// change of goal. Only an actual difference costs a write, or counts towards the thirty
     /// seconds (§10.1, V12), and none goes out while the server's wait runs.
     private func requestPublish(background: Bool = false) {
+        guard dependencies.ageNetworkAllowed else { return }
         guard hasSomethingUnsent() else { return }
         if let until = heldUntil(writesHeldUntil) {
             schedulePublishWake(after: until.timeIntervalSince(clock.now), replacing: false)
@@ -905,6 +949,7 @@ final class DuoSyncEngine: DuoSyncing {
     }
 
     private func publishPass() async -> PassOutcome {
+        guard dependencies.ageNetworkAllowed else { return .stopped }
         forgetWhatAWipeTook()
         passNumber += 1
         ensureLatest()
@@ -1280,6 +1325,7 @@ final class DuoSyncEngine: DuoSyncing {
     // MARK: - Plumbing
 
     private func isReady() async -> Bool {
+        guard dependencies.ageNetworkAllowed else { return false }
         guard let identity = dependencies.identity else { return false }
         return await identity.prepare() == .ready
     }
@@ -1290,7 +1336,7 @@ final class DuoSyncEngine: DuoSyncing {
     }
 
     private func isCurrent(_ ticket: Ticket) -> Bool {
-        ticket.deviceID != nil && currentTicket() == ticket
+        dependencies.ageNetworkAllowed && !Task.isCancelled && ticket.deviceID != nil && currentTicket() == ticket
     }
 
     private func startMonitoringOnce() {

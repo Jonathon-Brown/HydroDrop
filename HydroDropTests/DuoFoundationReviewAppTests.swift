@@ -60,7 +60,7 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         let duoID = DuoFixtures.duoID
         store.myDisplayName = "Jo"
         _ = await store.acceptTerms()
-        store.diagnostics.recordRequest(status: 200, requestID: "old-request", at: kit.clock.now)
+        store.diagnostics.recordRequest(status: 200, requestID: "1111111111111111", at: kit.clock.now)
         store.memberInfo = memberInfo()
         store.pendingInvite = DuoPendingInvite(code: "H7K39QWX", k: nil, receivedAt: kit.clock.now)
         store.upsert(DuoFixtures.duo())
@@ -78,11 +78,16 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         cache.markCleared(UUID(), now: kit.clock.now)
         cache.deleteRequestedAt = kit.clock.now
         cache.throwawayDeviceID = "throwaway-device"
-        // The four a wipe keeps.
+        cache.ageCheckUnavailable = false
+        store.rememberConfirmedBlock(duoID)
+        // Seed the preferences a wipe keeps, including the optional migration marker.
         store.notificationsEnabled = false
         cache.inviteMomentDismissed = true
         cache.goalRaiseNoticeShown = true
-        XCTAssertEqual(store.recordBirthYear(1990, now: kit.clock.now), .allowed)
+        XCTAssertEqual(store.recordBirthYear(1990, month: 1, now: kit.clock.now), .allowed)
+        // Explicit confirmation removes this optional key. Seed a false marker afterwards
+        // so the all-keys wipe oracle still exercises it without requiring another answer.
+        kit.defaults.set(false, forKey: DuoCache.ageRecheckKey)
     }
 
     // MARK: - The wipe
@@ -113,8 +118,8 @@ final class DuoFoundationReviewAppTests: XCTestCase {
                        "on disk, exactly the keys a wipe keeps are left: the oracle is the on-disk set, not wipedKeys itself")
 
         // A change made afterwards must not bring the old values back from memory.
-        store.diagnostics.recordRequest(status: 200, requestID: "new-request", at: kit.clock.now)
-        XCTAssertEqual(DuoCache(defaults: kit.defaults).loadDiagnostics().recentRequests.map(\.requestID), ["new-request"])
+        store.diagnostics.recordRequest(status: 200, requestID: "2222222222222222", at: kit.clock.now)
+        XCTAssertEqual(DuoCache(defaults: kit.defaults).loadDiagnostics().recentRequests.map(\.requestID), ["2222222222222222"])
         let relaunched = DuoStore(cache: DuoCache(defaults: kit.defaults), reloadWidget: {})
         XCTAssertEqual(relaunched.myDisplayName, "")
         XCTAssertEqual(relaunched.acceptedTermsVersion, 0)
@@ -222,12 +227,12 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         let fromDefaults = DuoTestKit()
         fromDefaults.dependencies.cache.ageStatus = .refused
         XCTAssertEqual(fromDefaults.store.ageStatus, .unknown, "memory has not heard")
-        XCTAssertEqual(fromDefaults.store.recordBirthYear(1990, now: fromDefaults.clock.now), .refused)
+        XCTAssertEqual(fromDefaults.store.recordBirthYear(1990, month: 1, now: fromDefaults.clock.now), .refused)
         XCTAssertEqual(fromDefaults.store.ageStatus, .refused)
 
         let fromKeychain = DuoTestKit()
         try fromKeychain.dependencies.secrets.markAgeRefused()
-        XCTAssertEqual(fromKeychain.store.recordBirthYear(1990, now: fromKeychain.clock.now), .refused,
+        XCTAssertEqual(fromKeychain.store.recordBirthYear(1990, month: 1, now: fromKeychain.clock.now), .refused,
                        "a process that could not read either at launch must not let an adult year overwrite the refusal")
         XCTAssertEqual(DuoCache(defaults: fromKeychain.defaults).ageStatus, .refused)
     }
@@ -244,15 +249,18 @@ final class DuoFoundationReviewAppTests: XCTestCase {
     func testAWrongPhoneClockCannotLockAnAdultOutForGood() {
         let kit = DuoTestKit()
         let unsetClock = Date(timeIntervalSince1970: 978_307_200) // 2001-01-01
-        XCTAssertEqual(kit.store.recordBirthYear(1990, now: unsetClock), .allowed)
+        kit.defaults.removeObject(forKey: DuoCache.agePolicyKey)
+        XCTAssertEqual(kit.store.recordBirthYear(1990, month: 1, now: unsetClock), .unknown)
+        XCTAssertNil(kit.defaults.object(forKey: DuoCache.ageStatusKey), "an unreliable clock must not persist an age answer")
+        XCTAssertNil(kit.defaults.object(forKey: DuoCache.agePolicyKey), "an unreliable clock must not promote the policy version")
         XCTAssertFalse(kit.dependencies.secrets.isAgeRefused(), "no refusal was written, so a fixed clock is enough")
-        XCTAssertEqual(kit.store.recordBirthYear(1990, now: kit.clock.now), .allowed)
+        XCTAssertEqual(kit.store.recordBirthYear(1990, month: 1, now: kit.clock.now), .allowed)
     }
 
     func testAPersonWhoWasRefusedReachesNothingAndKeepsNothing() async {
         let refused = DuoTestKit()
         refused.store.pendingInvite = DuoPendingInvite(code: "H7K39QWX", k: nil, receivedAt: refused.clock.now)
-        XCTAssertEqual(refused.store.recordBirthYear(2020, now: refused.clock.now), .refused)
+        XCTAssertEqual(refused.store.recordBirthYear(2020, month: 1, now: refused.clock.now), .refused)
         XCTAssertNil(refused.store.pendingInvite, "nothing is kept for someone who was refused")
         XCTAssertNil(refused.dependencies.cache.loadPendingInvite())
 
@@ -271,7 +279,7 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         XCTAssertTrue(refused.joining.calls.isEmpty, "nothing is sent for them")
 
         let adult = DuoTestKit()
-        XCTAssertEqual(adult.store.recordBirthYear(1990, now: adult.clock.now), .allowed)
+        XCTAssertEqual(adult.store.recordBirthYear(1990, month: 1, now: adult.clock.now), .allowed)
         _ = await adult.store.peek(code: "H7K39QWX")
         adult.store.receive(DuoParsedInvite(code: "H7K39QWX"))
         XCTAssertEqual(adult.joining.calls, ["peek:H7K39QWX", "receive:H7K39QWX"])
@@ -366,7 +374,7 @@ final class DuoFoundationReviewAppTests: XCTestCase {
 
     func testOnlyForgettingAnAllowedAgeTakesItBackAndARefusalNeverGoes() {
         let adult = DuoTestKit()
-        XCTAssertEqual(adult.store.recordBirthYear(1990, now: adult.clock.now), .allowed)
+        XCTAssertEqual(adult.store.recordBirthYear(1990, month: 1, now: adult.clock.now), .allowed)
         adult.store.resetLocalState()
         XCTAssertEqual(adult.store.ageStatus, .allowed, "an ordinary wipe keeps the answer")
         adult.store.forgetAnAllowedAge()
@@ -374,7 +382,7 @@ final class DuoFoundationReviewAppTests: XCTestCase {
         XCTAssertEqual(DuoCache(defaults: adult.defaults).ageStatus, .unknown, "on disk too, so a backup carries nothing forward")
 
         let child = DuoTestKit()
-        XCTAssertEqual(child.store.recordBirthYear(2020, now: child.clock.now), .refused)
+        XCTAssertEqual(child.store.recordBirthYear(2020, month: 1, now: child.clock.now), .refused)
         child.store.resetLocalState()
         child.store.forgetAnAllowedAge()
         XCTAssertEqual(child.store.ageStatus, .refused, "a refusal is final: nothing lifts it")

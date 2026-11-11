@@ -35,6 +35,11 @@ and shared with the widget and the Watch app). This script reads the tree and fa
       names it. HydroCore, the tests, CLAUDE.md, this script and preflight may name it and
       are not read.
 
+The exact UI runner HydroDropScreenshotUITests/DuoUITests.swift is exempt from (a),
+and (b) permits its harness name DuoUITests and literal "-DuoPreview" argument only there.
+It must compile in both flag states to assert that Duo UI is absent when the flag is off;
+all other Duo names in that runner and all other test files remain checked.
+
 Files are read from disk, not from git: XcodeGen compiles every file in a source folder,
 tracked or not, so an untracked file is exactly as reachable as a committed one. HydroCore is
 not read at all: its Duo rules are pure, public and always compiled, by design.
@@ -68,6 +73,9 @@ DUO_NAME = re.compile(r"[A-Za-z0-9_]*Duo[A-Z][A-Za-z0-9_]*")
 IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*")
 # The retired iCloud Duo's cleanup, which every build runs, and the defaults keys it owns.
 ALLOWED_NAMES = {"LegacyDuoCleanup", "legacyDuoCleanup"}
+# This runner must compile with either flag state to prove the shipped UI is absent.
+# It may name its XCTest harness and its literal preview launch argument, never app types.
+FLAG_SMOKE_RUNNER = "HydroDropScreenshotUITests/DuoUITests.swift"
 FLAG = "DUO_V2"
 
 
@@ -331,7 +339,8 @@ def check_swift_file(rel, source):
     # Each open #if: [the conditions of its earlier branches, this branch's own, its line].
     frames = []
     inside = False  # whether the lines under the current branches need DUO_V2
-    duo_file = is_duo_file(rel)
+    flag_smoke_runner = rel == FLAG_SMOKE_RUNNER
+    duo_file = is_duo_file(rel) and not flag_smoke_runner
     wrapper_line = None  # the line of a Duo file's opening `#if DUO_V2`
     wrapper_closed_at = None  # the line of that `#if`'s own `#endif`, once seen
     seen_code = False
@@ -380,7 +389,11 @@ def check_swift_file(rel, source):
             continue
         for match in IDENTIFIER.finditer(text):
             name = match.group(0)
-            if DUO_NAME.fullmatch(name) and name not in ALLOWED_NAMES:
+            runner_name = flag_smoke_runner and (
+                name == "DuoUITests" or
+                (name == "DuoPreview" and text[max(0, match.start() - 2):match.end() + 1] == '"-DuoPreview"')
+            )
+            if DUO_NAME.fullmatch(name) and name not in ALLOWED_NAMES and not runner_name:
                 findings.append((number, f"`{name}` is outside `#if DUO_V2`, so a build without the flag compiles it"))
     if frames:
         findings.append((frames[-1][2], "this `#if` has no `#endif`"))
@@ -413,7 +426,7 @@ def run(repo):
     for rel in swift_files:
         with open(os.path.join(repo, rel), encoding="utf-8", errors="replace") as handle:
             source = handle.read()
-        if is_duo_file(rel):
+        if is_duo_file(rel) and rel != FLAG_SMOKE_RUNNER:
             duo_files += 1
         for number, message in check_swift_file(rel, source):
             findings.append((rel, number, message))
@@ -432,7 +445,7 @@ def main(argv):
     if findings:
         print(f"Duo gating: {len(findings)} problem(s) in {swift_files} Swift files ({duo_files} Duo files)")
         return 1
-    print(f"Duo gating holds: {duo_files} Duo files wholly inside #if DUO_V2, no Duo name outside it "
+    print(f"Duo gating holds: {duo_files} Duo files wholly inside #if DUO_V2, no unapproved Duo name outside it "
           f"in {swift_files - duo_files} other Swift files, and no DuoAPIClient outside HydroDrop/Duo/")
     return 0
 

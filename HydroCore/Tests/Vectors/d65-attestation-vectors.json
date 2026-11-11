@@ -1,0 +1,15 @@
+{
+  "notice": "Public deterministic dummy values; no real credential or Apple/Google proof. Checks binding bytes only.",
+  "challenge_id": "33333333-3333-4333-8333-333333333333",
+  "device_id": "11111111-1111-4111-8111-111111111111",
+  "candidate_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "raw_body_utf8": "{\"device_id\":\"11111111-1111-4111-8111-111111111111\"}",
+  "body_sha256_hex": "0513cce8ac307af9573ba8412ab98e5747558c9a4ab87c32f3a25549346ba30b",
+  "bind_preimage_hex": "33333333333333332d333333332d343333332d383333332d3333333333333333333333330a6465766963655f6372656174655f7631310a31313131313131312d313131312d343131312d383131312d3131313131313131313131310a0513cce8ac307af9573ba8412ab98e5747558c9a4ab87c32f3a25549346ba30b",
+  "bind_sha256_hex": "821df22347e98d6069003cf7ba6003324b8aed2a6f2f478403ab3c9e809e924c",
+  "android_request_hash": "gh3yI0fpjWBpADz3umADMkuK7SpvL0eEA6s8noCekkw",
+  "public_fixture_pepper": "D65-PUBLIC-FIXTURE-PEPPER-NOT-A-SECRET",
+  "reservation_hmac_message_utf8": "hydrodrop:issuance:v1.1\n11111111-1111-4111-8111-111111111111\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "reservation_hmac_sha256_hex": "ccdca010ca35a0d44d60f59377c58912fa0487df58e445dc36bfe118538356a9",
+  "device_hmac_sha256_hex": "75018bef4b0133b8d534dbacd1bb0ecec8ffcdc7c40841e1404b42a28ef950f8"
+}

@@ -107,11 +107,7 @@ struct DuoJoinSheet: View {
                 Text(verbatim: DuoCopy.partnerSeesFooter)
             }
         case .explainer:
-            // Stage I's `DuoExplainer.heading(for:)` gives the same words; the two are unified at
-            // integration.
-            Section("What your partner sees") {
-                DuoExplainer(context: .join)
-            }
+            DuoExplainer(context: .join)
         case .error(let text), .failure(let text):
             Section { Self.line(text, color: .red) }
         case .blocked(let text):
@@ -380,6 +376,10 @@ final class DuoJoinSheetModel: ObservableObject {
     /// A failure that may pass: ask again, once.
     func tryAgain() {
         guard case .failed = stage else { return }
+        restartPeek()
+    }
+
+    private func restartPeek() {
         stage = .waiting
         peekStarted = false
         attempt += 1
@@ -389,7 +389,7 @@ final class DuoJoinSheetModel: ObservableObject {
     /// asked again with it.
     func continueRestored(_ store: DuoStore) async {
         await store.continueAsRestored()
-        tryAgain()
+        restartPeek()
     }
 
     /// "Not me, start fresh" on the restore question. During the question the wipe happens at once
@@ -400,7 +400,10 @@ final class DuoJoinSheetModel: ObservableObject {
     func startFresh(_ store: DuoStore, invite: DuoPendingInvite) {
         store.startFresh()
         store.receive(DuoParsedInvite(code: invite.code, k: invite.k))
-        tryAgain()
+        // An anonymous preview may already have answered while the restore question was up.
+        // Forget that attempt and the previous person's name even in the answered phase.
+        name = ""
+        restartPeek()
     }
 
     func showReconnect() {

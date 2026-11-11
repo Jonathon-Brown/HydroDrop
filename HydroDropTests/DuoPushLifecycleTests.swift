@@ -515,6 +515,63 @@ final class DuoPushLifecycleTests: XCTestCase {
         XCTAssertEqual(submits, 0)
     }
 
+    func testADroppedStoresBackgroundDoesNotReadALaterRefusal() async throws {
+        let center = NotificationCenter()
+        let secrets = DuoSecrets(store: DuoMemorySecretStore())
+        weak var dropped: DuoStore?
+        var submits = 0
+        var retainedDependencies: DuoDependencies?
+        var cancels = 0
+        do {
+            let store = DuoStore(cache: DuoCache(defaults: UserDefaults(suiteName: "DuoPushLifecycleTests.\(UUID().uuidString)")!),
+                                 usesServer: true, reloadWidget: {})
+            let dependencies = DuoDependencies(host: store, cache: store.cache, secrets: secrets,
+                                               client: DuoClientInfo(marketingVersion: "2.0", build: "1"),
+                                               attester: FakeDuoAttester(), deviceCheck: FakeDuoDeviceCheck())
+            dependencies.background = DuoBackground(dependencies: dependencies, system: DuoBackgroundSystem(
+                submit: { _ in submits += 1 }, cancel: { _ in cancels += 1 }, notificationCenter: center))
+            store.install(dependencies)
+            retainedDependencies = dependencies
+            dropped = store
+        }
+        XCTAssertNil(dropped, "the store must be gone before the late notification")
+        // Reading a changed refusal used to call through dependencies' unowned host before
+        // Background checked its weak host. A retained service must touch neither store nor OS.
+        try secrets.markAgeRefused()
+        center.post(name: .NSSystemClockDidChange, object: nil)
+        for _ in 0..<100 { await Task.yield() }
+        XCTAssertNotEqual(retainedDependencies?.ageNetworkGate.state, .open)
+        XCTAssertEqual(submits, 0)
+        XCTAssertEqual(cancels, 0)
+    }
+
+    func testADroppedStoresPushDoesNotReadALaterRefusal() async throws {
+        let center = NotificationCenter()
+        let secrets = DuoSecrets(store: DuoMemorySecretStore())
+        weak var dropped: DuoStore?
+        var systemCalls = 0
+        do {
+            let store = DuoStore(cache: DuoCache(defaults: UserDefaults(suiteName: "DuoPushLifecycleTests.\(UUID().uuidString)")!),
+                                 usesServer: true, reloadWidget: {})
+            let dependencies = DuoDependencies(host: store, cache: store.cache, secrets: secrets,
+                                               client: DuoClientInfo(marketingVersion: "2.0", build: "1"),
+                                               attester: FakeDuoAttester(), deviceCheck: FakeDuoDeviceCheck())
+            dependencies.push = DuoPushService(dependencies: dependencies, system: DuoPushSystem(
+                registerForRemoteNotifications: { systemCalls += 1 },
+                permissionUndetermined: { systemCalls += 1; return true },
+                requestNotificationPermission: { systemCalls += 1 },
+                zoneIdentifier: { systemCalls += 1; return "UTC" }, notificationCenter: center))
+            store.install(dependencies)
+            dropped = store
+        }
+        XCTAssertNil(dropped)
+        let previousCalls = systemCalls
+        try secrets.markAgeRefused()
+        center.post(name: .NSSystemClockDidChange, object: nil)
+        for _ in 0..<100 { await Task.yield() }
+        XCTAssertEqual(systemCalls, previousCalls)
+    }
+
     /// Probe testCrashAnUnawaitedBackgroundEvaluationOutlivesItsStore: the zone check a run starts
     /// is not awaited, and it ran after the test had dropped its store.
     func testAZoneCheckThatOutlivesItsStoreTouchesNothing() async {

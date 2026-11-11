@@ -38,6 +38,7 @@ private final class FPushRig {
     var zone = "America/Toronto"
     /// What iOS says when asked whether it has ever asked about notifications.
     var permissionUndetermined = true
+    var duringPermissionCheck: (() -> Void)?
     private(set) var registrations = 0
     private(set) var permissionRequests = 0
     private(set) var service: DuoPushService!
@@ -52,7 +53,7 @@ private final class FPushRig {
         for duo in duos { kit.store.upsert(duo) }
         let system = DuoPushSystem(
             registerForRemoteNotifications: { [unowned self] in registrations += 1 },
-            permissionUndetermined: { [unowned self] in permissionUndetermined },
+            permissionUndetermined: { [unowned self] in duringPermissionCheck?(); return permissionUndetermined },
             requestNotificationPermission: { [unowned self] in permissionRequests += 1 },
             zoneIdentifier: { [unowned self] in zone },
             notificationCenter: center
@@ -660,6 +661,20 @@ final class DuoBackgroundTests: XCTestCase {
         XCTAssertTrue(kit.sync.calls.isEmpty)
         XCTAssertTrue(kit.push.reasons.isEmpty)
         XCTAssertEqual(kit.background.scheduled, 1)
+    }
+}
+
+extension DuoPushServiceTests {
+    func testRefusalDuringPermissionCheckDoesNotShowThePermissionPrompt() async {
+        let rig = await FPushRig().primed()
+        rig.duringPermissionCheck = {
+            rig.kit.store.recordBirthYear(Calendar.current.component(.year, from: Date()), month: 1)
+        }
+        let before = rig.permissionRequests
+        await rig.reevaluate(.duoStarted)
+        XCTAssertEqual(rig.kit.store.ageStatus, .refused)
+        XCTAssertEqual(rig.permissionRequests, before)
+        XCTAssertTrue(rig.removals.isEmpty, "refusal must not enqueue another network request")
     }
 }
 #endif

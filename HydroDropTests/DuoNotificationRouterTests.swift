@@ -106,12 +106,15 @@ final class DuoNotificationRouterTests: XCTestCase {
             let kit = DuoTestKit()
             let fetch = try XCTUnwrap(DuoNotificationRouter.route(userInfo: pushedNudge, actionIdentifier: UNNotificationDefaultActionIdentifier,
                                                                   router: router, store: kit.store))
-            await fetch.value
+            // Asserted BEFORE the fetch is awaited: `route` raises the flag synchronously, and the app's live
+            // root (stage K) observes `AppRouter.shared` and, correctly, opens Settings on a later turn, which
+            // is the root's job and not what this test is about.
             XCTAssertTrue(router.showingDuoScreen)
             XCTAssertFalse(router.showingSettings, "Settings is the root's to open, in its order")
             XCTAssertEqual(router.showingWeeklyRecap, recapUp, "a sheet that is up is left up")
             XCTAssertFalse(router.pendingInsights)
             XCTAssertNil(router.pendingBottleTagID)
+            await fetch.value
         }
     }
 
@@ -197,12 +200,17 @@ final class DuoNotificationRouterTests: XCTestCase {
     /// recap's own tap to open the recap.
     func testATapThroughTheDelegateRaisesOnlyTheDuoFlag() async throws {
         let router = AppRouter.shared
-        let saved = (router.showingSettings, router.showingWeeklyRecap, router.showingDuoScreen)
+        let saved = (router.showingSettings, router.showingWeeklyRecap, router.showingDuoScreen, router.duoEntrySheetIsOnScreen)
         defer {
             router.showingSettings = saved.0
             router.showingWeeklyRecap = saved.1
             router.showingDuoScreen = saved.2
+            router.duoEntrySheetIsOnScreen = saved.3
         }
+        // The hosted root also observes this shared router. Hold its presentation gate while
+        // awaiting the delegate so a valid later root transition cannot impersonate a delegate
+        // mutation of Settings. The assertion below must still catch such a delegate mutation.
+        router.duoEntrySheetIsOnScreen = true
         router.showingSettings = false
         router.showingWeeklyRecap = false
         router.showingDuoScreen = false

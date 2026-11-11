@@ -26,6 +26,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     private let settledFile: URL
     private let holdInBackground: BackgroundHold
     private let excludeFromBackup: BackupExclusion
+    private let presenceChanged: @Sendable () -> Void
     private let lock = NSLock()
     private var state = State()
 
@@ -78,6 +79,12 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
                     holdInBackground: @escaping BackgroundHold = DuoIdentity.expiringActivity,
                     excludeFromBackup: @escaping BackupExclusion = DuoIdentity.markExcludedFromBackup) {
         self.dependencies = dependencies
+        let host = dependencies.host
+        presenceChanged = { [weak host] in
+            // Store/discard can run off the main actor, and may hold the identity lock.
+            // Hop before publishing; the host then reads the latest in-memory presence.
+            Task { @MainActor in host?.identityPresenceChanged() }
+        }
         installFile = directory.appendingPathComponent("duo.install", isDirectory: false)
         settledFile = directory.appendingPathComponent("duo.settled", isDirectory: false)
         self.holdInBackground = holdInBackground
@@ -115,9 +122,22 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
 
     // MARK: - The credential
 
+    var cachedCredentialPresence: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return (state.credential ?? nil) != nil
+    }
+
     var credential: DuoCredential? {
         lock.lock(); defer { lock.unlock() }
         return loadedCredential()
+    }
+
+    /// A code preview cannot resolve a restored identity. Only a launch already settled by
+    /// another user action may identify the person to peek; this getter performs no I/O.
+    var peekCredential: DuoCredential? {
+        lock.lock(); defer { lock.unlock() }
+        guard state.launch == .ready, !state.secretUnsaved else { return nil }
+        return state.credential ?? nil
     }
 
     /// Writes a credential just minted or recovered, the install marker if there is none, and
@@ -145,6 +165,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
         if markerPresence() != .present { try? secrets.writeInstallMarker(random: dependencies.random) }
         try secrets.save(credential)
         state.credential = .some(credential)
+        presenceChanged()
         state.secretUnsaved = false
         state.restoreAnswer = nil
         state.launch = DuoIdentityLaunch.ready
@@ -196,6 +217,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
         try? secrets.store.delete(service: DuoSecrets.service, account: DuoSecrets.pendingAttestKeyAccount)
         try? FileManager.default.removeItem(at: settledFile)
         state.credential = .some(nil)
+        presenceChanged()
         state.secretUnsaved = false
         state.restoreAnswer = nil
         state.launch = DuoIdentityLaunch.none
@@ -321,6 +343,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     }
 
     @MainActor private func launch(generation: Int) async -> DuoIdentityLaunch {
+        guard dependencies.ageNetworkAllowed else { return .unavailable }
         let epoch = dependencies.host.wipeEpoch
         // A new secret this process holds and the Keychain has not taken: save it, never rotate
         // again. Then the launch is decided from what the Keychain and the files now say.
@@ -366,6 +389,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
         guard !isSettled else { return .unavailable }
         switch await rotateAndSave(credential, generation: generation) {
         case .saved:
+            guard dependencies.ageNetworkAllowed else { return .unavailable }
             dependencies.noteSuccess()
             return await readAndSettle(generation: generation, epoch: epoch)
         case .failed(let error):
@@ -400,12 +424,14 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
         let release = holdInBackground("Saving this phone's new Duo key")
         defer { release() }
         let rotated: DuoWireRotateResponse
-        guard isCurrent(generation) else { return .dropped }
+        guard dependencies.ageNetworkAllowed, !Task.isCancelled, isCurrent(generation) else { return .dropped }
         do {
             rotated = try await dependencies.transport.rotate(as: credential)
         } catch {
             return .failed(error)
         }
+        // The server may have rotated before refusal. Keep its only new secret for DELETE,
+        // under the existing identity-generation check, but do not fetch or sync afterwards.
         do {
             return try applyRotation(rotated, toDevice: credential.deviceID, generation: generation) ? .saved : .dropped
         } catch {
@@ -417,6 +443,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     /// rotate of a restore, and on its own for an install that holds a credential and its marker
     /// but never settled (a same-phone reinstall, or a restore interrupted after its rotate).
     @MainActor private func readAndSettle(generation: Int, epoch: Int) async -> DuoIdentityLaunch {
+        guard dependencies.ageNetworkAllowed else { return .unavailable }
         let host = dependencies.host
         let me: DuoWireGetMeResponse
         do {
@@ -427,7 +454,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
         // A wipe while a request was out (Delete my Duo data, "Start fresh") must not get the
         // duos and the partner's name `GET /me` held written back; nor may an answer about a
         // credential that was replaced or discarded meanwhile.
-        guard isCurrent(generation), host.wipeEpoch == epoch else { return .unavailable }
+        guard dependencies.ageNetworkAllowed, !Task.isCancelled, isCurrent(generation), host.wipeEpoch == epoch else { return .unavailable }
         dependencies.noteSuccess()
 
         let now = dependencies.clock.now
@@ -450,6 +477,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     /// (§3.4 step 4, §10.3, vector KV11). The marker and the settled file come last, so a
     /// process killed part way through has settled nothing and the next launch does it all again.
     @MainActor private func settle(_ me: DuoWireGetMeResponse, now: Date, generation: Int) {
+        guard dependencies.ageNetworkAllowed, !Task.isCancelled else { return }
         let host = dependencies.host
         host.memberInfo = DuoMapping.member(me, now: now)
         for duo in host.duos where !duo.hasEnded {
@@ -469,6 +497,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     /// maintenance, banned, an update needed) is not an answer yet, and the next call starts
     /// again from where this one stopped.
     @MainActor private func failed(_ error: Error, generation: Int) -> DuoIdentityLaunch {
+        guard dependencies.ageNetworkAllowed else { return .unavailable }
         // An answer about a credential that is no longer this phone's says nothing about the
         // one it holds now: acting on a 401 for it would discard the new one. It still goes in
         // Diagnostics, as `noteFailure` would have put it there, without being acted on.
@@ -509,6 +538,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     }
 
     @MainActor private func continueOnMain() {
+        guard dependencies.ageNetworkAllowed else { return }
         guard let taken = takeRestoreAnswer() else { return }
         let (answer, generation) = taken
         let host = dependencies.host
@@ -557,6 +587,7 @@ final class DuoIdentity: DuoIdentityProviding, @unchecked Sendable {
         // and the next `store` writes over them.
         let credential = data.flatMap { try? JSONDecoder().decode(DuoCredential.self, from: $0) }
         state.credential = .some(credential)
+        presenceChanged()
         return .some(credential)
     }
 

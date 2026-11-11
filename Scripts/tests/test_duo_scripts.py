@@ -132,6 +132,39 @@ class GatingTests(Tree):
         self.assertEqual(code, 0, out)
         self.assertIn("Duo gating holds: 5 Duo files", out)
 
+    def test_flag_smoke_runner_compiles_in_both_flag_states(self):
+        self.clean_tree()
+        write(self.root, "HydroDropScreenshotUITests/DuoUITests.swift",
+              'import XCTest\nfinal class DuoUITests: XCTestCase {\n'
+              'let arguments = ["-DuoPreview", "sample"]\n}\n')
+        code, out = self.gate()
+        self.assertEqual(code, 0, out)
+
+    def test_flag_smoke_runner_still_rejects_production_duo_names(self):
+        self.clean_tree()
+        for name in ("DuoStore", "DuoWidget", "DuoPreview"):
+            with self.subTest(name=name):
+                write(self.root, "HydroDropScreenshotUITests/DuoUITests.swift",
+                      f'import XCTest\nlet value = {name}.shared\n')
+                code, out = self.gate()
+                self.assertEqual(code, 1, out)
+                self.assertIn(f"`{name}` is outside `#if DUO_V2`", out)
+
+    def test_flag_smoke_exception_does_not_cover_other_files(self):
+        for rel in ("HydroDropScreenshotUITests/DuoOtherTests.swift",
+                    "HydroDropTests/DuoUITests.swift", "HydroDrop/Views/DuoUITests.swift",
+                    "HydroDropScreenshotUITests/OtherTests.swift"):
+            with self.subTest(rel=rel):
+                shutil.rmtree(self.root)
+                os.makedirs(os.path.join(self.root, "HydroDrop"))
+                write(self.root, rel,
+                      'import XCTest\nfinal class DuoUITests: XCTestCase {}\n'
+                      'let arguments = ["-DuoPreview"]\n')
+                code, out = self.gate()
+                self.assertEqual(code, 1, out)
+                self.assertIn("`DuoUITests` is outside `#if DUO_V2`", out)
+                self.assertIn("`DuoPreview` is outside `#if DUO_V2`", out)
+
     def test_an_unguarded_duo_store_reference_fails_at_its_line(self):
         self.clean_tree()
         write(self.root, "HydroDrop/Views/SettingsView.swift", "import SwiftUI\n\nlet store = DuoStore.shared\n")

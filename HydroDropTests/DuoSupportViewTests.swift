@@ -88,16 +88,23 @@ final class DuoSupportViewTests: XCTestCase {
 
     // MARK: - Drawing
 
-    /// `ImageRenderer` at 390 x 844, as every view stage's smoke test does, so a state that
-    /// crashes or lays out as nothing fails. It cannot draw a `List`'s cells (they are UIKit),
-    /// so each state is also laid out for real in a window and drawn from there.
+    /// A navigation or report screen needs its installed UIKit lifecycle. The former detached
+    /// ImageRenderer pass could crash SwiftUI before reaching this real hierarchy assertion.
     private func mAssertDraws(_ view: some View, _ name: String, file: StaticString = #filePath, line: UInt = #line) {
-        let renderer = ImageRenderer(content: AnyView(view).frame(width: 390, height: 844))
-        XCTAssertNotNil(renderer.uiImage, "\(name) did not render", file: file, line: line)
         let hosted = mHost(view)
-        XCTAssertNotNil(mSnapshot(hosted.window), "\(name) did not draw in a window", file: file, line: line)
+        defer {
+            hosted.window.endEditing(true)
+            hosted.window.isHidden = true
+            hosted.window.rootViewController = nil
+        }
+        var drew = false
+        let image = UIGraphicsImageRenderer(bounds: hosted.window.bounds).image { _ in
+            drew = hosted.window.drawHierarchy(in: hosted.window.bounds, afterScreenUpdates: true)
+        }
+        XCTAssertTrue(drew, "\(name) did not draw in a window", file: file, line: line)
+        XCTAssertGreaterThan(image.size.width, 0, name, file: file, line: line)
+        XCTAssertGreaterThan(image.size.height, 0, name, file: file, line: line)
         XCTAssertGreaterThan(hosted.controller.view.subviews.count, 0, "\(name) laid out as nothing", file: file, line: line)
-        hosted.window.isHidden = true
     }
 
     func testDiagnosticsDrawsInEveryState() {
@@ -327,6 +334,7 @@ final class DuoSupportViewTests: XCTestCase {
             fake.openResult = opens
             let shown = mPresentReportSheet(kit: kit, fake: fake, reason: .offensiveName)
             let window = shown.hosted.window
+            defer { mCloseReportHost(window, presenter: shown.presenter) }
             XCTAssertTrue(try XCTUnwrap(mNode("duo.report.send", in: window)).object.accessibilityActivate())
             XCTAssertTrue(mWait { fake.opened.count == 1 })
             let link = try XCTUnwrap(fake.opened.first)
@@ -341,7 +349,6 @@ final class DuoSupportViewTests: XCTestCase {
                 XCTAssertTrue(shown.presenter.isPresented, "and the sheet, with their pick, stays")
             }
             XCTAssertTrue(fake.composed.isEmpty)
-            window.isHidden = true
         }
     }
 
@@ -354,6 +361,7 @@ final class DuoSupportViewTests: XCTestCase {
         fake.composerResult = nil
         let hosted = mHost(NavigationStack { DuoDiagnosticsView(duoStore: kit.store, route: fake.route, pasteboard: UIPasteboard.withUniqueName()) })
         let window = hosted.window
+        defer { mCloseComposerHost(window) }
         XCTAssertNotNil(mNode("duo.diagnostics.supportid", in: window), "the Support ID row keeps its id")
         XCTAssertTrue(mNodes(in: window).contains { $0.label == "Support ID, ABCD-1234-EFGH" }, "the id and its label read as one")
         XCTAssertEqual(mNode("duo.diagnostics.supportid.copy", in: window)?.label, "Copy", "Copy is a control of its own")
@@ -367,7 +375,7 @@ final class DuoSupportViewTests: XCTestCase {
         XCTAssertTrue(mail.body.contains("\nSupport ID: ABCD-1234-EFGH\n"))
         XCTAssertTrue(fake.opened.isEmpty)
         mAssertNothingWasAsked(of: kit, "Export")
-        window.isHidden = true
+        mCloseComposerHost(window)
 
         let restore = mRichKit(availability: mRestore)
         let quiet = mHost(NavigationStack { DuoDiagnosticsView(duoStore: restore.store, route: MFakeMail().route) })
@@ -425,6 +433,66 @@ final class DuoSupportViewTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    // A failed cleanup invalidates the run. Retain that host rather than deallocate UIKit
+    // while it is still transitioning; successful tests never add anything here.
+    private static var unsettledHosts: [UIWindow] = []
+
+    /// Content construction is not presentation completion. The export test keeps its fake
+    /// composer open, so finish that owned UIKit lifecycle before releasing its window.
+    private func mCloseComposerHost(_ window: UIWindow, file: StaticString = #filePath, line: UInt = #line) {
+        guard let root = window.rootViewController else { return }
+        func settled(_ controller: UIViewController) -> Bool {
+            guard !controller.isBeingPresented, !controller.isBeingDismissed,
+                  !controller.isMovingToParent, !controller.isMovingFromParent,
+                  controller.transitionCoordinator == nil else { return false }
+            return controller.children.allSatisfy(settled)
+                && (controller.presentedViewController.map(settled) ?? true)
+        }
+        let ready = mWait(timeout: 4) { root.presentedViewController != nil && settled(root) }
+        XCTAssertTrue(ready, "export composer has finished appearing before cleanup", file: file, line: line)
+        guard ready else { Self.unsettledHosts.append(window); return }
+        var dismissed = false
+        root.dismiss(animated: false) { dismissed = true }
+        let gone = mWait(timeout: 4) {
+            dismissed && root.presentedViewController == nil && settled(root)
+        }
+        XCTAssertTrue(gone, "export composer has finished leaving before cleanup", file: file, line: line)
+        guard gone else { Self.unsettledHosts.append(window); return }
+        window.endEditing(true)
+        window.isHidden = true
+        window.rootViewController = nil
+    }
+
+    /// Keep the host alive through UIKit's actual dismissal. The mailto callback changes the
+    /// sheet binding before its animation ends, and an error alert exists before it is ready.
+    private func mCloseReportHost(_ window: UIWindow, presenter: MPresenter,
+                                  file: StaticString = #filePath, line: UInt = #line) {
+        guard let root = window.rootViewController else { return }
+        var top = root
+        while let next = top.presentedViewController { top = next }
+        if top is UIAlertController {
+            let ready = mWait(timeout: 4) {
+                !top.isBeingPresented && !top.isBeingDismissed && top.transitionCoordinator == nil
+            }
+            XCTAssertTrue(ready, "cleanup waits for the error alert to finish entering", file: file, line: line)
+            guard ready else { Self.unsettledHosts.append(window); return }
+            var dismissed = false
+            top.dismiss(animated: false) { dismissed = true }
+            let alertGone = mWait(timeout: 4) { dismissed && top.presentingViewController == nil }
+            XCTAssertTrue(alertGone, "cleanup dismisses the error alert first", file: file, line: line)
+            guard alertGone else { Self.unsettledHosts.append(window); return }
+        }
+        presenter.isPresented = false
+        let sheetGone = mWait(timeout: 4) {
+            root.presentedViewController == nil && root.transitionCoordinator == nil
+        }
+        XCTAssertTrue(sheetGone, "cleanup waits for the report sheet to leave", file: file, line: line)
+        guard sheetGone else { Self.unsettledHosts.append(window); return }
+        window.endEditing(true)
+        window.isHidden = true
+        window.rootViewController = nil
+    }
 
     private func mPresentReportSheet(kit: DuoTestKit, fake: MFakeMail, reason: DuoReportMail.Reason? = nil)
         -> (hosted: (window: UIWindow, controller: UIHostingController<AnyView>), presenter: MPresenter) {

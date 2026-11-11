@@ -22,12 +22,16 @@ struct DuoCache {
     static let inviteMomentDismissedKey = "duoInviteMoment.dismissed.v2"
     static let memberKey = "duo.member.v1"
     static let ageStatusKey = "duo.ageStatus.v1"
+    static let agePolicyKey = "duo.agePolicy.v2"
+    static let ageRecheckKey = "duo.ageRecheck.v2"
+    static let ageCheckUnavailableKey = "duo.ageCheckUnavailable.v1"
     static let termsAcceptedKey = "duo.termsAccepted.v1"
     static let pushUploadKey = "duo.pushUpload.v1"
     static let seenDevicesKey = "duo.seenDevices.v1"
     static let goalRaiseNoticeKey = "duo.goalRaiseNotice.v1"
     static let inflightKey = "duo.inflight.v1"
     static let clearedKey = "duo.cleared.v1"
+    static let blockedKey = "duo.blocked.v1"
     static let deleteRequestedKey = "duo.deleteRequested.v1"
     static let throwawayDeviceKey = "duo.throwawayDevice.v1"
     /// The kind the widget is registered under, so a change here can reload it.
@@ -38,11 +42,11 @@ struct DuoCache {
     static let allKeys = [statesKey, ledgerKey, myDisplayNameKey, opsKey, pendingInviteKey, rejectedDaysKey,
                           diagnosticsKey, notificationsOffKey, inviteMomentDismissedKey, memberKey, ageStatusKey,
                           termsAcceptedKey, pushUploadKey, seenDevicesKey, goalRaiseNoticeKey, inflightKey, clearedKey,
-                          deleteRequestedKey, throwawayDeviceKey]
+                          deleteRequestedKey, throwawayDeviceKey, ageCheckUnavailableKey, blockedKey, agePolicyKey, ageRecheckKey]
     /// What a wipe leaves: the age answer (a local boolean the person gave once, and what stops
     /// a restart by someone who was refused, D60), the notifications switch, and the one-time
     /// suggestion and goal-raise note. None of them says anything about a duo.
-    static let keptKeys = [ageStatusKey, notificationsOffKey, inviteMomentDismissedKey, goalRaiseNoticeKey]
+    static let keptKeys = [ageRecheckKey, agePolicyKey, ageStatusKey, notificationsOffKey, inviteMomentDismissedKey, goalRaiseNoticeKey]
     /// Every key `clearEverything` removes: what a Delete my Duo data and a "Start fresh" wipe.
     static let wipedKeys = allKeys.filter { !keptKeys.contains($0) }
 
@@ -53,6 +57,13 @@ struct DuoCache {
     }
 
     static var live: DuoCache { DuoCache() }
+
+    /// A temporary unreadable refusal suppresses widgets without replacing a previously allowed
+    /// answer. The next successful main-app check clears this hint.
+    var ageCheckUnavailable: Bool {
+        get { defaults.bool(forKey: Self.ageCheckUnavailableKey) }
+        nonmutating set { defaults.set(newValue, forKey: Self.ageCheckUnavailableKey) }
+    }
 
     // MARK: Duos
 
@@ -115,6 +126,10 @@ struct DuoCache {
         return journal
     }
     func saveInflight(_ journal: DuoInflightJournal) { save(journal, key: Self.inflightKey) }
+
+    // A confirmed block is remembered only while its card is kept. Clear and a full wipe remove it.
+    func loadBlockedDuoIDs() -> Set<UUID> { load(Set<UUID>.self, key: Self.blockedKey) ?? [] }
+    func saveBlockedDuoIDs(_ ids: Set<UUID>) { save(ids, key: Self.blockedKey) }
 
     // MARK: Duos the person cleared
 
@@ -179,10 +194,29 @@ struct DuoCache {
         nonmutating set { defaults.set(newValue, forKey: Self.goalRaiseNoticeKey) }
     }
 
-    /// The answer to the birth-year screen, as a bare status. The year itself is never kept.
+    /// Old year-only approvals must be checked again without inventing a refusal. Keep the
+    /// raw approval until an explicit answer replaces it, so relaunch and identity wipes cannot
+    /// accidentally turn a pending recheck into a fresh installation that permits networking.
+    var needsAgeRecheck: Bool {
+        defaults.string(forKey: Self.ageStatusKey) != DuoAgeStatus.refused.rawValue &&
+            (defaults.bool(forKey: Self.ageRecheckKey) ||
+             (defaults.string(forKey: Self.ageStatusKey) == DuoAgeStatus.allowed.rawValue && !hasCurrentAgePolicy))
+    }
     var ageStatus: DuoAgeStatus {
-        get { defaults.string(forKey: Self.ageStatusKey).flatMap(DuoAgeStatus.init(rawValue:)) ?? .unknown }
+        get { needsAgeRecheck ? .unknown : (defaults.string(forKey: Self.ageStatusKey).flatMap(DuoAgeStatus.init(rawValue:)) ?? .unknown) }
         nonmutating set { defaults.set(newValue.rawValue, forKey: Self.ageStatusKey) }
+    }
+    var hasCurrentAgePolicy: Bool { defaults.integer(forKey: Self.agePolicyKey) == 2 }
+    func requireAgeRecheck() { defaults.set(true, forKey: Self.ageRecheckKey) }
+    /// Only the explicit month/year confirmation upgrades the local policy. Copying a status
+    /// from storage must never silently turn an old year-only approval into a current one.
+    func recordConfirmedAgeStatus(_ status: DuoAgeStatus) {
+        guard status != .unknown else { return }
+        ageStatus = status
+        if status == .allowed {
+            defaults.set(2, forKey: Self.agePolicyKey)
+            defaults.removeObject(forKey: Self.ageRecheckKey)
+        }
     }
 
     /// The terms version this person has accepted on this phone (0 for none).

@@ -255,13 +255,13 @@ private enum Wire {
 
     static func error(_ code: String, status: Int, details: String? = nil, retryAfter: String? = nil) -> ScriptedSession.Reply {
         let detailsField = details.map { #","details":\#($0)"# } ?? ""
-        var reply = ScriptedSession.Reply(status: status, body: Data(#"{"error":{"code":"\#(code)","message":"m"\#(detailsField),"request_id":"body-id"}}"#.utf8))
+        var reply = ScriptedSession.Reply(status: status, body: Data(#"{"error":{"code":"\#(code)","message":"m"\#(detailsField),"request_id":"abcdef0123456789"}}"#.utf8))
         if let retryAfter { reply.headers["Retry-After"] = retryAfter }
         return reply
     }
 
     static func html(_ status: Int, retryAfter: String? = nil) -> ScriptedSession.Reply {
-        var reply = ScriptedSession.Reply(status: status, headers: ["Content-Type": "text/html; charset=UTF-8", "X-Request-Id": "9b1c-WAF"],
+        var reply = ScriptedSession.Reply(status: status, headers: ["Content-Type": "text/html; charset=UTF-8", "X-Request-Id": "9b1c2d3e4f5a6b7c"],
                                           body: Data("<!DOCTYPE html><html><body>Sorry, you have been blocked</body></html>".utf8))
         if let retryAfter { reply.headers["Retry-After"] = retryAfter }
         return reply
@@ -323,10 +323,10 @@ private struct Endpoint {
     var body: Data?
     var status: Int
     var reply: Data
-    var call: (DuoAPIClient) async throws -> Void
+    var call: (any DuoTransport) async throws -> Void
 
     init(_ name: String, _ method: String, _ path: String, query: String? = nil, auth: Auth, key: DuoIdempotencyKey? = nil, body: Data? = nil,
-         status: Int, reply: Data = Data(), call: @escaping (DuoAPIClient) async throws -> Void) {
+         status: Int, reply: Data = Data(), call: @escaping (any DuoTransport) async throws -> Void) {
         self.name = name
         self.method = method
         self.path = path
@@ -573,6 +573,29 @@ final class DuoAPIClientTests: XCTestCase {
         XCTAssertNil(session.requests.first?.value(forHTTPHeaderField: "Authorization"))
     }
 
+    func testAnUnsettledCredentialIsNotAttachedToPeek() async throws {
+        struct UnsettledIdentity: DuoCredentialProviding {
+            let credential: DuoCredential? = Wire.credential
+            var peekCredential: DuoCredential? { nil }
+        }
+        let session = ScriptedSession()
+        session.replies = [ScriptedSession.Reply(status: 200, body: Wire.json(Wire.peek))]
+        let client = DuoAPIClient(baseURL: Wire.base, client: Wire.client, credentials: UnsettledIdentity(),
+                                  attester: ScriptedAttester(supported: false), session: session)
+        _ = try await client.peekInvite(code: "H7K39QWX")
+        XCTAssertEqual(session.requests.count, 1)
+        XCTAssertNil(session.requests.first?.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testExplicitAnonymousPeekCannotFallBackToTheProvidersCredential() async throws {
+        let session = ScriptedSession()
+        session.replies = [ScriptedSession.Reply(status: 200, body: Wire.json(Wire.peek))]
+        let client = makeClient(session)
+        _ = try await client.peekInvite(code: "H7K39QWX", credential: nil)
+        XCTAssertEqual(session.requests.count, 1)
+        XCTAssertNil(session.requests.first?.value(forHTTPHeaderField: "Authorization"))
+    }
+
     func testPeekIsAnonymousWithoutACredentialAndCarriesTheBearerWithOne() async throws {
         let peek = Self.endpoints().first { $0.name == "peekInvite" }!
         for credential in [nil, Wire.credential] {
@@ -793,7 +816,7 @@ final class DuoAPIClientTests: XCTestCase {
             let ok = await failure { try await call(self.makeClient(session)) }
             XCTAssertNil(ok, "\(name): a 204 is the answer")
             let other = await failure { try await call(self.makeClient(session)) }
-            XCTAssertEqual(other as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c-LHR"), "\(name): a 200 is not its answer")
+            XCTAssertEqual(other as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c"), "\(name): a 200 is not its answer")
         }
     }
 
@@ -809,16 +832,16 @@ final class DuoAPIClientTests: XCTestCase {
         ]
         let client = makeClient(session)
         let malformed = await failure { _ = try await client.me() }
-        XCTAssertEqual(malformed as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c-LHR"))
+        XCTAssertEqual(malformed as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c"))
         let html = await failure { _ = try await client.me() }
-        XCTAssertEqual(html as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c-LHR"))
+        XCTAssertEqual(html as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c"))
         let empty = await failure { _ = try await client.rotate(as: Wire.credential) }
         XCTAssertEqual(empty as? DuoTransportError, .unreadable(httpStatus: 200, requestID: nil))
         let wrongStatus = await failure { _ = try await client.createDuo(Wire.createDuo, key: Wire.key(1)) }
-        XCTAssertEqual(wrongStatus as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c-LHR"),
+        XCTAssertEqual(wrongStatus as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "9b1c2d3e4f5a6b7c"),
                        "createDuo answers 201; a 200 is not its answer")
         let accepted = await failure { _ = try await client.pushDayStatuses(duoID: Wire.duo, Wire.putStatuses) }
-        XCTAssertEqual(accepted as? DuoTransportError, .unreadable(httpStatus: 202, requestID: "9b1c2d3e4f5a6b7c-LHR"))
+        XCTAssertEqual(accepted as? DuoTransportError, .unreadable(httpStatus: 202, requestID: "9b1c2d3e4f5a6b7c"))
         let badID = await failure { _ = try await client.createInvite(duoID: Wire.duo, purpose: .invite, key: Wire.key(1)) }
         XCTAssertEqual(badID as? DuoTransportError, .unreadable(httpStatus: 201, requestID: nil), "an id that is not safe to print is dropped")
     }
@@ -833,33 +856,33 @@ final class DuoAPIClientTests: XCTestCase {
             _ = try await $0.createDuo(Wire.createDuo, key: Wire.key(1))
         }
         XCTAssertEqual(pending as? DuoTransportError,
-                       .pendingExists(DuoErrorContext(httpStatus: 409, requestID: "9b1c2d3e4f5a6b7c-LHR",
+                       .pendingExists(DuoErrorContext(httpStatus: 409, requestID: "9b1c2d3e4f5a6b7c",
                                                       details: DuoWireErrorDetails(duoId: "6d2a0000-0000-4000-8000-000000000001"))),
                        "a JSON error keeps its details, read through the envelope's own decoder")
         let banned = await error(Wire.error("banned", status: 403)) { _ = try await $0.me() }
         XCTAssertEqual((banned as? DuoTransportError)?.code, .banned)
         let waf = await error(Wire.html(403)) { _ = try await $0.me() }
-        XCTAssertEqual(waf as? DuoTransportError, .maintenance(DuoErrorContext(httpStatus: 403, requestID: "9b1c-WAF")), "a WAF page is never banned")
+        XCTAssertEqual(waf as? DuoTransportError, .maintenance(DuoErrorContext(httpStatus: 403, requestID: "9b1c2d3e4f5a6b7c")), "a WAF page is never banned")
         let portal = await error(Wire.html(401)) { _ = try await $0.me() }
-        XCTAssertEqual(portal as? DuoTransportError, .maintenance(DuoErrorContext(httpStatus: 401, requestID: "9b1c-WAF")),
+        XCTAssertEqual(portal as? DuoTransportError, .maintenance(DuoErrorContext(httpStatus: 401, requestID: "9b1c2d3e4f5a6b7c")),
                        "D63: a 401 that is not the envelope is a portal or a proxy")
         XCTAssertEqual(DuoRetry.verdict(for: portal!), .retry(after: DuoRetry.fallbackDelay), "so nothing is forgotten")
         let gone = await error(Wire.error("unauthenticated", status: 401)) { _ = try await $0.me() }
         XCTAssertEqual((gone as? DuoTransportError)?.code, .unauthenticated)
         XCTAssertEqual(DuoRetry.verdict(for: gone!), .reidentify, "the server's own 401 still means the identity is gone")
         let limited = await error(Wire.html(429, retryAfter: "30")) { _ = try await $0.sendNudge(duoID: Wire.duo, Wire.nudge) }
-        XCTAssertEqual(limited as? DuoTransportError, .rateLimited(DuoErrorContext(httpStatus: 429, requestID: "9b1c-WAF", retryAfter: 30)))
+        XCTAssertEqual(limited as? DuoTransportError, .rateLimited(DuoErrorContext(httpStatus: 429, requestID: "9b1c2d3e4f5a6b7c", retryAfter: 30)))
         let terms = await error(Wire.error("terms_required", status: 428, details: #"{"terms_version":1}"#)) {
             _ = try await $0.redeemInvite(Wire.redeem, key: Wire.key(1))
         }
         XCTAssertEqual((terms as? DuoTransportError)?.context?.details?.termsVersion, 1)
         let newer = await error(Wire.error("duo_frozen", status: 409)) { _ = try await $0.leave(duoID: Wire.duo, key: Wire.key(1)) }
-        XCTAssertEqual(newer as? DuoTransportError, .unreadable(httpStatus: 409, requestID: "9b1c2d3e4f5a6b7c-LHR"))
+        XCTAssertEqual(newer as? DuoTransportError, .unreadable(httpStatus: 409, requestID: "9b1c2d3e4f5a6b7c"))
         let bodyID = await error(ScriptedSession.Reply(status: 404, headers: ["Content-Type": "application/json"],
                                                        body: Wire.error("duo_unknown", status: 404).body)) {
             _ = try await $0.fetchChanges(duoID: Wire.duo, since: 3)
         }
-        XCTAssertEqual(bodyID as? DuoTransportError, .duoUnknown(DuoErrorContext(httpStatus: 404, requestID: "body-id")),
+        XCTAssertEqual(bodyID as? DuoTransportError, .duoUnknown(DuoErrorContext(httpStatus: 404, requestID: "abcdef0123456789")),
                        "with no X-Request-Id, the body's request_id")
         XCTAssertEqual(DuoRetry.verdict(for: bodyID!), .ended)
     }
@@ -924,7 +947,7 @@ final class DuoAPIClientTests: XCTestCase {
             reply.body = Data("<html>moved</html>".utf8)
             session.replies = [reply]
             let error = await failure { try await self.makeClient(session).block(duoID: Wire.duo, key: Wire.key(1)) }
-            XCTAssertEqual(error as? DuoTransportError, .maintenance(DuoErrorContext(httpStatus: status, requestID: "8a0b1c2d3e4f5a6b-YYZ")),
+            XCTAssertEqual(error as? DuoTransportError, .maintenance(DuoErrorContext(httpStatus: status, requestID: "8a0b1c2d3e4f5a6b")),
                            "\(status): a redirect waits, it is not dropped")
             XCTAssertEqual(session.requests.count, 1, "and is not followed")
         }
@@ -939,15 +962,15 @@ final class DuoAPIClientTests: XCTestCase {
         let envelope = Wire.error("conflict", status: 409).body
         let json = "application/json"
         let fromRay = await error(["Content-Type": json, "CF-Ray": "8a0b1c2d3e4f5a6b-YYZ"], status: 409, body: envelope)
-        XCTAssertEqual((fromRay as? DuoTransportError)?.requestID, "8a0b1c2d3e4f5a6b-YYZ", "no X-Request-Id: the CF-Ray")
+        XCTAssertEqual((fromRay as? DuoTransportError)?.requestID, "8a0b1c2d3e4f5a6b", "no X-Request-Id: the CF-Ray")
         let both = await error(["Content-Type": json, "X-Request-Id": "9b1c2d3e4f5a6b7c-LHR", "CF-Ray": "8a0b1c2d3e4f5a6b-YYZ"], status: 409, body: envelope)
-        XCTAssertEqual((both as? DuoTransportError)?.requestID, "9b1c2d3e4f5a6b7c-LHR")
+        XCTAssertEqual((both as? DuoTransportError)?.requestID, "9b1c2d3e4f5a6b7c")
         let neither = await error(["Content-Type": json], status: 409, body: envelope)
-        XCTAssertEqual((neither as? DuoTransportError)?.requestID, "body-id")
+        XCTAssertEqual((neither as? DuoTransportError)?.requestID, "abcdef0123456789")
         let wafRay = await error(["Content-Type": "text/html", "CF-Ray": "8a0b1c2d3e4f5a6b-YYZ"], status: 403, body: Data("<html/>".utf8))
-        XCTAssertEqual(wafRay as? DuoTransportError, .maintenance(DuoErrorContext(httpStatus: 403, requestID: "8a0b1c2d3e4f5a6b-YYZ")))
+        XCTAssertEqual(wafRay as? DuoTransportError, .maintenance(DuoErrorContext(httpStatus: 403, requestID: "8a0b1c2d3e4f5a6b")))
         let unreadable = await error(["CF-Ray": "8a0b1c2d3e4f5a6b-YYZ"], status: 200, body: Data("{".utf8))
-        XCTAssertEqual(unreadable as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "8a0b1c2d3e4f5a6b-YYZ"))
+        XCTAssertEqual(unreadable as? DuoTransportError, .unreadable(httpStatus: 200, requestID: "8a0b1c2d3e4f5a6b"))
     }
 
     func testATaskCancelledBeforeTheCallSendsNothing() async {
@@ -1344,9 +1367,54 @@ final class DuoAPIClientTests: XCTestCase {
         let observed = DuoObservedSession(base: scripted) { status, id in seen.add(status, id) }
         _ = try await makeClient(observed, attester: ScriptedAttester()).redeemInvite(Wire.redeem, key: Wire.key(8))
         XCTAssertEqual(scripted.requests.count, 5)
-        XCTAssertEqual(seen.all, ["201:9b1c2d3e4f5a6b7c-LHR", "403:9b1c2d3e4f5a6b7c-LHR", "201:9b1c2d3e4f5a6b7c-LHR",
-                                  "403:9b1c2d3e4f5a6b7c-LHR", "201:9b1c2d3e4f5a6b7c-LHR"],
+        XCTAssertEqual(seen.all, ["201:9b1c2d3e4f5a6b7c", "403:9b1c2d3e4f5a6b7c", "201:9b1c2d3e4f5a6b7c",
+                                  "403:9b1c2d3e4f5a6b7c", "201:9b1c2d3e4f5a6b7c"],
                        "every response, each challenge and each attempt, left its request id for Diagnostics")
+    }
+}
+
+extension DuoAPIClientTests {
+    func testAgeRefusalAllowsOnlyDeleteAcrossEveryContractEndpoint() async {
+        for endpoint in Self.endpoints() {
+            let gate = DuoNetworkGate()
+            gate.transition(to: .refused)
+            let session = ScriptedSession()
+            session.replies = [.init(status: endpoint.status, body: endpoint.reply)]
+            let attester = ScriptedAttester()
+            let base = makeClient(DuoAgeGatedSession(base: session, gate: gate,
+                                                    deletionURL: Wire.base.appendingPathComponent("me")),
+                                  attester: DuoAgeGatedAttester(base: attester, gate: gate))
+            let client = DuoAgeGatedTransport(base: base, gate: gate)
+            let error = await failure { try await endpoint.call(client) }
+            if endpoint.name == "deleteMe" {
+                XCTAssertNil(error)
+                XCTAssertEqual(session.requests.count, 1)
+            } else {
+                XCTAssertTrue(error is CancellationError, endpoint.name)
+                XCTAssertTrue(session.requests.isEmpty, endpoint.name)
+            }
+            XCTAssertFalse(attester.log.contains("attestNewKey"), endpoint.name)
+        }
+    }
+
+    func testRefusalWhileChallengeIsOutNeverCallsAppleOrSendsTheWrite() async {
+        let gate = DuoNetworkGate()
+        gate.transition(to: .open)
+        let session = ScriptedSession()
+        let held = HeldSession(session, holding: "/v1/attest/challenge")
+        let attester = ScriptedAttester()
+        let base = makeClient(DuoAgeGatedSession(base: held, gate: gate,
+                                                deletionURL: Wire.base.appendingPathComponent("me")),
+                              attester: DuoAgeGatedAttester(base: attester, gate: gate))
+        let client = DuoAgeGatedTransport(base: base, gate: gate)
+        let work = Task { try await client.createDuo(Wire.createDuo, key: Wire.key(9)) }
+        await held.waitUntilHeld()
+        gate.transition(to: .refused)
+        held.release()
+        do { _ = try await work.value; XCTFail("late challenge escaped") }
+        catch is CancellationError {} catch { XCTFail("unexpected \(error)") }
+        XCTAssertFalse(attester.log.contains("attestNewKey"))
+        XCTAssertEqual(held.started, ["/v1/attest/challenge"])
     }
 }
 #endif

@@ -166,7 +166,12 @@ public struct DuoSecrets: Sendable {
     }
 
     public func isAgeRefused() -> Bool {
-        ((try? store.read(service: Self.ageService, account: Self.ageRefusedAccount)) ?? nil) != nil
+        (try? readAgeRefused()) ?? false
+    }
+
+    /// Consent decisions must distinguish an absent refusal from an unreadable Keychain.
+    public func readAgeRefused() throws -> Bool {
+        try store.read(service: Self.ageService, account: Self.ageRefusedAccount) != nil
     }
 
     /// Only the fact, never the year: a single byte.

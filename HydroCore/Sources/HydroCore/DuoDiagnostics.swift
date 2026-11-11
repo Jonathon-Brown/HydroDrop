@@ -53,9 +53,8 @@ public struct DuoDiagnostics: Codable, Equatable, Sendable {
 
     public static let keepErrors = 5
     public static let keepRequests = 10
-    /// The longest request id kept. The server's is a Cloudflare ray id (about 20 characters);
-    /// anything longer or with other characters in it is not one and is not kept.
-    public static let maximumRequestIDLength = 64
+    /// Sixteen hex characters plus the optional hyphen and three-letter location suffix.
+    public static let maximumRequestIDLength = 20
 
     /// Newest first.
     public var recentErrors: [ErrorRecord]
@@ -110,14 +109,13 @@ public struct DuoDiagnostics: Codable, Equatable, Sendable {
         if recentRequests.count > Self.keepRequests { recentRequests.removeLast(recentRequests.count - Self.keepRequests) }
     }
 
-    /// The id if it is something safe to keep and to print (ASCII letters, digits and `-_.`, of
-    /// a sane length), else nil. Both ways in, a response and a failure, go through this: an id
-    /// taken off a failure's body used to be stored unchecked, and a body is the server's (or
-    /// whatever sits in front of it) to write.
-    static func usableRequestID(_ requestID: String?) -> String? {
-        guard let requestID, !requestID.isEmpty, requestID.count <= maximumRequestIDLength,
-              requestID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".") }) else { return nil }
-        return requestID
+    /// The Worker writes a 16-character lowercase hex ray id, optionally followed by a
+    /// three-letter data-centre code. Keep only the id: arbitrary header text can contain
+    /// names or secrets, and the suffix reveals a location that support does not need (D76).
+    public static func usableRequestID(_ requestID: String?) -> String? {
+        guard let requestID, requestID.utf8.count == 16 || requestID.utf8.count == 20,
+              requestID.range(of: #"^[0-9a-f]{16}(-[A-Z]{3})?$"#, options: .regularExpression) != nil else { return nil }
+        return String(requestID.prefix(16))
     }
 
     public mutating func recordFetch(duoID: UUID, seq: Int64, cursor: Int64, at: Date) {

@@ -87,7 +87,7 @@ final class DuoSystemObservers {
 /// token as a hash (`tokenHash(_:deviceID:)`), and the request itself sits in the op queue only
 /// until it is sent, as every queued request does (§10.1). Nothing here logs anything.
 @MainActor
-final class DuoPushService: DuoPushRegistering {
+final class DuoPushService: DuoPushRegistering, DuoAgeNetworkStopping {
     private let dependencies: DuoDependencies
     private let system: DuoPushSystem
     private var observers: DuoSystemObservers?
@@ -136,7 +136,17 @@ final class DuoPushService: DuoPushRegistering {
 
     // MARK: - DuoPushRegistering
 
+    func stopForAgeNetwork(refused: Bool) {
+        evaluation?.cancel()
+        windowCheck?.cancel()
+        permissionCheck?.cancel()
+        permissionWanted = false
+        awaitingToken = nil
+        nextReason = nil
+    }
+
     func tokenArrived(_ token: Data, environment: DuoAPNsEnvironment) {
+        guard dependencies.ageNetworkAllowed else { return }
         let hex = DuoPushUploadPlan.tokenHex(token)
         guard !hex.isEmpty else { return }
         tokenHex = hex
@@ -156,6 +166,7 @@ final class DuoPushService: DuoPushRegistering {
     }
 
     func reevaluate(_ reason: DuoPushUploadReason) {
+        guard dependencies.ageNetworkAllowed else { return }
         // The prompt belongs to the moment a duo exists (a Create, Join or Reconnect tap that
         // worked, a Continue on the restore question) and to the moment the person turns Duo's
         // notifications on; someone whose toggle was off when their duo started would otherwise
@@ -173,6 +184,7 @@ final class DuoPushService: DuoPushRegistering {
     }
 
     func noLiveDuoRemains() {
+        guard dependencies.ageNetworkAllowed else { return }
         guard let host, !Self.isShutOut(host.availability), !Self.hasLiveDuo(host),
               let credential = dependencies.identity?.credential, let ops = dependencies.ops else { return }
         let last = Self.lastPushOp(in: ops.pending)
@@ -275,6 +287,7 @@ final class DuoPushService: DuoPushRegistering {
     // MARK: - Evaluating
 
     private func evaluate(_ reason: DuoPushUploadReason) async {
+        guard dependencies.ageNetworkAllowed else { return }
         let askForPermission = permissionWanted
         permissionWanted = false
         guard let host, !Self.isShutOut(host.availability), let identity = dependencies.identity, identity.credential != nil else { return }
@@ -287,7 +300,7 @@ final class DuoPushService: DuoPushRegistering {
         // A wipe, a forgotten identity, the last duo ending or the server shutting this phone out
         // while the launch answer was being worked out: whatever this was going to do is no longer
         // wanted. The host is read again, since the store may be gone by now (a test's).
-        guard let host = self.host, host.wipeEpoch == epoch, !Self.isShutOut(host.availability), Self.hasLiveDuo(host),
+        guard dependencies.ageNetworkAllowed, !Task.isCancelled, let host = self.host, host.wipeEpoch == epoch, !Self.isShutOut(host.availability), Self.hasLiveDuo(host),
               let credential = identity.credential else { return }
         // Its own task: asking iOS whether it has asked is an `await`, and nothing may wait between
         // the checks above and the upload below. It checks again after that `await`.
@@ -304,12 +317,14 @@ final class DuoPushService: DuoPushRegistering {
     /// turned Duo's notifications off or whom iOS has already asked (an answer is final there, and
     /// the reminders' own request would reschedule them for nothing).
     private func askForPermissionIfNeverAsked() async {
+        guard dependencies.ageNetworkAllowed else { return }
         guard dependencies.cache.notificationsEnabled, await system.permissionUndetermined() else { return }
-        guard let host, Self.hasLiveDuo(host), dependencies.identity?.credential != nil, dependencies.cache.notificationsEnabled else { return }
+        guard dependencies.ageNetworkAllowed, !Task.isCancelled, let host, Self.hasLiveDuo(host), dependencies.identity?.credential != nil, dependencies.cache.notificationsEnabled else { return }
         system.requestNotificationPermission()
     }
 
     private func upload(_ reason: DuoPushUploadReason, token: String, environment: DuoAPNsEnvironment, as credential: DuoCredential) async {
+        guard dependencies.ageNetworkAllowed else { return }
         guard let ops = dependencies.ops, let host else { return }
         let window = dependencies.wakingWindow()
         observedWindow = [window.start, window.end]

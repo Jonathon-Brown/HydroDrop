@@ -19,7 +19,7 @@ final class DuoErrorClassifierTests: XCTestCase {
     private let html = "text/html; charset=UTF-8"
     private let waf = Data("<!DOCTYPE html><html><body>Sorry, you have been blocked</body></html>".utf8)
 
-    private func envelope(_ code: String, details: String? = nil, retryAfterS: String? = nil, requestID: String? = "body-id") -> Data {
+    private func envelope(_ code: String, details: String? = nil, retryAfterS: String? = nil, requestID: String? = "abcdef0123456789") -> Data {
         var fields = [#""code":"\#(code)""#, #""message":"for logs""#]
         if let details { fields.append(#""details":\#(details)"#) }
         if let retryAfterS { fields.append(#""retry_after_s":\#(retryAfterS)"#) }
@@ -43,8 +43,8 @@ final class DuoErrorClassifierTests: XCTestCase {
         XCTAssertEqual(Set(Self.contractStatuses.keys), Set(DuoErrorCode.allCases), "every code of the contract has its statuses here")
         for code in DuoErrorCode.allCases {
             for status in Self.contractStatuses[code] ?? [] {
-                let error = classify(status, retryAfter: "45", requestID: "hdr-1", envelope(code.rawValue, details: #"{"max":5}"#))
-                XCTAssertEqual(error, DuoTransportError(code: code, context: DuoErrorContext(httpStatus: status, requestID: "hdr-1",
+                let error = classify(status, retryAfter: "45", requestID: "1234567890abcdef", envelope(code.rawValue, details: #"{"max":5}"#))
+                XCTAssertEqual(error, DuoTransportError(code: code, context: DuoErrorContext(httpStatus: status, requestID: "1234567890abcdef",
                                                                                               retryAfter: 45, details: DuoWireErrorDetails(max: 5))),
                                "\(code.rawValue) at \(status)")
                 XCTAssertEqual(error.code, code)
@@ -57,7 +57,7 @@ final class DuoErrorClassifierTests: XCTestCase {
         XCTAssertEqual(error.context?.details?.duoId, "6d2a0000-0000-4000-8000-000000000001", "a lost create is adopted by this id")
         XCTAssertEqual(error.context?.details?.activeDuos, 1)
         XCTAssertEqual(error.context?.details?.max, 5)
-        XCTAssertEqual(error.requestID, "body-id")
+        XCTAssertEqual(error.requestID, "abcdef0123456789")
         let terms = classify(428, envelope("terms_required", details: #"{"terms_version":2}"#))
         XCTAssertEqual(terms.context?.details?.termsVersion, 2)
         let upgrade = classify(426, envelope("upgrade_required", details: #"{"min_version":"2.0"}"#))
@@ -75,16 +75,16 @@ final class DuoErrorClassifierTests: XCTestCase {
     }
 
     func testTheRequestIDHeaderBeatsTheBodysAndAnUnusableOneFallsBackToIt() {
-        XCTAssertEqual(classify(409, requestID: "9b1c2d3e4f5a6b7c-LHR", envelope("conflict", requestID: "body-id")).requestID, "9b1c2d3e4f5a6b7c-LHR")
-        XCTAssertEqual(classify(409, envelope("conflict", requestID: "body-id")).requestID, "body-id")
-        XCTAssertEqual(classify(409, requestID: "has spaces <and> tags", envelope("conflict", requestID: "body-id")).requestID, "body-id",
+        XCTAssertEqual(classify(409, requestID: "9b1c2d3e4f5a6b7c-LHR", envelope("conflict", requestID: "abcdef0123456789")).requestID, "9b1c2d3e4f5a6b7c")
+        XCTAssertEqual(classify(409, envelope("conflict", requestID: "abcdef0123456789")).requestID, "abcdef0123456789")
+        XCTAssertEqual(classify(409, requestID: "has spaces <and> tags", envelope("conflict", requestID: "abcdef0123456789")).requestID, "abcdef0123456789",
                        "a header that could not be printed safely does not hide the body's id")
-        XCTAssertEqual(classify(409, requestID: "", envelope("conflict", requestID: "body-id")).requestID, "body-id")
+        XCTAssertEqual(classify(409, requestID: "", envelope("conflict", requestID: "abcdef0123456789")).requestID, "abcdef0123456789")
         XCTAssertNil(classify(409, envelope("conflict", requestID: String(repeating: "a", count: DuoDiagnostics.maximumRequestIDLength + 1))).requestID,
                      "an absurd id is kept nowhere")
         XCTAssertNil(classify(409, envelope("conflict", requestID: nil)).requestID)
-        XCTAssertEqual(classify(403, html, requestID: "9b1c-LHR", waf).requestID, "9b1c-LHR", "a WAF page keeps the header's id")
-        XCTAssertEqual(classify(404, html, requestID: "9b1c-LHR", waf), .unreadable(httpStatus: 404, requestID: "9b1c-LHR"))
+        XCTAssertEqual(classify(403, html, requestID: "9b1c2d3e4f5a6b7c", waf).requestID, "9b1c2d3e4f5a6b7c", "a WAF page keeps the header's id")
+        XCTAssertEqual(classify(404, html, requestID: "9b1c2d3e4f5a6b7c", waf), .unreadable(httpStatus: 404, requestID: "9b1c2d3e4f5a6b7c"))
     }
 
     func testJunkAndNegativeRetryAfterValuesAreIgnored() {
@@ -104,18 +104,18 @@ final class DuoErrorClassifierTests: XCTestCase {
     }
 
     func testAnUnknownJSONCodeIsUnreadableOrMaintenanceByItsStatus() {
-        XCTAssertEqual(classify(409, requestID: "r-1", envelope("duo_frozen")), .unreadable(httpStatus: 409, requestID: "r-1"))
-        XCTAssertEqual(classify(502, retryAfter: "10", requestID: "r-1", envelope("duo_frozen")),
-                       .maintenance(DuoErrorContext(httpStatus: 502, requestID: "r-1", retryAfter: 10)))
-        XCTAssertEqual(classify(401, requestID: "r-1", envelope("token_expired")), .unreadable(httpStatus: 401, requestID: "r-1"),
+        XCTAssertEqual(classify(409, requestID: "0123456789abcdef", envelope("duo_frozen")), .unreadable(httpStatus: 409, requestID: "0123456789abcdef"))
+        XCTAssertEqual(classify(502, retryAfter: "10", requestID: "0123456789abcdef", envelope("duo_frozen")),
+                       .maintenance(DuoErrorContext(httpStatus: 502, requestID: "0123456789abcdef", retryAfter: 10)))
+        XCTAssertEqual(classify(401, requestID: "0123456789abcdef", envelope("token_expired")), .unreadable(httpStatus: 401, requestID: "0123456789abcdef"),
                        "a 401 with a code this build does not know forgets nothing")
         XCTAssertEqual(DuoRetry.verdict(for: classify(401, envelope("token_expired"))), .fail)
-        XCTAssertEqual(classify(429, envelope("slow_down")), .rateLimited(DuoErrorContext(httpStatus: 429, requestID: "body-id", retryAfter: 60)),
+        XCTAssertEqual(classify(429, envelope("slow_down")), .rateLimited(DuoErrorContext(httpStatus: 429, requestID: "abcdef0123456789", retryAfter: 60)),
                        "a 429 is a rate limit whatever its code: a newer server's is waited out, a minute when it says nothing")
         XCTAssertEqual(classify(429, retryAfter: "15", envelope("slow_down", retryAfterS: "20")).context?.retryAfter, 15)
         XCTAssertEqual(classify(429, envelope("slow_down", retryAfterS: "20")).context?.retryAfter, 20)
         XCTAssertEqual(DuoRetry.verdict(for: classify(429, envelope("slow_down"))), .retry(after: DuoRetry.fallbackDelay))
-        XCTAssertEqual(classify(413, envelope("too_big")), .unreadable(httpStatus: 413, requestID: "body-id"),
+        XCTAssertEqual(classify(413, envelope("too_big")), .unreadable(httpStatus: 413, requestID: "abcdef0123456789"),
                        "outside 429 and 5xx an unknown code is still unreadable")
         XCTAssertEqual(classify(500, envelope("UNAUTHENTICATED")).code, .maintenance, "codes are matched exactly, never re-cased")
     }
@@ -129,18 +129,18 @@ final class DuoErrorClassifierTests: XCTestCase {
         XCTAssertEqual(classify(409, envelope("duo_ended")).code, .duoEnded)
         // Anywhere else: the status alone decides, keeping the envelope's id and delay.
         let rows: [(String, Int, DuoTransportError)] = [
-            ("unauthenticated", 403, .maintenance(DuoErrorContext(httpStatus: 403, requestID: "body-id", retryAfter: 30))),
-            ("unauthenticated", 400, .unreadable(httpStatus: 400, requestID: "body-id")),
-            ("unauthenticated", 500, .maintenance(DuoErrorContext(httpStatus: 500, requestID: "body-id", retryAfter: 30))),
-            ("device_revoked", 503, .maintenance(DuoErrorContext(httpStatus: 503, requestID: "body-id", retryAfter: 30))),
-            ("device_revoked", 409, .unreadable(httpStatus: 409, requestID: "body-id")),
-            ("banned", 500, .maintenance(DuoErrorContext(httpStatus: 500, requestID: "body-id", retryAfter: 30))),
-            ("banned", 401, .maintenance(DuoErrorContext(httpStatus: 401, requestID: "body-id", retryAfter: 30))),
-            ("banned", 429, .rateLimited(DuoErrorContext(httpStatus: 429, requestID: "body-id", retryAfter: 30))),
-            ("duo_unknown", 409, .unreadable(httpStatus: 409, requestID: "body-id")),
-            ("duo_unknown", 410, .unreadable(httpStatus: 410, requestID: "body-id")),
-            ("duo_ended", 404, .unreadable(httpStatus: 404, requestID: "body-id")),
-            ("duo_ended", 502, .maintenance(DuoErrorContext(httpStatus: 502, requestID: "body-id", retryAfter: 30))),
+            ("unauthenticated", 403, .maintenance(DuoErrorContext(httpStatus: 403, requestID: "abcdef0123456789", retryAfter: 30))),
+            ("unauthenticated", 400, .unreadable(httpStatus: 400, requestID: "abcdef0123456789")),
+            ("unauthenticated", 500, .maintenance(DuoErrorContext(httpStatus: 500, requestID: "abcdef0123456789", retryAfter: 30))),
+            ("device_revoked", 503, .maintenance(DuoErrorContext(httpStatus: 503, requestID: "abcdef0123456789", retryAfter: 30))),
+            ("device_revoked", 409, .unreadable(httpStatus: 409, requestID: "abcdef0123456789")),
+            ("banned", 500, .maintenance(DuoErrorContext(httpStatus: 500, requestID: "abcdef0123456789", retryAfter: 30))),
+            ("banned", 401, .maintenance(DuoErrorContext(httpStatus: 401, requestID: "abcdef0123456789", retryAfter: 30))),
+            ("banned", 429, .rateLimited(DuoErrorContext(httpStatus: 429, requestID: "abcdef0123456789", retryAfter: 30))),
+            ("duo_unknown", 409, .unreadable(httpStatus: 409, requestID: "abcdef0123456789")),
+            ("duo_unknown", 410, .unreadable(httpStatus: 410, requestID: "abcdef0123456789")),
+            ("duo_ended", 404, .unreadable(httpStatus: 404, requestID: "abcdef0123456789")),
+            ("duo_ended", 502, .maintenance(DuoErrorContext(httpStatus: 502, requestID: "abcdef0123456789", retryAfter: 30))),
         ]
         for (code, status, expected) in rows {
             let error = classify(status, envelope(code, retryAfterS: "30"))
@@ -159,15 +159,15 @@ final class DuoErrorClassifierTests: XCTestCase {
     }
 
     func testTheHeadersRequestIDIsXRequestIdElseCFRay() {
-        XCTAssertEqual(DuoErrorClassifier.headerRequestID(xRequestID: "9b1c2d3e4f5a6b7c-LHR", cfRay: "aaaa-YYZ"), "9b1c2d3e4f5a6b7c-LHR")
-        XCTAssertEqual(DuoErrorClassifier.headerRequestID(xRequestID: nil, cfRay: "8a0b1c2d3e4f5a6b-YYZ"), "8a0b1c2d3e4f5a6b-YYZ")
-        XCTAssertEqual(DuoErrorClassifier.headerRequestID(xRequestID: "bad id <x>", cfRay: "8a0b1c2d3e4f5a6b-YYZ"), "8a0b1c2d3e4f5a6b-YYZ",
+        XCTAssertEqual(DuoErrorClassifier.headerRequestID(xRequestID: "9b1c2d3e4f5a6b7c-LHR", cfRay: "aaaa-YYZ"), "9b1c2d3e4f5a6b7c")
+        XCTAssertEqual(DuoErrorClassifier.headerRequestID(xRequestID: nil, cfRay: "8a0b1c2d3e4f5a6b-YYZ"), "8a0b1c2d3e4f5a6b")
+        XCTAssertEqual(DuoErrorClassifier.headerRequestID(xRequestID: "bad id <x>", cfRay: "8a0b1c2d3e4f5a6b-YYZ"), "8a0b1c2d3e4f5a6b",
                        "an unusable X-Request-Id does not hide a usable CF-Ray")
         XCTAssertNil(DuoErrorClassifier.headerRequestID(xRequestID: nil, cfRay: "has spaces"))
         XCTAssertNil(DuoErrorClassifier.headerRequestID(xRequestID: nil, cfRay: nil))
         let fromRay = DuoErrorClassifier.headerRequestID(xRequestID: nil, cfRay: "8a0b1c2d3e4f5a6b-YYZ")
-        XCTAssertEqual(classify(403, html, requestID: fromRay, waf).requestID, "8a0b1c2d3e4f5a6b-YYZ", "a WAF page's CF-Ray is quoted")
-        XCTAssertEqual(classify(409, requestID: fromRay, envelope("conflict", requestID: "body-id")).requestID, "8a0b1c2d3e4f5a6b-YYZ",
+        XCTAssertEqual(classify(403, html, requestID: fromRay, waf).requestID, "8a0b1c2d3e4f5a6b", "a WAF page's CF-Ray is quoted")
+        XCTAssertEqual(classify(409, requestID: fromRay, envelope("conflict", requestID: "abcdef0123456789")).requestID, "8a0b1c2d3e4f5a6b",
                        "the headers' id still comes before the body's")
     }
 
@@ -185,7 +185,7 @@ final class DuoErrorClassifierTests: XCTestCase {
     // MARK: - Anything else, by status alone
 
     func testAPageThatIsNotTheEnvelopeIsClassifiedByItsStatusAlone() {
-        XCTAssertEqual(classify(401, html, requestID: "r", waf), .maintenance(DuoErrorContext(httpStatus: 401, requestID: "r")),
+        XCTAssertEqual(classify(401, html, requestID: "0123456789abcdef", waf), .maintenance(DuoErrorContext(httpStatus: 401, requestID: "0123456789abcdef")),
                        "D63: a bare 401 is a captive portal or a proxy, not a gone identity")
         XCTAssertEqual(classify(403, html, waf), .maintenance(DuoErrorContext(httpStatus: 403)), "a WAF page is never banned")
         XCTAssertEqual(classify(503, html, retryAfter: "120", waf), .maintenance(DuoErrorContext(httpStatus: 503, retryAfter: 120)))

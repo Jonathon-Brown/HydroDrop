@@ -119,7 +119,7 @@ final class DuoExitServiceTests: XCTestCase {
     }
 
     private func failure(_ code: DuoErrorCode, status: Int) -> DuoTransportError {
-        DuoTransportError(code: code, context: DuoErrorContext(httpStatus: status, requestID: "req-1"))
+        DuoTransportError(code: code, context: DuoErrorContext(httpStatus: status, requestID: "0123456789abcdef"))
     }
 
     private func memberInfo() -> DuoMemberInfo {
@@ -180,7 +180,7 @@ final class DuoExitServiceTests: XCTestCase {
         store.notificationsEnabled = false
         cache.inviteMomentDismissed = true
         cache.goalRaiseNoticeShown = true
-        XCTAssertEqual(store.recordBirthYear(1990, now: now), .allowed)
+        XCTAssertEqual(store.recordBirthYear(1990, month: 1, now: now), .allowed)
         // The Keychain: the credential and marker, this duo's link secret, a link secret for a duo
         // that left the cache by another route, this device's attestation key, another device's,
         // and a pending one.
@@ -203,7 +203,12 @@ final class DuoExitServiceTests: XCTestCase {
     private func assertWiped(_ rig: Rig, ageForgotten: Bool = false, file: StaticString = #filePath, line: UInt = #line) {
         let store = rig.store
         let kit = rig.kit
-        XCTAssertEqual(duoKeys(kit.defaults), Set(DuoCache.keptKeys), "on disk, exactly the keys a wipe keeps", file: file, line: line)
+        // This fixture explicitly confirmed month/year, which removes the optional pending
+        // recheck marker. A wipe preserves existing kept keys; it does not manufacture that flag.
+        let expectedKeptKeys = Set(DuoCache.keptKeys).subtracting([DuoCache.ageRecheckKey])
+        XCTAssertEqual(duoKeys(kit.defaults), expectedKeptKeys, "on disk, exactly the seeded keys a wipe keeps", file: file, line: line)
+        XCTAssertNil(kit.defaults.object(forKey: DuoCache.ageRecheckKey), "confirmation removed pending recheck", file: file, line: line)
+        XCTAssertTrue(kit.dependencies.cache.hasCurrentAgePolicy, "the confirmed policy survives the identity wipe", file: file, line: line)
         XCTAssertEqual(kit.secretStore.accounts(service: DuoSecrets.service), [],
                        "every Keychain item of Duo's service, orphans included", file: file, line: line)
         XCTAssertTrue(store.duos.isEmpty, file: file, line: line)
@@ -533,7 +538,7 @@ final class DuoExitServiceTests: XCTestCase {
         // a later 401 finishes the wipe from, and none says the duo "will catch up" (nothing is queued).
         let cases: [(DuoTransportError, String)] = [
             (.offline, "No connection right now. Try again in a bit."),
-            (failure(.maintenance, status: 503), "That did not work. Please try again. (ref req-1)"),
+            (failure(.maintenance, status: 503), "That did not work. Please try again. (ref 0123456789abcdef)"),
             (failure(.rateLimited, status: 429), "Too many tries. Wait a bit and try again."),
             (.unreadable(httpStatus: 200, requestID: nil), "That did not work. Please try again."),
         ]
@@ -723,7 +728,7 @@ final class DuoExitServiceTests: XCTestCase {
     func testStartFreshOnTheRestoreQuestionTakesAnAllowedAgeBackButAnOrdinaryOneDoesNot() throws {
         // A backup carries the age answer to another person's phone: "Not me, start fresh" must ask again.
         let restoring = makeRig()
-        XCTAssertEqual(restoring.store.recordBirthYear(1990, now: restoring.kit.clock.now), .allowed)
+        XCTAssertEqual(restoring.store.recordBirthYear(1990, month: 1, now: restoring.kit.clock.now), .allowed)
         restoring.store.availability = .needsRestoreChoice(DuoRestorePrompt(partnerName: "Sam", myName: "Jo"))
         restoring.exits.startFresh()
         XCTAssertEqual(restoring.store.ageStatus, .unknown)
@@ -731,7 +736,7 @@ final class DuoExitServiceTests: XCTestCase {
 
         // The same person starting fresh (no restore question) keeps the answer.
         let same = makeRig()
-        XCTAssertEqual(same.store.recordBirthYear(1990, now: same.kit.clock.now), .allowed)
+        XCTAssertEqual(same.store.recordBirthYear(1990, month: 1, now: same.kit.clock.now), .allowed)
         same.exits.startFresh()
         XCTAssertEqual(same.store.ageStatus, .allowed)
     }

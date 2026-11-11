@@ -208,7 +208,8 @@ final class DuoOpQueueTests: XCTestCase {
             }
             let failure = error(code, status: status)
             XCTAssertEqual(DuoOpQueue.disposition(for: leaveOp, error: failure), onLeave, "\(code.rawValue) at \(status) on a leave")
-            XCTAssertEqual(DuoOpQueue.disposition(for: blockOp, error: failure), onLeave, "\(code.rawValue) at \(status) on a block")
+            XCTAssertEqual(DuoOpQueue.disposition(for: blockOp, error: failure),
+                           [.duoUnknown, .duoEnded].contains(code) ? .drop : onLeave, "\(code.rawValue) at \(status) on a block")
             XCTAssertEqual(DuoOpQueue.disposition(for: renameOp, error: failure), onRename ?? onLeave, "\(code.rawValue) at \(status) on a rename")
         }
     }
@@ -316,11 +317,11 @@ final class DuoOpQueueTests: XCTestCase {
                                               error: DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "x"))), .drop)
     }
 
-    func testTheEndedCodesAreDoneOnlyForALeaveOrABlock() throws {
+    func testTheEndedCodesAreDoneOnlyForALeave() throws {
         for code in [DuoErrorCode.duoUnknown, .duoEnded] {
             let status = code == .duoUnknown ? 404 : 409
             XCTAssertEqual(DuoOpQueue.disposition(for: try leave(), error: error(code, status: status)), .done)
-            XCTAssertEqual(DuoOpQueue.disposition(for: try block(), error: error(code, status: status)), .done)
+            XCTAssertEqual(DuoOpQueue.disposition(for: try block(), error: error(code, status: status)), .drop)
             XCTAssertEqual(DuoOpQueue.disposition(for: try push(), error: error(code, status: status)), .drop)
             XCTAssertEqual(DuoOpQueue.disposition(for: DuoQueuedOp.unregisterPush(key: "u", now: now), error: error(code, status: status)), .drop)
         }

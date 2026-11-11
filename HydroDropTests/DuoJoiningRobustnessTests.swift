@@ -253,9 +253,9 @@ fileprivate enum RF {
     }
     static var pendingInvite: DuoPendingInvite { DuoPendingInvite(code: "H7K39QWX", k: k, receivedAt: now) }
     static func ctx(_ status: Int, _ details: DuoWireErrorDetails? = nil) -> DuoErrorContext {
-        DuoErrorContext(httpStatus: status, requestID: "req-1", details: details)
+        DuoErrorContext(httpStatus: status, requestID: "0123456789abcdef", details: details)
     }
-    static let general = "That did not work. Please try again. (ref req-1)"
+    static let general = "That did not work. Please try again. (ref 0123456789abcdef)"
     static let joiningPaused = "Joining is paused for a few minutes. Try again soon."
     static let servicePaused = "HydroDrop's duo service is not available right now. Your duo will catch up when it is."
     static let offline = "No connection right now. Try again in a bit."
@@ -276,7 +276,7 @@ fileprivate struct RHarness {
     init(credential: DuoCredential? = nil, subscribed: Bool = true) {
         let kit = DuoTestKit(credential: credential, isSubscribed: subscribed)
         if credential != nil { kit.identity.launch = .ready }
-        kit.dependencies.cache.ageStatus = .allowed
+        kit.dependencies.cache.recordConfirmedAgeStatus(.allowed)
         kit.dependencies.cache.acceptedTermsVersion = DuoProtocolConstants.termsVersion
         kit.store.latest = RF.log
         let service = DuoJoiningService(dependencies: kit.dependencies)
@@ -345,7 +345,7 @@ fileprivate final class RRealPhone {
 
     static func consent(_ defaults: UserDefaults) {
         let cache = DuoCache(defaults: defaults)
-        cache.ageStatus = .allowed
+        cache.recordConfirmedAgeStatus(.allowed)
         cache.acceptedTermsVersion = DuoProtocolConstants.termsVersion
     }
 }
@@ -1744,7 +1744,7 @@ fileprivate final class IdemWorld {
         let yesterday = DayKey.key(for: clock.now.addingTimeInterval(-86400), calendar: clock.calendar)
         log = DuoLogSummary(totalsByDay: [today: 900, yesterday: 2100], goalML: 2000, earliestEntryDay: "2026-01-01")
         let cache = DuoCache(defaults: defaults)
-        cache.ageStatus = .allowed
+        cache.recordConfirmedAgeStatus(.allowed)
         cache.acceptedTermsVersion = DuoProtocolConstants.termsVersion
         launch()
     }

@@ -392,6 +392,17 @@ final class DuoIdentityTests: XCTestCase {
         rig.assertNothingAttestedOrChecked()
     }
 
+    func testPeekReadsOnlyAnAlreadySettledCredential() async throws {
+        let rig = rig()
+        try rig.holdCredential(marker: true, settled: true)
+        XCTAssertNil(rig.identity.peekCredential, "preview cannot start launch or read Keychain")
+        XCTAssertTrue(rig.transport.calls.isEmpty)
+        _ = await rig.identity.prepare()
+        XCTAssertEqual(rig.identity.peekCredential, DuoFixtures.credential())
+        rig.identity.discard()
+        XCTAssertNil(rig.identity.peekCredential)
+    }
+
     func testACredentialItsMarkerAndASettledInstallIsReadyAndSendsNothing() async throws {
         let rig = rig()
         try rig.holdCredential(marker: true, settled: true)
@@ -745,6 +756,8 @@ final class DuoIdentityTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let cache = DuoCache(defaults: defaults)
+        // The restore has already passed the current age check; this test observes save order.
+        cache.recordConfirmedAgeStatus(.allowed)
         var settledAtEachSave: [Bool] = []
         let store = DuoStore(cache: cache, usesServer: true, reloadWidget: { settledAtEachSave.append(FileManager.default.fileExists(atPath: settledPath)) })
         let transport = FakeDuoTransport()
@@ -871,13 +884,11 @@ final class DuoIdentityTests: XCTestCase {
         XCTAssertEqual(rig.kit.store.availability, .maintenance)
     }
 
-    func testAnUnknownIdentityIsForgottenWithEveryItemUnderItsServiceButNotTheAgeRefusal() async throws {
+    func testAnUnknownIdentityIsForgottenWithEveryItemUnderItsService() async throws {
         let rig = rig()
         try rig.holdCredential(marker: false)
-        // Restored with the credential: a link secret for a duo the cache does not hold, and the
-        // age refusal, which is not the identity's.
+        // Restored with the credential: a link secret for a duo the cache does not hold.
         try rig.secrets.saveLinkSecret("ABCDEFGHJKMNPQRSTVWXYZ0123", forDuo: otherDuoID)
-        try rig.secrets.markAgeRefused()
         rig.kit.attester.keys = [DuoFixtures.credential().deviceID]
         rig.transport.onRotate = { throw self.failure(.unauthenticated, status: 401) }
 
@@ -887,7 +898,6 @@ final class DuoIdentityTests: XCTestCase {
         XCTAssertNil(rig.identity.credential)
         XCTAssertTrue(rig.kit.secretStore.accounts(service: DuoSecrets.service).isEmpty,
                       "the restored link secret goes too: nothing under the service belongs to a live identity")
-        XCTAssertTrue(rig.secrets.isAgeRefused(), "the refusal is under its own service and stays (D60)")
         XCTAssertTrue(rig.kit.attester.keys.isEmpty, "the attestation key belonged to the device the server forgot")
         let again = await rig.identity.prepare()
         XCTAssertEqual(again, DuoIdentityLaunch.none)
@@ -903,6 +913,28 @@ final class DuoIdentityTests: XCTestCase {
         XCTAssertEqual(lateAnswer, DuoIdentityLaunch.none)
         XCTAssertTrue(late.kit.secretStore.accounts(service: DuoSecrets.service).isEmpty,
                       "the rotated secret, the marker and the link secret do not survive an identity the server forgot")
+    }
+
+    func testRefusalStopsIdentityResolutionAndPreservesTheCredentialForDeletion() async throws {
+        let rig = rig()
+        try rig.holdCredential(marker: false)
+        try rig.secrets.saveLinkSecret("ABCDEFGHJKMNPQRSTVWXYZ0123", forDuo: otherDuoID)
+        try rig.secrets.markAgeRefused()
+        rig.kit.attester.keys = [DuoFixtures.credential().deviceID]
+        rig.transport.onRotate = { throw self.failure(.unauthenticated, status: 401) }
+
+        let answer = await rig.identity.prepare()
+        XCTAssertEqual(answer, .unavailable)
+        XCTAssertTrue(rig.transport.calls.isEmpty, "D81 permits no rotation after refusal")
+        XCTAssertEqual(rig.identity.credential, DuoFixtures.credential(), "DELETE still needs the held credential")
+        XCTAssertNotNil(rig.secrets.linkSecret(forDuo: otherDuoID))
+        XCTAssertTrue(rig.secrets.isAgeRefused())
+        XCTAssertEqual(rig.kit.attester.keys, [DuoFixtures.credential().deviceID])
+
+        // A local identity wipe remains available and cannot lift the independent age refusal.
+        rig.identity.discard()
+        XCTAssertNil(rig.identity.credential)
+        XCTAssertTrue(rig.secrets.isAgeRefused())
     }
 
     func testARevokedDeviceIsTheDisconnectedQuestion() async throws {
@@ -1169,6 +1201,9 @@ final class DuoIdentityTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let cache = DuoCache(defaults: defaults)
+        // This fixture isolates identity ordering after explicit age consent. Legacy policy
+        // migration is exercised separately and must not suppress the race this test arranges.
+        cache.recordConfirmedAgeStatus(.allowed)
         let store = DuoStore(cache: cache, usesServer: true, reloadWidget: onSave)
         let transport = FakeDuoTransport()
         let dependencies = DuoDependencies(host: store, cache: cache, secrets: DuoSecrets(store: DuoMemorySecretStore()), clock: TestClock(),
@@ -1621,6 +1656,9 @@ final class DuoIdentityTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let cache = DuoCache(defaults: defaults)
+        // This fixture isolates identity ordering after explicit age consent. Legacy policy
+        // migration is exercised separately and must not suppress the race this test arranges.
+        cache.recordConfirmedAgeStatus(.allowed)
         let store = DuoStore(cache: cache, usesServer: true, reloadWidget: onSave)
         let fake = FakeDuoTransport()
         let gated = BGatedTransport(fake)
@@ -1802,7 +1840,7 @@ final class DuoIdentityTests: XCTestCase {
         let store = DuoComposition.makeLiveStore(session: session, secretStore: secretStore, cache: DuoCache(defaults: defaults),
                                                  attester: attester, deviceCheck: deviceCheck, identityDirectory: identityFolder)
         let identity = try? XCTUnwrap(store.dependencies?.identity)
-        XCTAssertTrue(identity is DuoIdentity, "the real identity is the one wired in")
+        XCTAssertTrue(identity is DuoRecoveryIdentity, "the contract 1.1 identity is the one wired in")
 
         let answer = await identity?.prepare()
         for _ in 0..<50 { await Task.yield() }
@@ -1840,5 +1878,22 @@ fileprivate final class BAccounts: @unchecked Sendable {
     private var accounts: [String]?
     var value: [String]? { lock.lock(); defer { lock.unlock() }; return accounts }
     func set(_ new: [String]) { lock.lock(); accounts = new; lock.unlock() }
+}
+
+extension DuoIdentityTests {
+    func testRefusalDuringDispatchedRotationKeepsDeletionCredentialWithoutFetchingMe() async throws {
+        let rig = rig()
+        try rig.holdCredential(marker: false)
+        let cache = rig.kit.dependencies.cache
+        rig.transport.onRotate = {
+            cache.ageStatus = .refused
+            return self.rotated()
+        }
+        let answer = await rig.identity.prepare()
+        XCTAssertEqual(answer, .unavailable)
+        XCTAssertEqual(rig.transport.calls, [.rotate])
+        XCTAssertEqual(rig.secrets.credential()?.deviceSecret, newSecret,
+                       "already-dispatched rotate's only secret remains available for DELETE")
+    }
 }
 #endif

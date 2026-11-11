@@ -187,6 +187,46 @@ final class DuoKeychainTests: XCTestCase {
         #endif
     }
 
+    func testRecoveryJournalUsesDeviceOnlyAtomicRecordAndConfirmedPortableMirror() throws {
+        let wiped = makeService()
+        let lifecycle = makeService(".lifecycle")
+        let age = makeService(".age")
+        let mapped = BServiceMappingStore(base: store, map: [DuoSecrets.service: wiped,
+            DuoRecoveryJournal.tombstoneService: lifecycle, DuoSecrets.ageService: age])
+        let journal = DuoRecoveryJournal(store: mapped, environment: .staging)
+        var record = DuoRecoveryRecord(environment: .staging, installationID: UUID().uuidString.lowercased(), phase: .active)
+        record.active = DuoJournalCredential(DuoFixtures.credential()); record.activeRole = .established
+        try journal.replace(record, expectedRevision: nil); try journal.writeMirror(record); try journal.writeMarker(record)
+        XCTAssertEqual(try DuoRecoveryJournal(store: mapped, environment: .staging).read(), record)
+        for account in [journal.recordAccount, journal.markerAccount] {
+            let item = try XCTUnwrap(attributes(service: wiped, account: account))
+            XCTAssertEqual(item[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+            XCTAssertFalse((item[kSecAttrSynchronizable as String] as? NSNumber)?.boolValue ?? false)
+        }
+        let mirrorItem = try XCTUnwrap(attributes(service: wiped, account: journal.mirrorAccount))
+        XCTAssertEqual(mirrorItem[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlock as String)
+        let candidate = Data(repeating: 7, count: 32).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        var pending = DuoRecoveryPending(kind: .rotation, operationID: UUID().uuidString.lowercased(), candidateSecret: candidate,
+                                         role: .restore, acceptedTermsVersion: 1, appVersion: "2.0")
+        pending.reservedDeviceID = record.active?.deviceID; pending.expectedMemberID = record.active?.memberID
+        pending.expectedSecretVersion = 1; pending.commitMayHaveRun = true
+        record.pending = pending; record.phase = .rotateUncertain; record.recordRevision = 2
+        try journal.replace(record, expectedRevision: 1)
+        let restarted = DuoRecoveryJournal(store: mapped, environment: .staging)
+        XCTAssertEqual(try restarted.read(), record)
+        XCTAssertEqual(try restarted.readMirror()?.credential, record.active)
+        let mirrorBytes = try XCTUnwrap(try mapped.read(service: DuoSecrets.service, account: journal.mirrorAccount))
+        XCTAssertFalse(String(decoding: mirrorBytes, as: UTF8.self).contains(candidate))
+        let secrets = DuoSecrets(store: mapped); try secrets.markAgeRefused()
+        try restarted.abandon(random: TestRandom())
+        XCTAssertTrue(attributes(service: wiped).isEmpty)
+        XCTAssertTrue(secrets.isAgeRefused())
+        XCTAssertEqual(try restarted.read()?.phase, .abandoned)
+        let tombstone = try XCTUnwrap(try mapped.read(service: DuoRecoveryJournal.tombstoneService, account: journal.recordAccount))
+        XCTAssertFalse(String(decoding: tombstone, as: UTF8.self).contains(candidate))
+        XCTAssertFalse(String(decoding: tombstone, as: UTF8.self).contains(DuoFixtures.credential().deviceSecret))
+    }
+
     func testACredentialRoundTripsThroughDuoSecrets() throws {
         let service = makeService()
         let secrets = DuoSecrets(store: BServiceMappingStore(base: store, map: [DuoSecrets.service: service]))

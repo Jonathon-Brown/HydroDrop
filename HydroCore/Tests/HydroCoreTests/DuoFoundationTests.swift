@@ -367,8 +367,8 @@ final class DuoFoundationTests: XCTestCase {
     }
 
     func testACodeWithNoApprovedWordingGetsTheGeneralLineWithItsReference() {
-        XCTAssertEqual(text(.deviceLimit, .general, request: "9b1c"), "That did not work. Please try again. (ref 9b1c)")
-        XCTAssertEqual(text(.schema, .general, request: "9b1c"), "That did not work. Please try again. (ref 9b1c)")
+        XCTAssertEqual(text(.deviceLimit, .general, request: "9b1c2d3e4f5a6b7c"), "That did not work. Please try again. (ref 9b1c2d3e4f5a6b7c)")
+        XCTAssertEqual(text(.schema, .general, request: "9b1c2d3e4f5a6b7c"), "That did not work. Please try again. (ref 9b1c2d3e4f5a6b7c)")
         XCTAssertEqual(text(.idempotencyMismatch), "That did not work. Please try again.")
         XCTAssertEqual(text(.termsRequired), "That did not work. Please try again.")
     }
@@ -652,10 +652,10 @@ final class DuoFoundationTests: XCTestCase {
         let duo = UUID()
         let now = Date(timeIntervalSince1970: 100)
         for index in 0..<7 {
-            diagnostics.record(DuoTransportError.rateLimited(DuoErrorContext(httpStatus: 429, requestID: "r\(index)")), duoID: index == 6 ? duo : nil, now: now)
+            diagnostics.record(DuoTransportError.rateLimited(DuoErrorContext(httpStatus: 429, requestID: String(format: "%016x", index))), duoID: index == 6 ? duo : nil, now: now)
         }
         XCTAssertEqual(diagnostics.recentErrors.count, 5)
-        XCTAssertEqual(diagnostics.recentErrors.first?.requestID, "r6", "newest first")
+        XCTAssertEqual(diagnostics.recentErrors.first?.requestID, "0000000000000006", "newest first")
         XCTAssertEqual(diagnostics.duos[duo.uuidString.lowercased()]?.lastError?.code, "rate_limited")
         diagnostics.record(DuoTransportError.offline, duoID: nil, now: now)
         XCTAssertEqual(diagnostics.recentErrors.first?.code, "offline")
@@ -765,10 +765,10 @@ final class DuoFoundationTests: XCTestCase {
     func testDiagnosticsKeepTheLastTenRequestIDsAndNothingElseAboutThem() throws {
         var diagnostics = DuoDiagnostics()
         let now = Date(timeIntervalSince1970: 100)
-        for index in 0..<12 { diagnostics.recordRequest(status: index == 11 ? 503 : 200, requestID: "ray\(index)", at: now) }
+        for index in 0..<12 { diagnostics.recordRequest(status: index == 11 ? 503 : 200, requestID: String(format: "%016x", index), at: now) }
         XCTAssertEqual(diagnostics.recentRequests.count, 10)
-        XCTAssertEqual(diagnostics.recentRequests.first, DuoDiagnostics.RequestRecord(status: 503, requestID: "ray11", at: now), "newest first")
-        XCTAssertEqual(diagnostics.recentRequests.last?.requestID, "ray2")
+        XCTAssertEqual(diagnostics.recentRequests.first, DuoDiagnostics.RequestRecord(status: 503, requestID: "000000000000000b", at: now), "newest first")
+        XCTAssertEqual(diagnostics.recentRequests.last?.requestID, "0000000000000002")
         diagnostics.recordRequest(status: 200, requestID: nil, at: now)
         diagnostics.recordRequest(status: 200, requestID: "", at: now)
         diagnostics.recordRequest(status: 200, requestID: "has space", at: now)

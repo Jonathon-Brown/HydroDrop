@@ -38,6 +38,7 @@ final class DuoExitService: DuoExiting {
     }
 
     private func end(_ duo: DuoState, as kind: DuoPendingOp) async {
+        guard dependencies.ageNetworkAllowed else { return }
         let host = dependencies.host
         // A banned member keeps `DELETE /me` and nothing else (D33: the contract's `banned_allowed`
         // is true for it alone), so a leave or block would be refused `403 banned` and dropped,
@@ -180,7 +181,19 @@ final class DuoExitService: DuoExiting {
             // this delete's to stop.
             if host.wipeEpoch == epoch { host.isWorking = false }
         }
-        let launch = await dependencies.identity.prepare()
+        if let identity = dependencies.identity as? DuoRecoveryIdentity {
+            let deleted = await identity.deleteIdentity()
+            guard host.wipeEpoch == epoch else { return deleted }
+            if deleted { wipeEverything() }
+            else { host.notice = DuoUserMessage.generic }
+            return deleted
+        }
+        // Refusal permits only DELETE /me: prepare can rotate or GET /me, and a DeviceCheck
+        // token would call Apple. A held credential still permits the requested deletion.
+        let ordinaryNetworkAllowed = dependencies.ageNetworkAllowed
+        let launch: DuoIdentityLaunch
+        if ordinaryNetworkAllowed { launch = await dependencies.identity.prepare() }
+        else { launch = dependencies.identity.credential == nil ? .unavailable : .ready }
         guard host.wipeEpoch == epoch else { return false }
         switch launch {
         case .ready, .disconnected:
@@ -210,7 +223,7 @@ final class DuoExitService: DuoExiting {
             return false
         }
         // Asked only now, when the request will go: a token is for one request (D62).
-        let token = await dependencies.deviceCheck.token()
+        let token = dependencies.ageNetworkAllowed ? await dependencies.deviceCheck.token() : nil
         guard host.wipeEpoch == epoch else { return false }
 
         dependencies.cache.deleteRequestedAt = dependencies.clock.now
@@ -356,7 +369,9 @@ final class DuoExitService: DuoExiting {
     private func wipeEverything() {
         let secrets = dependencies.secrets
         let deviceID = dependencies.identity?.credential?.deviceID
-        dependencies.identity?.discard()
+        if let identity = dependencies.identity as? DuoRecoveryIdentity {
+            guard identity.abandonLocally() else { dependencies.host.notice = DuoUserMessage.generic; return }
+        } else { dependencies.identity?.discard() }
         if let deviceID { dependencies.attester.forgetKeys(forDevice: deviceID) }
         try? secrets.deleteEverything()
         var keptByTheKeychain = Self.stillHoldsTheIdentity(secrets)
