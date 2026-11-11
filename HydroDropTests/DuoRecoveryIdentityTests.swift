@@ -22,6 +22,7 @@ private final class RecoveryServer: DuoCredentialRecoveryTransport, @unchecked S
     var onCommit: (() -> Void)?
     var stateFailures: [DuoRecoveryError] = []
     var cancelFailure: DuoRecoveryError?
+    var commitFailures: [DuoRecoveryError] = []
     var loseRotateBeforeCommit = false
     var rotateSecrets: [String] = []
     var deleteFailures: [DuoRecoveryError] = []
@@ -39,7 +40,9 @@ private final class RecoveryServer: DuoCredentialRecoveryTransport, @unchecked S
         return DuoRecoveryIssuance(deviceID: Self.device, expiresAt: "2026-11-05T00:00:00.000Z")
     }
     func commitDevice(_ request: DuoRecoveryCommitRequest, as credential: DuoRecoveryCredential) async throws -> DuoRecoveryCredentialState {
-        calls.append("commit"); current = credential.deviceSecret; onCommit?()
+        calls.append("commit")
+        if !commitFailures.isEmpty { throw commitFailures.removeFirst() }
+        current = credential.deviceSecret; onCommit?()
         if loseCommit { loseCommit = false; throw DuoRecoveryError.offline }; return state()
     }
     func credentialState(as credential: DuoRecoveryCredential) async throws -> DuoRecoveryCredentialState {
@@ -163,7 +166,7 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
         let record = try XCTUnwrap(try sut.journal.read())
         XCTAssertEqual(record.phase, .active); XCTAssertEqual(record.access, .suspended); XCTAssertNil(sut.credential)
         let deleted = await sut.deleteIdentity()
-        XCTAssertTrue(deleted); XCTAssertTrue(server.deleted); XCTAssertEqual(server.calls.last, "delete")
+        XCTAssertEqual(deleted, .deleted); XCTAssertTrue(server.deleted); XCTAssertEqual(server.calls.last, "delete")
     }
     func testPrivacyCleanupOfLostMintCancelsThenDeletesWithoutStateProbe() async throws {
         let kit = DuoTestKit(); let server = RecoveryServer(); server.loseCommit = true
@@ -171,7 +174,7 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
         let relaunched = identity(kit, server: server)
         kit.dependencies.cache.ageStatus = .refused
         let deleted = await relaunched.deleteIdentity()
-        XCTAssertTrue(deleted); XCTAssertEqual(Array(server.calls.suffix(2)), ["cancel", "delete"])
+        XCTAssertEqual(deleted, .deleted); XCTAssertEqual(Array(server.calls.suffix(2)), ["cancel", "delete"])
         XCTAssertFalse(server.calls.contains("state")); XCTAssertEqual(try relaunched.journal.read()?.phase, .abandoned)
         XCTAssertTrue(kit.secretStore.accounts(service: DuoSecrets.service).isEmpty)
     }
@@ -254,7 +257,7 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
         let relaunched = identity(kit, server: server)
         kit.dependencies.cache.ageStatus = .refused
         let deleted = await relaunched.deleteIdentity()
-        XCTAssertTrue(deleted); XCTAssertEqual(Array(server.calls.dropFirst(calls)), ["delete", "delete"])
+        XCTAssertEqual(deleted, .deleted); XCTAssertEqual(Array(server.calls.dropFirst(calls)), ["delete", "delete"])
         XCTAssertEqual(try relaunched.journal.read()?.phase, .abandoned)
     }
     func testUnknownRotationCleanupAmbiguous401DoesNotTryOldAndKeepsIntent() async throws {
@@ -264,20 +267,67 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
         let calls = server.calls.count
         let relaunched = identity(kit, server: server)
         let deleted = await relaunched.deleteIdentity()
-        XCTAssertFalse(deleted); XCTAssertEqual(Array(server.calls.dropFirst(calls)), ["delete"])
+        XCTAssertEqual(deleted, .failed); XCTAssertEqual(Array(server.calls.dropFirst(calls)), ["delete"])
         XCTAssertEqual(try relaunched.journal.read()?.phase, .cleanupPending)
         XCTAssertEqual(try relaunched.journal.read()?.intent, .deleteIdentity)
     }
-    func testExpiredCancellationIsNotDeletionProof() async throws {
+    /// A 410 to the cancel is still no proof of deletion (D65), but nothing this phone holds can
+    /// change that answer. The phone lets go and says only that it did. Staying in cleanup used
+    /// to fail Delete and block Create for good, even across a reinstall.
+    func testExpiredCancellationRemovesFromThisPhoneWithoutClaimingDeletion() async throws {
         let kit = DuoTestKit(); let server = RecoveryServer(); server.loseCommit = true
         let first = identity(kit, server: server); _ = await first.mint(role: .create, replacing: nil)
         server.cancelFailure = .refused(.issuanceUnavailable, DuoErrorContext(httpStatus: 410))
         let relaunched = identity(kit, server: server)
-        let deleted = await relaunched.deleteIdentity()
-        XCTAssertFalse(deleted); XCTAssertEqual(try relaunched.journal.read()?.phase, .cleanupPending)
-        XCTAssertNotNil(try relaunched.journal.read()?.pending?.candidateSecret)
+        let outcome = await relaunched.deleteIdentity()
+        XCTAssertEqual(outcome, .removedFromThisPhone)
         XCTAssertFalse(server.calls.contains("delete"))
+        XCTAssertEqual(try relaunched.journal.read()?.phase, .abandoned)
+        XCTAssertTrue(kit.secretStore.accounts(service: DuoSecrets.service).isEmpty)
     }
+
+    /// After a Reconnect, the cancel's 410 is not the last word: the displaced identity, which
+    /// holds the person's data, is still deleted, and that confirmed delete is what Delete reports.
+    func testExpiredReconnectCancellationStillDeletesTheDisplacedIdentity() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer(); let sut = identity(kit, server: server)
+        let oldDevice = "10000000-0000-4000-8000-000000000002"
+        let oldSecret = Data(repeating: 12, count: 32).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let candidate = Data(repeating: 13, count: 32).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        var r = DuoRecoveryRecord(environment: .staging, installationID: "30000000-0000-4000-8000-000000000001", phase: .commitUncertain)
+        r.active = DuoJournalCredential(DuoCredential(memberID: RecoveryServer.member, deviceID: oldDevice, deviceSecret: oldSecret))
+        r.activeRole = .established
+        var pending = DuoRecoveryPending(kind: .mint, operationID: "40000000-0000-4000-8000-000000000001", candidateSecret: candidate, role: .reconnectThrowaway, acceptedTermsVersion: 1, appVersion: "2.0")
+        pending.reservedDeviceID = RecoveryServer.device; pending.reservationExpiresAt = "2026-11-05T00:00:00.000Z"; pending.commitMayHaveRun = true
+        r.pending = pending; try sut.journal.replace(r, expectedRevision: nil)
+        server.cancelFailure = .refused(.issuanceUnavailable, DuoErrorContext(httpStatus: 410))
+        server.deleteHandler = { _ in }
+        let outcome = await sut.deleteIdentity()
+        XCTAssertEqual(outcome, .deleted)
+        XCTAssertEqual(server.deletionDevices, [oldDevice])
+        XCTAssertEqual(try sut.journal.read()?.phase, .abandoned)
+    }
+
+    /// The lockout: a setup whose reservation expired before its commit landed answers 410 to
+    /// every commit and cancel. Create can't finish it and must not quietly start another (D65),
+    /// but Delete is a way out the person chose: it clears the phone, says only that, and Create
+    /// works afterwards. Before, Delete failed on the 410 forever and Create stayed blocked.
+    func testExpiredSetupLeavesDeleteAsTheWayOutAndCreateWorksAfter() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer(); server.commitFailures = [.offline]
+        let first = identity(kit, server: server); _ = await first.mint(role: .create, replacing: nil)
+        XCTAssertEqual(try first.journal.read()?.phase, .commitUncertain); XCTAssertNil(server.current)
+        let expired = DuoRecoveryError.refused(.issuanceUnavailable, DuoErrorContext(httpStatus: 410))
+        server.commitFailures = [expired]; server.cancelFailure = expired
+        let relaunched = identity(kit, server: server)
+        let retried = await relaunched.mint(role: .create, replacing: nil)
+        XCTAssertNil(retried, "a 410 never starts a replacement identity by itself")
+        XCTAssertEqual(server.calls.filter { $0 == "prepare" }.count, 1)
+        let outcome = await relaunched.deleteIdentity()
+        XCTAssertEqual(outcome, .removedFromThisPhone)
+        server.cancelFailure = nil
+        let fresh = await relaunched.mint(role: .create, replacing: nil)
+        XCTAssertNotNil(fresh); XCTAssertEqual(relaunched.credential?.deviceSecret, server.current)
+    }
+
     func testSamePhoneReinstallMissingSandboxSentinelRequiresCASAndContinue() async throws {
         let kit = DuoTestKit(); let server = RecoveryServer()
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("D65-reinstall-\(UUID().uuidString)")
@@ -344,14 +394,14 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
             }
         }
         let firstResult = await first.deleteIdentity()
-        XCTAssertFalse(firstResult)
+        XCTAssertEqual(firstResult, .failed)
         let checkpoint = try XCTUnwrap(try first.journal.read())
         XCTAssertEqual(checkpoint.phase, .cleanupPending); XCTAssertNil(checkpoint.pending)
         XCTAssertEqual(checkpoint.active?.deviceID, oldDevice); XCTAssertEqual(checkpoint.intent, .deleteIdentity)
         server.cancelFailure = .refused(.issuanceUnavailable, DuoErrorContext(httpStatus: 410))
         let relaunched = identity(kit, server: server)
         let secondResult = await relaunched.deleteIdentity()
-        XCTAssertTrue(secondResult)
+        XCTAssertEqual(secondResult, .deleted)
         XCTAssertEqual(server.deletionDevices, [RecoveryServer.device, oldDevice, oldDevice])
         XCTAssertEqual(server.calls.filter { $0 == "cancel" }.count, 1)
         XCTAssertEqual(try relaunched.journal.read()?.phase, .abandoned)
@@ -361,7 +411,7 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
         let kit = DuoTestKit(); let server = RecoveryServer()
         let first = try await pendingRotation(kit, server: server)
         server.deleteFailures = [.offline]
-        let deleted = await first.deleteIdentity(); XCTAssertFalse(deleted)
+        let deleted = await first.deleteIdentity(); XCTAssertEqual(deleted, .failed)
         let old = try XCTUnwrap(try first.journal.read()?.active?.credential)
         let calls = server.calls.count
         let relaunched = identity(kit, server: server)
@@ -476,7 +526,7 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
         let calls = server.calls.count
         let restarted = identity(kit, server: server)
         let launch = await restarted.prepare(); let deleted = await restarted.deleteIdentity()
-        XCTAssertEqual(launch, .unavailable); XCTAssertFalse(deleted); XCTAssertEqual(server.calls.count, calls)
+        XCTAssertEqual(launch, .unavailable); XCTAssertEqual(deleted, .failed); XCTAssertEqual(server.calls.count, calls)
         let later = DuoTestKit(now: kit.clock.now.addingTimeInterval(61), secretStore: kit.secretStore)
         let elapsed = identity(later, server: server)
         let resumed = await elapsed.prepare()

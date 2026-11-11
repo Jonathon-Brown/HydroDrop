@@ -1,6 +1,11 @@
 #if DUO_V2
 import Foundation
 
+/// What Delete my Duo data achieved. `removedFromThisPhone` means the phone let go of everything
+/// but the server never confirmed a deletion (a 410 for an unfinished setup), so the person is
+/// told only that.
+enum DuoRecoveryDeletion { case deleted, removedFromThisPhone, failed }
+
 /// Contract 1.1's live identity. The old v1 identity remains available to frozen-contract
 /// tests; live composition always installs this implementation and never falls back to mint
 /// or rotation through v1. Every request is preceded by a verified durable transition.
@@ -370,10 +375,10 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
 
     /// Cleanup never asks for ordinary state, attestation or a fresh Apple token. Each cycle
     /// starts with the candidate and permits one old DELETE only after an exact rejection.
-    @MainActor func deleteIdentity() async -> Bool {
+    @MainActor func deleteIdentity() async -> DuoRecoveryDeletion {
         do {
             try respectBackoff()
-            guard let transport = dependencies.recoveryTransport, var r = try loadOrImport(), r.phase != .abandoned else { return false }
+            guard let transport = dependencies.recoveryTransport, var r = try loadOrImport(), r.phase != .abandoned else { return .failed }
             if r.intent == .use {
                 r = try replace(r) {
                     if $0.phase == .promotionPending { $0.pending = nil }
@@ -381,14 +386,27 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                     $0.access = .cleanupOnly; $0.phase = .cleanupPending
                 }
             }
-            guard r.phase == .cleanupPending else { return false }
+            guard r.phase == .cleanupPending else { return .failed }
             let request = DuoWireDeleteMeRequest(deviceCheckToken: nil)
             let key = DuoIdempotencyKey.make(random: dependencies.random)
+            var serverConfirmed = true
             if let p = r.pending, p.kind == .mint {
                 if let candidate = p.candidate {
-                    let cancelled = try await transport.cancelDeviceIssuance(deviceID: candidate.deviceID, as: candidate)
-                    try cancelled.validate(); guard cancelled.deviceID == candidate.deviceID, try journal.read() == r else { throw DuoJournalError.changed }
-                    if cancelled.outcome == .committed {
+                    var committed = false
+                    do {
+                        let cancelled = try await transport.cancelDeviceIssuance(deviceID: candidate.deviceID, as: candidate)
+                        try cancelled.validate(); guard cancelled.deviceID == candidate.deviceID, try journal.read() == r else { throw DuoJournalError.changed }
+                        committed = cancelled.outcome == .committed
+                    } catch let error as DuoRecoveryError where error.code == .issuanceUnavailable {
+                        // Nothing this phone holds can cancel or delete it any more, and a 410 is
+                        // no proof it is gone (D65). Finish the local wipe and say only that, unless
+                        // a Reconnect's displaced identity is deleted below: that member holds the
+                        // person's data, and its confirmed delete is the answer, as on a retry
+                        // that starts from the checkpoint.
+                        guard try journal.read() == r else { throw DuoJournalError.changed }
+                        serverConfirmed = r.active != nil
+                    }
+                    if committed {
                         try respectBackoff()
                         try await transport.deleteMe(as: candidate, request, key: key)
                     }
@@ -418,8 +436,9 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             } else if let active = r.active { try await transport.deleteMe(as: active.bearer, request, key: key) }
             else { throw DuoJournalError.invalid }
             guard try journal.read() == r else { throw DuoJournalError.changed }
-            try journal.abandon(random: dependencies.random); rememberPresence(nil); return true
-        } catch { note(error); return false }
+            try journal.abandon(random: dependencies.random); rememberPresence(nil)
+            return serverConfirmed ? .deleted : .removedFromThisPhone
+        } catch { note(error); return .failed }
     }
     @MainActor func establishRole() throws {
         guard let r = try journal.read(), r.pending == nil, let active = r.active else { throw DuoJournalError.changed }

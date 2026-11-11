@@ -182,11 +182,19 @@ final class DuoExitService: DuoExiting {
             if host.wipeEpoch == epoch { host.isWorking = false }
         }
         if let identity = dependencies.identity as? DuoRecoveryIdentity {
-            let deleted = await identity.deleteIdentity()
-            guard host.wipeEpoch == epoch else { return deleted }
-            if deleted { wipeEverything() }
-            else { host.notice = DuoUserMessage.generic }
-            return deleted
+            let outcome = await identity.deleteIdentity()
+            guard host.wipeEpoch == epoch else { return outcome != .failed }
+            switch outcome {
+            case .deleted:
+                wipeEverything()
+            case .removedFromThisPhone:
+                wipeEverything()
+                // After the wipe, which clears notices; a wipe that failed has said so already.
+                if host.notice == nil { host.notice = DuoUserMessage.removedFromThisPhoneOnly }
+            case .failed:
+                host.notice = DuoUserMessage.generic
+            }
+            return outcome != .failed
         }
         // Refusal permits only DELETE /me: prepare can rotate or GET /me, and a DeviceCheck
         // token would call Apple. A held credential still permits the requested deletion.

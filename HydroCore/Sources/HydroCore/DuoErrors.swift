@@ -324,6 +324,11 @@ public enum DuoMessageContext: Equatable, Sendable {
 /// are listed as copy awaiting approval in the plan: `device_limit`, `terms_required`.
 public enum DuoUserMessage {
     public static let generic = "That did not work. Please try again."
+    // NEW COPY (D65 lockout fix): Delete finished on the phone, but the server answered 410 for an
+    // unfinished setup, which proves no deletion. "Setup", never "sign-up": the privacy page says
+    // HydroDrop has no sign-up. Awaiting Jonathon's approval.
+    public static let removedFromThisPhoneOnly =
+        "Your Duo data was deleted from this phone. HydroDrop's Duo service couldn't confirm deleting anything there. A Duo setup that never finished is deleted automatically within a day."
 
     public static func text(for error: Error, context: DuoMessageContext = .general) -> String {
         guard let error = error as? DuoTransportError else { return generic }
