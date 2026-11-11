@@ -27,6 +27,26 @@ enum MinuteOfDay {
     static func label(_ minutes: Int, calendar: Calendar = .current) -> String {
         date(from: minutes, calendar: calendar).formatted(date: .omitted, time: .shortened)
     }
+
+    /// A minute of the day as an instant on the day that starts at `startOfDay`. Minutes
+    /// past 1439 land on the days that follow, which is how an overnight window's slots
+    /// and its end are described. Nil for a negative minute or a day the calendar can't
+    /// express.
+    ///
+    /// Set on the day rather than added to its midnight. Adding minutes adds elapsed
+    /// time, and on the two days a year the clocks change that put an 8am nudge at 9am,
+    /// the morning-after offer an hour early, and the Live Activity's end an hour out.
+    /// A clock time that does not exist on the day the clocks go forward is given the
+    /// next time that does, which is what the calendar does for any such request.
+    static func instant(_ minutes: Int, on startOfDay: Date, calendar: Calendar = .current) -> Date? {
+        guard minutes >= 0 else { return nil }
+        let minutesPerDay = 24 * 60
+        guard let day = calendar.date(byAdding: .day, value: minutes / minutesPerDay, to: startOfDay) else {
+            return nil
+        }
+        let minute = minutes % minutesPerDay
+        return calendar.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: day)
+    }
 }
 
 /// "Every 2 hours", "every 45 min": the reminder interval in words.

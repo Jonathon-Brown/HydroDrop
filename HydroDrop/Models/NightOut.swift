@@ -28,12 +28,14 @@ enum NightOut {
         return now < hardStop(startedAt: startedAt, wakingEndMinutes: wakingEndMinutes, calendar: calendar)
     }
 
-    /// The end of the waking window on the day after `startedAt`.
+    /// The end of the waking window on the day after `startedAt`. Set as a clock time on
+    /// that day (see `MinuteOfDay.instant`), so it is the same time on the days the
+    /// clocks change.
     static func hardStop(startedAt: Date, wakingEndMinutes: Int, calendar: Calendar = .current) -> Date {
         let startOfDay = calendar.startOfDay(for: startedAt)
         let nextDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startedAt.addingTimeInterval(86_400)
         let minutes = min(max(wakingEndMinutes, 0), 24 * 60 - 1)
-        return calendar.date(byAdding: .minute, value: minutes, to: nextDay) ?? nextDay
+        return MinuteOfDay.instant(minutes, on: nextDay, calendar: calendar) ?? nextDay
     }
 
     /// The next time the waking window opens after `date`: tomorrow morning for an
@@ -41,10 +43,10 @@ enum NightOut {
     static func nextWakingStart(after date: Date, wakingStartMinutes: Int, calendar: Calendar = .current) -> Date {
         let minutes = min(max(wakingStartMinutes, 0), 24 * 60 - 1)
         let startOfDay = calendar.startOfDay(for: date)
-        let today = calendar.date(byAdding: .minute, value: minutes, to: startOfDay) ?? date
+        let today = MinuteOfDay.instant(minutes, on: startOfDay, calendar: calendar) ?? date
         if today > date { return today }
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? date.addingTimeInterval(86_400)
-        return calendar.date(byAdding: .minute, value: minutes, to: tomorrow) ?? tomorrow
+        return MinuteOfDay.instant(minutes, on: tomorrow, calendar: calendar) ?? tomorrow
     }
 
     // MARK: - Tally

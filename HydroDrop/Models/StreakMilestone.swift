@@ -77,6 +77,14 @@ enum StreakMilestone: Int, CaseIterable, Identifiable, Comparable {
         allCases.filter { $0.days <= streak }
     }
 
+    /// Older saves recorded only the highest badge after a jump. Fill the known
+    /// thresholds below it before selecting another celebration, while retaining
+    /// values from newer versions without using unknown values to infer awards.
+    static func normalizedAwards(_ recorded: [Int]) -> [Int] {
+        let knownCeiling = allCases.filter { recorded.contains($0.days) }.map(\.days).max() ?? 0
+        return Array(Set(recorded).union(reached(by: knownCeiling).map(\.days))).sorted()
+    }
+
     /// The one to celebrate for a streak that just grew, or nil.
     ///
     /// Only the highest newly reached milestone is returned. A streak restored from

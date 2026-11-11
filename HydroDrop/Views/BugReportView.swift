@@ -8,6 +8,11 @@ struct BugReportView: View {
     @State private var showingMailCompose = false
     @State private var showingNoMailAlert = false
     @State private var showingSentConfirmation = false
+    /// What the composer reported, held until it has fully gone. The thanks used to be
+    /// asked for in the same turn as the composer's dismissal, and an alert requested
+    /// while a sheet is still leaving is dropped, so the report was sent with no sign of
+    /// it and the page never closed.
+    @State private var mailResult: MFMailComposeResult?
 
     private let supportEmail = "support@hydrodrop.us"
 
@@ -52,14 +57,17 @@ struct BugReportView: View {
                         .disabled(!canSubmit)
                 }
             }
-            .sheet(isPresented: $showingMailCompose) {
+            .sheet(isPresented: $showingMailCompose, onDismiss: {
+                if mailResult == .sent { showingSentConfirmation = true }
+                mailResult = nil
+            }) {
                 MailComposeView(
                     recipient: supportEmail,
                     subject: "HydroDrop bug report: \(title)",
                     body: emailBody
                 ) { result in
+                    mailResult = result
                     showingMailCompose = false
-                    if result == .sent { showingSentConfirmation = true }
                 }
             }
             .alert("No Mail Account Set Up", isPresented: $showingNoMailAlert) {

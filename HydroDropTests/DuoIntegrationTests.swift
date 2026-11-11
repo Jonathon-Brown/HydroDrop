@@ -61,6 +61,14 @@ final class DuoIntegrationTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.url?.path, "/v1/invites/peek")
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        // The old development build needed a launch override just to meet the server's
+        // minimum version. Exercise the real composition without that escape hatch, so
+        // a release whose actual bundle version cannot write does not pass this check.
+        XCTAssertFalse(ProcessInfo.processInfo.arguments.contains("-DuoClientVersion"))
+        let bundledVersion = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+        let bundledBuild = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
+        XCTAssertNotEqual(bundledVersion.compare("2.0", options: .numeric), .orderedAscending)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-HD-Client"), "ios/\(bundledVersion) (\(bundledBuild))")
         XCTAssertEqual(rig.attester.attestedNewKeys, 0)
         XCTAssertEqual(rig.deviceCheck.calls, 0)
         XCTAssertFalse(store.hasIdentity)

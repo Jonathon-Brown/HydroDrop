@@ -132,14 +132,14 @@ enum HydrationLiveActivityController {
     /// The instant today's waking window closes, or nil when the window is unusable.
     ///
     /// An overnight window (say 10pm to 6am) closes on the following calendar day, which
-    /// is why this is built by adding minutes to the start of today rather than by
-    /// setting an hour on it.
+    /// the helper handles as minutes past 1439. It is set as a clock time rather than
+    /// added to midnight, so it is the same time on the days the clocks change.
     private static func windowEnd(settings: AppSettings, now: Date, calendar: Calendar) -> Date? {
         guard !settings.wakingWindowIsEmpty else { return nil }
         let startOfDay = calendar.startOfDay(for: now)
         let endMinutes = settings.quietEndMinutes > settings.quietStartMinutes
             ? settings.quietEndMinutes
             : settings.quietEndMinutes + SchedulePlan.minutesPerDay
-        return calendar.date(byAdding: .minute, value: endMinutes, to: startOfDay)
+        return MinuteOfDay.instant(endMinutes, on: startOfDay, calendar: calendar)
     }
 }

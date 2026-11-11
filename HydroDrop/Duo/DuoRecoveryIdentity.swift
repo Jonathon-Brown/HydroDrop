@@ -8,6 +8,7 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
     let journal: DuoRecoveryJournal
     private let dependencies: DuoDependencies
     private let legacyEnvironment: DuoRecoveryEnvironment?
+    private let legacyProvenance: (@MainActor (DuoCredential) -> DuoRecoveryEnvironment?)?
     private let directory: URL
     private let presenceChanged: @Sendable () -> Void
     private let presenceLock = NSLock()
@@ -18,8 +19,10 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
     @MainActor private var retryNotBefore: Date?
 
     @MainActor init(dependencies: DuoDependencies, environment: DuoRecoveryEnvironment,
-                    verifiedLegacyEnvironment: DuoRecoveryEnvironment? = nil, directory: URL = DuoIdentity.defaultDirectory) {
+                    verifiedLegacyEnvironment: DuoRecoveryEnvironment? = nil, directory: URL = DuoIdentity.defaultDirectory,
+                    legacyProvenance: (@MainActor (DuoCredential) -> DuoRecoveryEnvironment?)? = nil) {
         self.dependencies = dependencies; self.legacyEnvironment = verifiedLegacyEnvironment; self.directory = directory
+        self.legacyProvenance = legacyProvenance
         let host = dependencies.host
         presenceChanged = { [weak host] in Task { @MainActor in host?.identityPresenceChanged() } }
         journal = DuoRecoveryJournal(store: dependencies.secrets.store, environment: environment)
@@ -155,9 +158,12 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
         if let mirror {
             active = mirror.credential; role = mirror.credentialRole; rotationRequired = true; confirmationRequired = true
         } else {
-            guard legacyEnvironment == journal.environment, let legacyData else { throw DuoJournalError.legacyProvenanceRequired }
+            guard let legacyData else { throw DuoJournalError.legacyProvenanceRequired }
             active = try DuoRecoveryJournal.decodeLegacyCredential(legacyData)
             let old = active.credential
+            guard legacyEnvironment == journal.environment || legacyProvenance?(old) == journal.environment else {
+                throw DuoJournalError.legacyProvenanceRequired
+            }
             if let marker = dependencies.cache.throwawayDeviceID, marker != old.deviceID { throw DuoJournalError.invalid }
             role = dependencies.cache.throwawayDeviceID == old.deviceID ? .reconnectThrowaway : .established
             // Capture the old facts before writing any new marker. Creating a marker is never

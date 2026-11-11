@@ -62,7 +62,22 @@ if [ -z "$XCODEGEN" ] || [ ! -x "$XCODEGEN" ]; then
 fi
 
 echo "Using $("$XCODEGEN" --version)"
+# The scheme patch and the notes in project.yml were written against one XcodeGen, and
+# Homebrew serves whatever is current. A different version is not a failure, since the
+# patch itself fails loudly if the scheme comes out in a shape it cannot read, but it is
+# worth a line in the log when a build breaks for no other reason.
+case "$("$XCODEGEN" --version)" in
+    *"$XCODEGEN_VERSION"*) ;;
+    *) echo "warning: XcodeGen $XCODEGEN_VERSION is the version this script was written against" >&2 ;;
+esac
 cd "$REPO_ROOT"
+
+# Xcode Cloud does not use release.sh, so it used to inherit the default-off Duo
+# configuration even when the workflow requested DUO_V2=1. Select both compilation
+# and signing in this disposable checkout before XcodeGen reads the files. The helper
+# rejects a typo or a pre-2.0 Duo version, and never imports Debug's local override
+# into Release. An unset switch deliberately keeps the shipped non-Duo path.
+python3 "$REPO_ROOT/Scripts/configure_ci_duo.py" "$REPO_ROOT"
 
 # CURRENT_PROJECT_VERSION is committed as a fixed value, and the project is regenerated
 # from project.yml on every CI run — so every Xcode Cloud build uploaded the same build

@@ -7,10 +7,10 @@ import Combine
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     /// Person-level settings go here: written locally *and* to iCloud key-value storage.
     /// Device-level settings (everything about reminders) stay in `defaults`.
-    private let synced = CloudSettingsStore.shared
+    private let synced: CloudSettingsStore
 
     /// Set while a remote change is being applied, so the property observers don't write
     /// the value straight back out and start a ping-pong between devices.
@@ -93,6 +93,10 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(remindersEnabled, forKey: Keys.remindersEnabled)
             ReminderManager.shared.refreshSchedule()
+            // The recap is a notification too, and this is the switch people reach for
+            // to stop them all. It lives under its own identifier so the reminder rebuild
+            // never touches it, which left it firing every Sunday after the switch was off.
+            WeeklyRecapNotifier.shared.refresh()
         }
     }
 
@@ -150,6 +154,14 @@ final class AppSettings: ObservableObject {
     }
 
     static let quickAddSlotCount = 3
+
+    /// A goal from iCloud is another device's answer, or a record damaged on the way, so
+    /// it is held to the range the stepper enforces rather than trusted. Every division
+    /// by the goal guards zero, but a zero or a negative still showed 0% and no streak
+    /// until the stepper was moved, and a value near Int.max overflowed the day's bump.
+    private static func sanitisedGoal(_ goal: Int?) -> Int? {
+        goal.flatMap { MeasurementSystem.storedGoalRangeML.contains($0) ? $0 : nil }
+    }
 
     /// A stored preset list is only usable if it has the right shape and plausible
     /// amounts. Anything else (a truncated write, a value from a future version) falls
@@ -254,15 +266,18 @@ final class AppSettings: ObservableObject {
     func seedMilestones(longestStreak: Int) {
         guard !hasSeededMilestones else { return }
         let earned = StreakMilestone.reached(by: longestStreak).map(\.days)
-        celebratedMilestones = Array(Set(celebratedMilestones).union(earned)).sorted()
+        celebratedMilestones = StreakMilestone.normalizedAwards(celebratedMilestones + earned)
         hasSeededMilestones = true
     }
 
-    /// Records a milestone as earned. Idempotent, so a celebration shown twice by two
-    /// devices still leaves one badge.
+    /// Records every threshold crossed before the highest milestone is celebrated.
+    /// Saving only that highest badge used to queue the smaller celebrations on later
+    /// checks after a restored streak jumped several thresholds. The union also keeps
+    /// earlier awards, including thresholds a newer version may have added.
     func recordMilestone(_ milestone: StreakMilestone) {
-        guard !celebratedMilestones.contains(milestone.days) else { return }
-        celebratedMilestones = (celebratedMilestones + [milestone.days]).sorted()
+        let merged = StreakMilestone.normalizedAwards(celebratedMilestones + [milestone.days])
+        guard merged != celebratedMilestones else { return }
+        celebratedMilestones = merged
     }
 
     // MARK: The droplet's world
@@ -472,6 +487,12 @@ final class AppSettings: ObservableObject {
     @Published var liveActivityEnabled: Bool {
         didSet {
             defaults.set(liveActivityEnabled, forKey: Keys.liveActivityEnabled)
+            // Off means off the Lock Screen now, not at the next drink. Nothing else runs
+            // between the switch and the Settings sheet closing, so the activity used to
+            // stay up, stale, until something was logged or the app relaunched.
+            if !liveActivityEnabled {
+                Task { @MainActor in await HydrationLiveActivityController.endAll() }
+            }
         }
     }
 
@@ -547,12 +568,24 @@ final class AppSettings: ObservableObject {
     /// reads `AppSettings.shared`, the singleton's one-time initialiser was re-entered
     /// from inside itself and the app deadlocked on launch. Computing first and assigning
     /// once removes the whole category.
-    private init() {
-        let d = UserDefaults.standard
-        let synced = CloudSettingsStore.shared
-        let screenshotMode = Self.isScreenshotMode
+    private convenience init() {
+        self.init(defaults: .standard, synced: .shared)
+    }
 
-        let storedGoal = synced.int(forKey: Keys.dailyGoalML) ?? 2000
+    /// Explicit stores keep persistence tests in their own local preferences. The
+    /// shared instance still uses the same device and iCloud stores as before.
+    init(defaults d: UserDefaults, synced: CloudSettingsStore) {
+        self.defaults = d
+        self.synced = synced
+        let screenshotMode = Self.isScreenshotMode
+        let storedMilestones = synced.intArray(forKey: Keys.celebratedMilestones) ?? []
+        let localMilestones = synced.localIntArray(forKey: Keys.celebratedMilestones) ?? []
+        let normalizedMilestones = StreakMilestone.normalizedAwards(storedMilestones + localMilestones)
+        let storedSeededMilestones = synced.bool(forKey: Keys.hasSeededMilestones) ?? false
+        let localSeededMilestones = synced.localBool(forKey: Keys.hasSeededMilestones) ?? false
+        let seededMilestones = storedSeededMilestones || localSeededMilestones
+
+        let storedGoal = Self.sanitisedGoal(synced.int(forKey: Keys.dailyGoalML)) ?? 2000
 
         let storedInterval: Int
         if let savedMinutes = d.object(forKey: Keys.reminderIntervalMinutes) as? Int {
@@ -653,8 +686,8 @@ final class AppSettings: ObservableObject {
         self.customQuickAddPresetsML = screenshotMode ? nil : synced.intArray(forKey: Keys.customQuickAddPresets)
         // Screenshot runs start with a clean shelf, so a capture never depends on what
         // a previous run happened to earn.
-        self.celebratedMilestones = screenshotMode ? [] : (synced.intArray(forKey: Keys.celebratedMilestones) ?? [])
-        self.hasSeededMilestones = screenshotMode ? true : (synced.bool(forKey: Keys.hasSeededMilestones) ?? false)
+        self.celebratedMilestones = screenshotMode ? [] : normalizedMilestones
+        self.hasSeededMilestones = screenshotMode || seededMilestones
         // A screenshot run gets a bare, already-announced world: nothing chosen, and no
         // "your world grew" sheet landing on top of the buttons the run is about to tap.
         self.worldDecorations = screenshotMode ? [] : (synced.stringArray(forKey: Keys.worldDecorations) ?? [])
@@ -669,6 +702,14 @@ final class AppSettings: ObservableObject {
         // make the next launch read this install as a pre-onboarding one.
         if onboardingNeedsPersisting && !screenshotMode && !Self.isSkippingOnboardingForUITests {
             Self.persistOnboarding(storedOnboarding, synced: synced, local: d)
+        }
+        // Persist a legacy sparse shelf once, after every property is initialized.
+        // Otherwise another launch or device could bring back the missing badges.
+        if !screenshotMode && (normalizedMilestones != storedMilestones || normalizedMilestones != localMilestones) {
+            synced.set(normalizedMilestones, forKey: Keys.celebratedMilestones)
+        }
+        if !screenshotMode && (seededMilestones != storedSeededMilestones || seededMilestones != localSeededMilestones) {
+            synced.set(seededMilestones, forKey: Keys.hasSeededMilestones)
         }
     }
 
@@ -765,15 +806,16 @@ final class AppSettings: ObservableObject {
     /// The freeze ledger is not: it is merged, because two devices can each legitimately
     /// have spent a freeze the other hasn't seen, and a plain overwrite would either lose
     /// one or leave the month over its allowance.
-    private func applyRemoteChanges(_ keys: [String]) {
+    func applyRemoteChanges(_ keys: [String]) {
         let changed = Set(keys)
         var freezesToPublish: [String]?
         var milestonesToPublish: [Int]?
+        var milestoneSeedToPublish = false
         var worldStagesToPublish: [Int]?
         var worldRecordToPublish: Int?
 
         isApplyingRemoteChange = true
-        if changed.contains(Keys.dailyGoalML), let goal = synced.int(forKey: Keys.dailyGoalML) {
+        if changed.contains(Keys.dailyGoalML), let goal = Self.sanitisedGoal(synced.int(forKey: Keys.dailyGoalML)) {
             dailyGoalML = goal
         }
         if changed.contains(Keys.measurementSystem),
@@ -807,12 +849,16 @@ final class AppSettings: ObservableObject {
         // other has not seen, and a badge is never taken back.
         if changed.contains(Keys.celebratedMilestones) {
             let remote = synced.intArray(forKey: Keys.celebratedMilestones) ?? []
-            let merged = Array(Set(celebratedMilestones).union(remote)).sorted()
+            let merged = StreakMilestone.normalizedAwards(celebratedMilestones + remote)
             celebratedMilestones = merged
             if merged != remote { milestonesToPublish = merged }
         }
-        if changed.contains(Keys.hasSeededMilestones), synced.bool(forKey: Keys.hasSeededMilestones) == true {
-            hasSeededMilestones = true
+        if changed.contains(Keys.hasSeededMilestones) {
+            let remote = synced.bool(forKey: Keys.hasSeededMilestones) ?? false
+            hasSeededMilestones = hasSeededMilestones || remote
+            // The in-memory OR must survive reopening too; the incoming remote mirror
+            // may have replaced the local true before this merge runs.
+            milestoneSeedToPublish = hasSeededMilestones && !remote
         }
         // Decorations are a choice, so the newest choice wins. What has been announced
         // and how far the world has grown only ever accumulate.
@@ -849,6 +895,9 @@ final class AppSettings: ObservableObject {
         }
         if let milestonesToPublish {
             synced.set(milestonesToPublish, forKey: Keys.celebratedMilestones)
+        }
+        if milestoneSeedToPublish {
+            synced.set(true, forKey: Keys.hasSeededMilestones)
         }
         if let worldStagesToPublish {
             synced.set(worldStagesToPublish, forKey: Keys.celebratedWorldStages)

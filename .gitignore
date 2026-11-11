@@ -8,8 +8,6 @@ xcuserdata/
 
 # XcodeGen-generated project (regenerate with `xcodegen generate` from project.yml)
 HydroDrop.xcodeproj/
-# The xcodegen download. Written without a trailing slash so that it also covers the
-# `.tools` symlink a worktree makes to the main checkout's copy (see CLAUDE.md).
 .tools
 
 # macOS
@@ -20,15 +18,24 @@ ExportOptions.plist
 device_icon_check.png
 screenshot_*.png
 
+# Local credentials and hosting caches must never enter the published repository.
+.env
+.env.*
+!.env.example
+!.env.*.example
+.dev.vars
+.dev.vars.*
+.wrangler/
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+__pycache__/
+
 # Build output and editor state from running `swift test` or opening HydroCore on its own.
 HydroCore/.build/
 HydroCore/.swiftpm/
 
-# Turns Duo Streaks v2 on for Debug builds from Xcode (Run and Test): `DUO_V2_CONDITION = DUO_V2`,
-# and for a run on a real iPhone also `DUO_ENTITLEMENTS = HydroDrop/HydroDrop.duo.entitlements`
-# (see Config/Duo.xcconfig). Local, and read by Debug only: Release and archive builds use
-# Config/Duo.Release.xcconfig, which does not include it.
+# Debug-only local Duo compilation and entitlement overrides. Release does not read this file.
 Config/Duo.local.xcconfig
-
-# Python's bytecode, from running the scripts in Scripts/ or their tests (run them with -B).
-__pycache__/

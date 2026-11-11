@@ -265,7 +265,8 @@ fileprivate func kDescribe() -> String {
     let chain = kChain().map { "\(type(of: $0))\($0 is UIAlertController ? "" : "\(kTitles($0).sorted())")" }.joined(separator: " > ")
     let root = kRootWindow()?.rootViewController.map { String(describing: type(of: $0)).prefix(60) } ?? "no window"
     return "\(root) [\(chain)] settings=\(router.showingSettings)/\(router.settingsIsOnScreen) recap=\(router.showingWeeklyRecap) "
-        + "duo=\(router.showingDuoScreen) invite=\(DuoStore.shared.pendingInvite?.code ?? "nil") notice=\(DuoStore.shared.notice != nil)"
+        + "duo=\(router.showingDuoScreen) invite=\(DuoStore.shared.pendingInvite?.code ?? "nil") notice=\(DuoStore.shared.notice != nil) "
+        + "otherModals=\(router.otherModalCount) subscribed=\(StoreManager.shared.isSubscribed)"
 }
 
 /// Unknown-age routing must present the real birth-year gate, not the form's old title.
@@ -358,6 +359,12 @@ final class DuoRoutingRootTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        // These cases include the subscriber-only weekly recap. Without the explicit
+        // paid fixture, the root correctly refuses it and a routing timeout hides the
+        // missing prerequisite. This does not bypass the Duo age or consent gates.
+        let subscribed = await kSettle { StoreManager.shared.isSubscribed }
+        _ = try XCTUnwrap(subscribed ? true : nil,
+                          "Run root routing with -UITestForceSubscribed; never use -DuoPreview or -DuoClientVersion")
         XCTAssertTrue(KRoutingAutomation.enable(), "the real consent gate must be observable")
         try await kClean()
     }
@@ -436,6 +443,32 @@ final class DuoRoutingRootTests: XCTestCase {
         XCTAssertTrue(shown, kDescribe())
     }
 
+    /// Today and History keep a modal counted until its onDismiss, rather than until its
+    /// binding goes false. Drive those real router hooks here while observing the app's root:
+    /// a link must survive both sheets leaving instead of being consumed by a dropped sheet.
+    func testAnInviteWaitsUntilEveryTabModalHasFinishedLeaving() async {
+        var heldModals = 2
+        router.modalDidAppear()
+        router.modalDidAppear()
+        defer { for _ in 0..<heldModals { router.modalDidDismiss() } }
+        XCTAssertTrue(router.handle(URL(string: "https://hydrodrop.us/duo#H7K39QWX")!))
+        _ = await kSettle(1.5) { false }
+        XCTAssertFalse(kShowingJoinGate(), kDescribe())
+        XCTAssertEqual(duoStore.pendingInvite?.code, "H7K39QWX")
+
+        router.modalDidDismiss()
+        heldModals -= 1
+        _ = await kSettle(1.5) { false }
+        XCTAssertFalse(kShowingJoinGate(), "the last tab sheet is still leaving: \(kDescribe())")
+        router.modalDidDismiss()
+        heldModals -= 1
+        let shown = await kSettle(8) { kShowingJoinGate() }
+        XCTAssertTrue(shown, "the waiting invite never appeared: \(kDescribe())")
+        duoStore.pendingInvite = nil
+        _ = await kSettle { kChain().isEmpty }
+        await kGearStillWorks()
+    }
+
     func testARecapAskedForUnderTheJoinSheetWaitsForIt() async {
         await kShowJoinSheet()
         let sheet = kChain().first
@@ -451,6 +484,24 @@ final class DuoRoutingRootTests: XCTestCase {
     }
 
     // MARK: - A tapped Duo notification
+
+    func testADuoTapWaitsForATabModalThenOpensSettings() async {
+        var modalHeld = true
+        router.modalDidAppear()
+        defer { if modalHeld { router.modalDidDismiss() } }
+        router.showingDuoScreen = true
+        _ = await kSettle(1.5) { false }
+        XCTAssertFalse(router.showingSettings, "Settings was requested beneath a tab sheet")
+        XCTAssertFalse(router.settingsIsOnScreen, kDescribe())
+
+        router.modalDidDismiss()
+        modalHeld = false
+        let opened = await kSettle(8) { self.router.settingsIsOnScreen && kShowing(kSettingsTitle) }
+        XCTAssertTrue(opened, "the waiting notification never opened Settings: \(kDescribe())")
+        router.showingSettings = false
+        _ = await kSettle { kChain().isEmpty && !self.router.settingsIsOnScreen }
+        await kGearStillWorks()
+    }
 
     func testADuoTapWaitsForTheJoinSheetThenOpensSettings() async {
         await kShowJoinSheet()
@@ -583,6 +634,24 @@ final class DuoRoutingRootTests: XCTestCase {
     }
 
     // MARK: - The notice alert and the sheets, one at a time (K1)
+
+    func testANoticeWaitsForATabModalThenShows() async {
+        var modalHeld = true
+        router.modalDidAppear()
+        defer { if modalHeld { router.modalDidDismiss() } }
+        duoStore.notice = "probe notice behind a tab sheet"
+        _ = await kSettle(1.5) { false }
+        XCTAssertFalse(kAlertUp(), "notice appeared beneath a tab sheet: \(kDescribe())")
+        XCTAssertEqual(duoStore.notice, "probe notice behind a tab sheet")
+
+        router.modalDidDismiss()
+        modalHeld = false
+        let shown = await kSettle(8) { kAlertUp() }
+        XCTAssertTrue(shown, "the waiting notice never appeared: \(kDescribe())")
+        duoStore.notice = nil
+        _ = await kSettle { kChain().isEmpty }
+        await kGearStillWorks()
+    }
 
     func testANoticeWaitsForTheJoinSheetThenShows() async {
         await kShowJoinSheet()

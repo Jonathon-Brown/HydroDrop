@@ -86,7 +86,15 @@ struct RootTabView: View {
         // A tapped recap notification wins over Settings left open. The recap sheet
         // below waits for it to be fully gone before it comes up.
         .onChange(of: router.showingWeeklyRecap) { _, showing in
-            if showing { router.showingSettings = false }
+            guard showing else { return }
+            // The recap is HydroDrop+. A notification left over from a subscription that
+            // has since lapsed opens nothing, and the flag is cleared so it cannot open
+            // the sheet later from underneath something else.
+            guard store.isSubscribed else {
+                router.showingWeeklyRecap = false
+                return
+            }
+            router.showingSettings = false
         }
         #if DUO_V2
         // A Duo invite that arrived as a link or a scanned QR code, kept by the router until a
@@ -98,6 +106,9 @@ struct RootTabView: View {
         .onChange(of: router.showingDuoScreen, initial: true) { _, wanted in if wanted { askForDuoScreen() } }
         .onChange(of: router.settingsIsOnScreen) { _, onScreen in if !onScreen { duoSettingsLeft() } }
         .onChange(of: router.duoEntrySheetIsOnScreen) { _, onScreen in if !onScreen { duoSomethingLeft() } }
+        // Today and History also present sheets of their own. A tap or notice waiting behind
+        // one needs the same wake-up as it gets when a root sheet finishes leaving.
+        .onChange(of: router.otherModalCount) { _, count in if count == 0 { duoSomethingLeft() } }
         .onChange(of: settings.hasCompletedOnboarding) { _, done in if done { duoSomethingLeft() } }
         .onChange(of: duoStore.notice) { _, notice in duoNoticeChanged(notice) }
         // Leaving the app drops a tap that is still waiting: Settings opening on the person's return,
@@ -231,7 +242,7 @@ struct RootTabView: View {
                                    onboardingDone: settings.hasCompletedOnboarding,
                                    settingsIsOnScreen: router.settingsIsOnScreen,
                                    entrySheetIsOnScreen: router.duoEntrySheetIsOnScreen,
-                                   anotherSheetIsOnScreen: duoRecapIsOnScreen,
+                                   anotherSheetIsOnScreen: duoRecapIsOnScreen || router.otherModalCount > 0,
                                    noticeIsUp: duoNoticeIsUp)
             },
             set: { invite in
@@ -304,6 +315,7 @@ struct RootTabView: View {
             if router.showingDuoScreen, !router.showingSettings, !router.settingsIsOnScreen { router.showingDuoScreen = false }
             return
         }
+        guard router.otherModalCount == 0 else { return }
         switch DuoJoinPlan.duoScreenStep(duoRootSheets) {
         case .waitForIntro, .waitForSheet:
             break
@@ -341,7 +353,7 @@ struct RootTabView: View {
         while !Task.isCancelled {
             guard router.showingSettings == requested else { return }
             if requested {
-                if !duoNoticeIsUp, !duoNoticeIsLeaving, !Self.duoAnAlertIsUp() {
+                if router.otherModalCount == 0, !duoNoticeIsUp, !duoNoticeIsLeaving, !Self.duoAnAlertIsUp() {
                     duoSettingsPresented = true
                     return
                 }
@@ -385,6 +397,7 @@ struct RootTabView: View {
     /// system did not put up after all (one of Today's sheets in the way on an older iOS) is let go
     /// of again, so it cannot hold every root sheet back for good; the notice keeps for the next try.
     private func showDuoNoticeIfFree() {
+        guard router.otherModalCount == 0 else { return }
         guard DuoJoinPlan.noticeMayShow(hasNotice: duoStore.notice != nil, duoRootSheets) else { return }
         let generation = UUID()
         duoNoticeGeneration = generation
@@ -437,7 +450,10 @@ struct RootTabView: View {
     }
 
     #endif
-    /// The recap a notification asked for, held back while Settings is still leaving.
+    /// The recap a notification asked for, held back while Settings, or one of the tabs'
+    /// own sheets, is up or still leaving. It used to wait on Settings alone, so a tap on
+    /// the notification with the paywall or an edit left open brought the app forward
+    /// to nothing, and the flag stayed set.
     #if DUO_V2
     private var weeklyRecapIsPresented: Binding<Bool> {
         Binding(
@@ -445,7 +461,7 @@ struct RootTabView: View {
             // with it) and while the notice alert is up or leaving (D82). Once it is up, nothing here
             // takes it down.
             get: {
-                router.showingWeeklyRecap && !router.settingsIsOnScreen
+                router.showingWeeklyRecap && !router.somethingIsOnScreen
                     && (duoRecapIsOnScreen || DuoJoinPlan.recapMayShow(joinSheetIsUp: duoJoinSheetIsUp, noticeIsUp: duoNoticeIsUp))
             },
             set: { router.showingWeeklyRecap = $0 }
@@ -454,7 +470,7 @@ struct RootTabView: View {
     #else
     private var weeklyRecapIsPresented: Binding<Bool> {
         Binding(
-            get: { router.showingWeeklyRecap && !router.settingsIsOnScreen },
+            get: { router.showingWeeklyRecap && !router.somethingIsOnScreen },
             set: { router.showingWeeklyRecap = $0 }
         )
     }

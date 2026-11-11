@@ -12,8 +12,6 @@
 	<string>development</string>
 	<key>com.apple.developer.healthkit</key>
 	<true/>
-	<key>com.apple.developer.healthkit.recalibrate-estimates</key>
-	<true/>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.com.jonathonbrown.HydroDrop</string>

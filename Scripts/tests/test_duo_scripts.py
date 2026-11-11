@@ -1404,11 +1404,16 @@ class ReleaseTests(ReleaseHarness):
                 self.assertIn(f"DUO_V2 is '{value}'", out)
 
     def test_c05_to_c09_d09_bump(self):
-        for args, env, code_wanted, fragment in ((("bump", "35"), {}, 0, 'CURRENT_PROJECT_VERSION: "35"'),
-                                                 (("bump", "35", "1.9"), {}, 0, 'MARKETING_VERSION: "1.9"'),
-                                                 (("bump", "34"), {}, 1, None), (("bump", "abc"), {}, 1, None),
-                                                 (("bump", "35", "1.9.x"), {}, 1, None),
-                                                 (("bump", "35"), {"DUO_V2": "yes"}, 1, None)):
+        project = os.path.join(self.rel, "project.yml")
+        with open(project, encoding="utf-8") as handle:
+            original = handle.read()
+        current = re.search(r'(?m)^\s*CURRENT_PROJECT_VERSION:\s*"([0-9]+)"', original).group(1)
+        next_build = str(int(current) + 1)
+        for args, env, code_wanted, fragment in ((("bump", next_build), {}, 0, f'CURRENT_PROJECT_VERSION: "{next_build}"'),
+                                                 (("bump", next_build, "2.1"), {}, 0, 'MARKETING_VERSION: "2.1"'),
+                                                 (("bump", current), {}, 1, None), (("bump", "abc"), {}, 1, None),
+                                                 (("bump", next_build, "2.1.x"), {}, 1, None),
+                                                 (("bump", next_build), {"DUO_V2": "yes"}, 1, None)):
             with self.subTest(args=args, env=env):
                 subprocess.run(["git", "-C", self.rel, "checkout", "-q", "--", "project.yml"], check=True)
                 code, out = self.release(*args, **env)
@@ -1416,6 +1421,9 @@ class ReleaseTests(ReleaseHarness):
                 if fragment:
                     with open(os.path.join(self.rel, "project.yml"), encoding="utf-8") as handle:
                         self.assertIn(fragment, handle.read())
+                else:
+                    with open(project, encoding="utf-8") as handle:
+                        self.assertEqual(handle.read(), original, "a refused bump must leave both version pins unchanged")
 
     # archive (c10, c11, d10, d15, d17) ----------------------------------------------------
 

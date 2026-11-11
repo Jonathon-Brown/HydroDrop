@@ -64,9 +64,11 @@ public struct DuoRecoveryRecord: Codable, Equatable, Sendable, CustomStringConve
     public var storageVersion = 1
     public var wireVersion = "1.1"
     public var environment: DuoRecoveryEnvironment
-    public var recordRevision = 1
+    // The journal schema uses JSON-safe 53-bit counters, including when HydroCore
+    // is compiled for the Watch app, whose native Int is only 32 bits.
+    public var recordRevision: Int64 = 1
     public var installationID: String
-    public var identityGeneration = 0
+    public var identityGeneration: Int64 = 0
     public var phase: Phase
     public var access: Access = .eligible
     public var restoreConfirmationRequired = false
@@ -76,7 +78,7 @@ public struct DuoRecoveryRecord: Codable, Equatable, Sendable, CustomStringConve
     public var active: DuoJournalCredential?
     public var pending: DuoRecoveryPending?
     public var abandonedOperationID: String?
-    public var mirrorWrittenRevision: Int?
+    public var mirrorWrittenRevision: Int64?
     public init(environment: DuoRecoveryEnvironment, installationID: String, phase: Phase) {
         self.environment = environment; self.installationID = installationID; self.phase = phase
     }
@@ -174,7 +176,7 @@ public final class DuoRecoveryJournal: @unchecked Sendable {
         guard let data = try store.read(service: DuoSecrets.service, account: recordAccount) else { return nil }
         let r = try Self.decodeRecord(data); guard r.environment == environment else { throw DuoJournalError.invalid }; return r
     }
-    public func replace(_ value: DuoRecoveryRecord, expectedRevision: Int?) throws {
+    public func replace(_ value: DuoRecoveryRecord, expectedRevision: Int64?) throws {
         lock.lock(); defer { lock.unlock() }
         let current = try read()
         guard current?.recordRevision == expectedRevision else { throw DuoJournalError.changed }

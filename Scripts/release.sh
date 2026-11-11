@@ -271,9 +271,13 @@ cmd_bump() {
   [[ "$build" =~ ^[0-9]+$ ]] || die "usage: release.sh bump <build-number> [marketing-version]"
   local current; current="$(build_number)"
   (( build > current )) || die "build $build is not higher than the current $current — build numbers only go up"
-  sed -i '' -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION:).*/\1 \"$build\"/" project.yml
+  # Validate the whole request before changing either pin. An invalid marketing version
+  # used to leave the build number incremented even though the command reported failure.
   if [[ -n "$version" ]]; then
     [[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || die "marketing version '$version' should look like 1.0.1"
+  fi
+  sed -i '' -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION:).*/\1 \"$build\"/" project.yml
+  if [[ -n "$version" ]]; then
     sed -i '' -E "s/^([[:space:]]*MARKETING_VERSION:).*/\1 \"$version\"/" project.yml
   fi
   green "project.yml now $(marketing_version) ($(build_number))"

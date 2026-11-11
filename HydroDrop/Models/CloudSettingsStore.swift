@@ -18,22 +18,30 @@ import Foundation
 final class CloudSettingsStore {
     static let shared = CloudSettingsStore()
 
-    private let local = UserDefaults.standard
+    private let local: UserDefaults
     private let cloud = NSUbiquitousKeyValueStore.default
     private var observer: NSObjectProtocol?
 
     /// Screenshot automation runs against whatever iCloud account the machine is signed
     /// into, which would make captures depend on another device's settings — and let a
     /// test run write to them. Local-only there. Compiled out of Release.
-    private let isCloudEnabled: Bool = {
-        #if DEBUG
-        !ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory")
-        #else
-        true
-        #endif
-    }()
+    private let isCloudEnabled: Bool
 
-    private init() {}
+    private init() {
+        local = .standard
+        #if DEBUG
+        isCloudEnabled = !ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory")
+        #else
+        isCloudEnabled = true
+        #endif
+    }
+
+    /// An isolated local mirror lets persistence tests reopen their own preferences
+    /// without reading or changing the signed-in person's iCloud settings.
+    init(localOnly local: UserDefaults) {
+        self.local = local
+        isCloudEnabled = false
+    }
 
     // MARK: - Reading
 
@@ -50,6 +58,11 @@ final class CloudSettingsStore {
     func string(forKey key: String) -> String? { object(forKey: key) as? String }
     func stringArray(forKey key: String) -> [String]? { object(forKey: key) as? [String] }
     func intArray(forKey key: String) -> [Int]? { object(forKey: key) as? [Int] }
+
+    /// Monotonic records must retain locally earned values when a stale cloud value
+    /// wins the normal preference lookup at launch.
+    func localIntArray(forKey key: String) -> [Int]? { local.object(forKey: key) as? [Int] }
+    func localBool(forKey key: String) -> Bool? { local.object(forKey: key) as? Bool }
 
     /// Whether iCloud itself holds a value, ignoring the local mirror. Used to decide
     /// whether this device's settings should seed an empty cloud.

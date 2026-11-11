@@ -21,6 +21,26 @@ final class DayKeyTests: XCTestCase {
         XCTAssertEqual(DayKey.key(for: moment, calendar: calendar("Asia/Tokyo")), "2026-08-21")
     }
 
+    /// The key used to come from `String(format: "%04d-%02d-%02d")`. It is built by hand
+    /// now, and has to read exactly as the formatter wrote it for every year the vectors
+    /// and the rules can meet, including the padding on a short year and no cutting on a
+    /// long one.
+    func testTheKeyReadsExactlyAsTheFormatterWroteIt() {
+        let utc = calendar("UTC")
+        for year in [1, 999, 2000, 2026, 9999, 10_000, 275_760] {
+            for (month, day) in [(1, 1), (9, 30), (12, 31)] {
+                guard let date = utc.date(from: DateComponents(year: year, month: month, day: day, hour: 12)) else {
+                    continue
+                }
+                XCTAssertEqual(
+                    DayKey.key(for: date, calendar: utc),
+                    String(format: "%04d-%02d-%02d", year, month, day),
+                    "year \(year)"
+                )
+            }
+        }
+    }
+
     func testMonthAccounting() {
         XCTAssertEqual(DayKey.month(ofDayKey: "2026-09-01"), "2026-09")
         XCTAssertEqual(

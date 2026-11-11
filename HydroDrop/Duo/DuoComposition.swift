@@ -46,7 +46,13 @@ enum DuoComposition {
 
         // The identity is the API client's credential and the API client is the identity's
         // transport, so the first is built before and the second is handed over after.
-        let identity = DuoRecoveryIdentity(dependencies: dependencies, environment: environment, verifiedLegacyEnvironment: verifiedLegacyEnvironment, directory: identityDirectory ?? DuoIdentity.defaultDirectory)
+        let identity = DuoRecoveryIdentity(dependencies: dependencies, environment: environment,
+                                           verifiedLegacyEnvironment: verifiedLegacyEnvironment,
+                                           directory: identityDirectory ?? DuoIdentity.defaultDirectory) { credential in
+            DuoLegacyStagingProvenance.approvedEnvironment(baseURL: baseURL,
+                arguments: ProcessInfo.processInfo.arguments, bundleIdentifier: Bundle.main.bundleIdentifier,
+                cachedMember: cache.loadMember(), credential: credential)
+        }
         dependencies.identity = identity
         // Every response leaves its request id in Diagnostics (the observer hops to the main
         // actor, where the store lives, and holds the store weakly).

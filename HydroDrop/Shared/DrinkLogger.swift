@@ -20,6 +20,17 @@ import SwiftData
 /// Intents, which run in whichever process invoked them, can use it from either side.
 @MainActor
 enum DrinkLogger {
+    /// How an App Intent logs while the app itself is the process running it.
+    ///
+    /// Siri, the Shortcuts app and the Action Button run the app's own copy of
+    /// `LogWaterIntent`, in the app process; only the widget's button runs the copy in
+    /// the extension. The app sets this at launch and the widget extension never does, so
+    /// in the extension the intent keeps opening the shared store itself. Without it the
+    /// intent in the app opened a second CloudKit-backed container on the same file and
+    /// logged through the core, so a drink Siri logged reached neither the reminder
+    /// schedule, the Live Activity, the watch nor Night Out until the app was next opened.
+    static var inAppLogger: (@MainActor (_ amountML: Int, _ drinkType: DrinkType) throws -> Logged)?
+
     enum Failure: Error {
         /// The insert could not be committed. The context has been rolled back, so the
         /// drink is gone rather than left sitting unsaved where a later, unrelated save

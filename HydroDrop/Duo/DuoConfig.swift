@@ -15,6 +15,12 @@ enum DuoConfig {
         #endif
     }()
 
+    /// Explicit staging receipt evaluation requires this exact canonical base, including
+    /// scheme/path and absence of a query, fragment, userinfo or alternate port.
+    static func isCanonicalStagingBase(_ url: URL) -> Bool {
+        url.absoluteString == "https://api-staging.hydrodrop.us/v1"
+    }
+
     /// Namespaces new protected records. Custom test origins use staging; this is never
     /// evidence that an old unlabelled credential belongs to the selected environment.
     static func recoveryEnvironment(for url: URL) -> DuoRecoveryEnvironment {
@@ -31,9 +37,9 @@ enum DuoConfig {
     ///
     /// A Debug build may claim another marketing version with `-DuoClientVersion 2.0`. The
     /// servers answer `426 upgrade_required` to every write from a client older than their
-    /// `MIN_CLIENT_IOS`, which is 2.0 on staging as on production, and this branch still says
-    /// 1.8.1 until Jonathon bumps it for the first Duo TestFlight build, so without the override
-    /// the first Create tap of the two-simulator staging loop would be refused. Compiled out of
+    /// `MIN_CLIENT_IOS`. Earlier development builds still identified themselves as 1.8.1,
+    /// so that override allowed their explicitly scoped staging checks. The release candidate
+    /// now carries its actual supported bundle version and needs no launch override. Compiled out of
     /// Release: a build that ships can only ever say what it is. The build number is never
     /// overridden, and a value that is not `N.N` or `N.N.N` is ignored (the header's grammar).
     static func client(info: [String: Any]?, arguments: [String]) -> DuoClientInfo {

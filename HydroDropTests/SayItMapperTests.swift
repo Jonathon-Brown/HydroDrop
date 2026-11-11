@@ -161,6 +161,15 @@ final class SayItMapperTests: XCTestCase {
         XCTAssertEqual(result.first?.needsReview, true)
     }
 
+    /// The model copies numbers as said, and a sentence can say any number at all. One
+    /// past Int.max used to trap in the conversion and crash the app.
+    func testAnAbsurdAmountIsPulledIntoRangeRatherThanTrapping() {
+        XCTAssertEqual(SayItMapper.milliliters(amount: 1e25, unit: "mL"), Int(MeasurementSystem.conversionCeilingML))
+        let result = drafts(SpokenDrink(kind: "water", quantity: 1, sizeWord: "none", amount: 1e300, unit: "oz"))
+        XCTAssertEqual(result.first?.amountML, MeasurementSystem.plausibleDrinkRangeML.upperBound)
+        XCTAssertEqual(result.first?.needsReview, true)
+    }
+
     // MARK: - Unknown drinks
 
     func testAnUnknownDrinkIsWaterAndIsFlagged() {

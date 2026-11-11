@@ -92,4 +92,22 @@ final class DuoRecoveryJournalTests: XCTestCase {
         XCTAssertThrowsError(try DuoRecoveryJournal.decodeLegacyCredential(Data(duplicated.utf8)))
     }
 
+    func testCounterRangeIsJSONSafeAndIndependentOfNativeWordSize() throws {
+        let maximum: Int64 = 9_007_199_254_740_991
+        var r = active(); r.recordRevision = maximum; r.identityGeneration = maximum
+        r.mirrorWrittenRevision = maximum
+        XCTAssertEqual(try DuoRecoveryJournal.decodeRecord(DuoRecoveryJournal.encodeRecord(r)), r)
+        var invalid = r; invalid.recordRevision = maximum + 1
+        XCTAssertThrowsError(try DuoRecoveryJournal.encodeRecord(invalid))
+        invalid = r; invalid.identityGeneration = maximum + 1
+        XCTAssertThrowsError(try DuoRecoveryJournal.encodeRecord(invalid))
+        let store = DuoMemorySecretStore(); let journal = DuoRecoveryJournal(store: store, environment: .staging)
+        try store.write(DuoRecoveryJournal.encodeRecord(r), service: DuoSecrets.service,
+                        account: journal.recordAccount, accessibility: .afterFirstUnlockThisDeviceOnly)
+        var next = r; next.recordRevision += 1
+        XCTAssertThrowsError(try journal.replace(next, expectedRevision: maximum))
+        XCTAssertThrowsError(try journal.abandon(random: DuoSystemRandom()))
+        XCTAssertEqual(try journal.read(), r)
+    }
+
 }

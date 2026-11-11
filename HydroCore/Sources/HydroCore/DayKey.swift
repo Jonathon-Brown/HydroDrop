@@ -13,14 +13,24 @@ import Foundation
 /// public because the app, the widgets and the Watch app all use it from outside the package.
 public enum DayKey {
     /// The day `date` falls on, e.g. "2026-08-20".
+    ///
+    /// Built by hand rather than with `String(format:)`, which gives the same text for
+    /// every date but goes through Foundation's formatter and was most of the cost of
+    /// grouping a log of several thousand drinks by day, which the app does on every
+    /// render of its two screens.
     public static func key(for date: Date, calendar: Calendar = .current) -> String {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(
-            format: "%04d-%02d-%02d",
-            components.year ?? 0,
-            components.month ?? 0,
-            components.day ?? 0
-        )
+        return padded(components.year ?? 0, to: 4) + "-"
+            + padded(components.month ?? 0, to: 2) + "-"
+            + padded(components.day ?? 0, to: 2)
+    }
+
+    /// `value` as `%0<width>d` would print it: zero-padded to the width, never cut, with
+    /// a minus sign counted in the width as printf counts it.
+    private static func padded(_ value: Int, to width: Int) -> String {
+        if value < 0 { return "-" + padded(-value, to: width - 1) }
+        let digits = String(value)
+        return digits.count >= width ? digits : String(repeating: "0", count: width - digits.count) + digits
     }
 
     /// The day before `date`, or nil if the calendar can't express it.

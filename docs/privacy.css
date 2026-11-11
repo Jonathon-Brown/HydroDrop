@@ -1,0 +1,58 @@
+:root {
+    color-scheme: dark;
+    --ground: #07121F; --card: #0C1B2D; --line: #16304A; --hair: #12263B;
+    --text: #EEF4FA; --soft: #B7C7D8; --muted: #9DB2C8; --link: #7CC0FF;
+    --blue: #2E8FED; --blue-lift: #4DA3FF; --ink: #04101D;
+    --display: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --pad: clamp(24px, 8.3vw, 120px);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--body); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { color: #B5DBFF; }
+  main a { text-decoration: underline; text-underline-offset: 3px; }
+  :focus-visible { outline: 3px solid var(--blue-lift); outline-offset: 3px; border-radius: 8px; }
+  h1, h2, h3, p { margin: 0; }
+  p { text-wrap: pretty; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding-left: var(--pad); padding-right: var(--pad); }
+  .site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; }
+  .logo { display: flex; align-items: center; gap: 12px; color: var(--text); padding: 10px 0; font-family: var(--display); font-weight: 700; font-size: 18px; }
+  .logo:hover { color: var(--text); }
+  .site-nav { display: flex; align-items: center; gap: 36px; }
+  .site-nav a { color: #C5D5E6; font-size: 15px; font-weight: 500; padding: 13px 0; }
+  .site-nav a:hover { color: var(--text); }
+  .site-nav a[aria-current] { color: var(--text); font-weight: 700; }
+  .btn { display: inline-flex; align-items: center; background: var(--blue); color: var(--ink); font-weight: 700; font-size: 15px; padding: 13px 22px; border-radius: 999px; transition: background .2s; }
+  .btn:hover { background: var(--blue-lift); color: var(--ink); }
+  main { padding-top: clamp(32px, 5vw, 72px); padding-bottom: clamp(64px, 7.8vw, 112px); }
+  h1 { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 4.5vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }
+  .site-footer { border-top: 1px solid var(--hair); padding-top: 36px; padding-bottom: 48px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 40px; font-size: 14px; color: var(--muted); }
+  .site-footer p { max-width: 560px; }
+  .site-footer nav { display: flex; flex-wrap: wrap; gap: 0 32px; }
+  .site-footer nav a { color: #C5D5E6; padding: 12px 0; }
+  .updated { margin-top: 20px; font-size: 15px; color: var(--muted); }
+  .short { margin-top: 48px; background: var(--card); border: 1px solid var(--line); border-radius: 28px; padding: 40px; display: flex; align-items: center; gap: 36px; }
+  .short svg { flex-shrink: 0; }
+  .short p { font-size: clamp(18px, 1.55vw, 22px); line-height: 1.5; font-weight: 500; }
+  .cols { display: flex; align-items: flex-start; gap: 96px; margin-top: 56px; }
+  .toc { position: sticky; top: 24px; width: 240px; flex-shrink: 0; display: flex; flex-direction: column; font-size: 15px; font-weight: 500; }
+  .toc span { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-bottom: 8px; }
+  .toc a { color: #C5D5E6; padding: 12px 0; border-top: 1px solid var(--hair); text-decoration: none; }
+  .toc a:hover { color: var(--text); }
+  .policy { flex: 1; max-width: 760px; display: flex; flex-direction: column; gap: 44px; font-size: 17px; line-height: 1.7; color: var(--soft); }
+  .policy section { display: flex; flex-direction: column; gap: 12px; scroll-margin-top: 24px; }
+  .policy h2 { font-family: var(--display); font-weight: 700; font-size: clamp(19px, 1.6vw, 22px); letter-spacing: -0.02em; color: var(--text); }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  @media (max-width: 720px) {
+    .site-header { min-height: 64px; }
+    .site-nav { gap: 20px; }
+    .site-nav a { font-size: 14px; }
+    .site-header .btn { display: none; }
+    .logo span { display: none; }
+    .short { flex-direction: column; align-items: flex-start; gap: 20px; padding: 28px 24px; border-radius: 24px; margin-top: 32px; }
+    .cols { margin-top: 40px; }
+    .toc { display: none; }
+    .policy { font-size: 16px; gap: 36px; }
+  }

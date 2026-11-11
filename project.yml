@@ -21,9 +21,13 @@ settings:
     DEVELOPMENT_TEAM: "YR8YP5788W"
     CODE_SIGN_STYLE: Automatic
 packages:
+  # Pinned exactly, not `from:`. The EEA promise below rests on how this SDK behaves at
+  # load time, which was checked on a device against this version, so a newer one must
+  # be a deliberate bump that repeats that check rather than whatever a fresh checkout
+  # happens to resolve. Dependencies/Package.resolved pins the same version for CI.
   GoogleMobileAds:
     url: https://github.com/googleads/swift-package-manager-google-mobile-ads.git
-    from: 12.0.0
+    exactVersion: 12.14.0
   # The rules the app, the widgets, the Watch app, the Duo server and the Android app all
   # have to agree on. A local package, so it has no entry in Dependencies/Package.resolved.
   HydroCore:
@@ -75,6 +79,13 @@ targets:
         # GoogleMobileAds update (a fresh install with -AdRegion GBR must leave no
         # Library/Application Support/GoogleMobileAds folder).
         GADDelayInitialization: true
+        # The key Google does document for the same purpose, "delay app measurement
+        # until the SDK is explicitly initialised". Kept alongside the one above so that
+        # whichever an SDK release honours, nothing of Google's runs before AdAvailability
+        # has said this device is outside the EEA, the UK and Switzerland. Neither key is
+        # enough on its own to trust: the check that matters is the fresh install with
+        # -AdRegion GBR described above.
+        GADDelayAppMeasurementInit: true
         SKAdNetworkItems:
           - SKAdNetworkIdentifier: cstr6suwn9.skadnetwork
           - SKAdNetworkIdentifier: 4fzdc2evr5.skadnetwork
@@ -138,8 +149,8 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
-        MARKETING_VERSION: "1.8.1"
-        CURRENT_PROJECT_VERSION: "34"
+        MARKETING_VERSION: "2.0"
+        CURRENT_PROJECT_VERSION: "35"
         # HydroDrop/HydroDrop.entitlements, from Config/Duo.xcconfig and Config/Duo.Release.xcconfig,
         # unless a build that compiles Duo in sets HydroDrop/HydroDrop.duo.entitlements, which adds
         # App Attest. The plain file stays free of a capability the provisioning profile may not
@@ -200,8 +211,10 @@ targets:
       - path: HydroDrop/Support/Diagnostics.swift
       - path: HydroDrop/Models/StreakCalculator.swift
       # `HydroDrop/Shared` opens the store with the full schema, so every model in it
-      # has to compile here too, even though no widget draws a bottle.
+      # has to compile here too, even though no widget draws a bottle or deletes a
+      # Health sample.
       - path: HydroDrop/Models/Bottle.swift
+      - path: HydroDrop/Models/HealthTombstone.swift
     info:
       path: HydroDropWidgets/Info.plist
       properties:
@@ -218,8 +231,8 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
-        MARKETING_VERSION: "1.8.1"
-        CURRENT_PROJECT_VERSION: "34"
+        MARKETING_VERSION: "2.0"
+        CURRENT_PROJECT_VERSION: "35"
         SKIP_INSTALL: "YES"
     dependencies:
       - package: HydroCore
@@ -266,8 +279,8 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
         ENABLE_PREVIEWS: YES
-        MARKETING_VERSION: "1.8.1"
-        CURRENT_PROJECT_VERSION: "34"
+        MARKETING_VERSION: "2.0"
+        CURRENT_PROJECT_VERSION: "35"
         SKIP_INSTALL: "YES"
     dependencies:
       - package: HydroCore

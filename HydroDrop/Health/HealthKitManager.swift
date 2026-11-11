@@ -163,6 +163,7 @@ final class HealthKitManager {
     }
 
     private func runPass(context: ModelContext, settings: AppSettings) async {
+        await honourTombstones(context: context, settings: settings)
         await takeBackLeftovers(settings: settings)
         // First, so the drinks it rewrites carry their new identifiers before the pass
         // below looks for anything unwritten.
@@ -270,6 +271,44 @@ final class HealthKitManager {
             HealthTakeBackList().add(failed.toTakeBack, caffeine: kind == .caffeine)
             try? context.save()
             Diagnostics.log("could not take back \(stale.count) Health \(kind.rawValue) samples for drinks that changed, \(stale.count - failed.toReplace.count) with no drink left; trying again later: \(error)")
+        }
+    }
+
+    /// Deletes from this device's Health what a drink deleted on another device left
+    /// behind, and signs each tombstone off (see `HealthTombstone`). Waits while the
+    /// phone is locked, as every delete does, and for a launch that can read this
+    /// device's name. A kind this device may not write is left unsigned for a device
+    /// that may, and so is a kind this version does not know. Finding nothing to delete
+    /// still signs off: this device never had the sample, and that is settled.
+    private func honourTombstones(context: ModelContext, settings: AppSettings) async {
+        guard UIApplication.shared.isProtectedDataAvailable, let device = HealthInstall.id else { return }
+        let tombstones: [HealthTombstone]
+        do {
+            tombstones = try context.fetch(FetchDescriptor<HealthTombstone>())
+        } catch {
+            Diagnostics.log("could not read the Health tombstones: \(error)")
+            return
+        }
+        guard !tombstones.isEmpty else { return }
+        let plan = HealthTombstone.plan(tombstones, device: device, now: Date())
+        var changed = false
+        for tombstone in plan.toDrop {
+            context.delete(tombstone)
+            changed = true
+        }
+        for tombstone in plan.toHonour {
+            guard settings.healthKitSyncEnabled else { break }
+            guard let reference = tombstone.reference else { continue }
+            let deleted = await deleteSamples(reference.kind, uuid: reference.uuid, syncIdentifiers: reference.syncIdentifiers)
+            guard deleted != nil else { continue }
+            tombstone.markHandled(by: device)
+            changed = true
+        }
+        guard changed else { return }
+        do {
+            try context.save()
+        } catch {
+            Diagnostics.log("could not record the Health tombstones this device honoured: \(error)")
         }
     }
 

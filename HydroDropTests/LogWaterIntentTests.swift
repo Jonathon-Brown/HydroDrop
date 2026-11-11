@@ -122,6 +122,14 @@ final class LogWaterIntentTests: XCTestCase {
         XCTAssertThrowsError(
             try fromShortcut(amount: .nan, unit: .milliliters).resolvedAmountML(snapshot: snapshot(.metric))
         )
+        // Finite but past Int.max: this used to trap in the conversion and take the
+        // process down, the app for Siri and the extension for the widget.
+        XCTAssertThrowsError(
+            try fromShortcut(amount: 1e25, unit: .milliliters).resolvedAmountML(snapshot: snapshot(.metric))
+        )
+        XCTAssertThrowsError(
+            try fromShortcut(amount: 1e300, unit: .fluidOunces).resolvedAmountML(snapshot: snapshot(.imperial))
+        )
     }
 
     // MARK: - Precedence

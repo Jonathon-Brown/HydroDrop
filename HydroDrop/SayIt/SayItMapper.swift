@@ -124,7 +124,11 @@ enum SayItMapper {
         default:
             return nil
         }
-        return Int((amount * perUnit).rounded())
+        // Bounded the same way as the display conversion: a number copied out of a
+        // sentence can be anything, and converting it unbounded trapped on anything past
+        // Int.max. Past the ceiling it is pulled into range and flagged below like any
+        // other implausible amount.
+        return Int(min(amount * perUnit, MeasurementSystem.conversionCeilingML).rounded())
     }
 
     // MARK: - Drafts
@@ -198,11 +202,12 @@ enum SayItMapper {
 
     /// When each of `count` drinks logged together should say it was drunk.
     ///
-    /// They are all "now", but not the same instant: the store's launch dedupe pass
-    /// treats rows that match on timestamp, amount and type as one drink synced twice,
-    /// and two identical glasses of water logged in the same instant would be exactly
-    /// that. Stepping back a second at a time keeps every drink in the same minute on
-    /// screen, none of them in the future, and no two of them mistakable for a duplicate.
+    /// They are all "now", but not the same instant: stepping back a second at a time
+    /// keeps every drink in the same minute on screen, none of them in the future, and
+    /// the log listing them in the order they were said. It used to be what kept two
+    /// identical glasses from being read as one drink synced twice by the store's dedupe
+    /// pass; that pass now only ever touches the copies a migration made, so this is
+    /// ordering alone.
     static func timestamps(count: Int, endingAt now: Date) -> [Date] {
         guard count > 0 else { return [] }
         return (0..<count).map { now.addingTimeInterval(-Double($0)) }
