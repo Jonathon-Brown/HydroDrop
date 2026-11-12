@@ -70,6 +70,12 @@ final class DuoAPIClient: DuoTransport, DuoCredentialRecoveryTransport, Sendable
     private let session: DuoHTTPSession
     private let gate = DuoAttestationGate()
 
+    #if DEBUG
+    /// How many attested calls wait in line, so a test can queue calls in a known order instead
+    /// of spacing their launches with sleeps, which a busy machine outran.
+    var attestedCallsWaiting: Int { get async { await gate.waiting } }
+    #endif
+
     init(baseURL: URL, client: DuoClientInfo, credentials: DuoCredentialProviding, attester: DuoAttesting,
          session: DuoHTTPSession = URLSessionHTTP()) {
         self.baseURL = baseURL
@@ -806,6 +812,7 @@ private actor DuoAttestationGate {
     private var busy = false
     private var waiters: [(id: Int, continuation: CheckedContinuation<Void, Error>)] = []
     private var lastID = 0
+    var waiting: Int { waiters.count }
 
     func enter() async throws {
         guard busy else {

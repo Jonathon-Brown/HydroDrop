@@ -846,7 +846,12 @@ final class DuoAPIClientRobustnessTests: XCTestCase {
         for i in 1...5 {
             let call: RCall = [.createDuo, .reconnect, .pushFirst, .createDevice, .createDuo][i - 1]
             waiters.append(Task { try await RProbe.$call.withValue("w\(i)") { try await call.run(client, key: i) } })
-            try await Task.sleep(nanoseconds: 30_000_000)
+            // Each call is in line before the next starts. A 30 ms sleep used to stand in for
+            // this, and a busy machine let a later call reach the gate first.
+            let deadline = Date().addingTimeInterval(10)
+            while await client.attestedCallsWaiting < i, Date() < deadline { await Task.yield() }
+            let queued = await client.attestedCallsWaiting
+            XCTAssertEqual(queued, i, "w\(i) never reached the gate")
         }
         held.release.release()
         _ = try await first.value
