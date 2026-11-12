@@ -109,9 +109,12 @@ final class DuoAgeNetworkTests: XCTestCase {
         await kit.store.leave(duo)
         await kit.store.block(duo)
         await kit.store.continueAsRestored()
-        XCTAssertTrue(kit.sync.calls.isEmpty)
+        await kit.store.refusalDeletionTask?.value
+        // Activating sends nothing and is not gated (finding 9).
+        XCTAssertEqual(kit.sync.calls, ["activate"])
         XCTAssertTrue(kit.joining.calls.isEmpty)
-        XCTAssertTrue(kit.exiting.calls.isEmpty)
+        // The refusal's one DELETE /me (decision a), and no leave or block.
+        XCTAssertEqual(kit.exiting.calls, ["deleteMyData"])
         XCTAssertTrue(kit.push.tokens.isEmpty)
         XCTAssertEqual(kit.background.scheduled, 0)
         XCTAssertEqual(kit.identity.prepared, 0)
@@ -158,15 +161,110 @@ final class DuoAgeNetworkTests: XCTestCase {
         kit.dependencies.exiting = DuoExitService(dependencies: kit.dependencies)
         kit.identity.launch = .unavailable
         kit.transport.onDeleteMe = { request, _ in XCTAssertNil(request.deviceCheckToken) }
+        // The refusal itself sends it now (decision a), once.
         kit.store.recordBirthYear(Calendar.current.component(.year, from: Date()), month: 1)
-        let deleted = await kit.store.deleteMyData()
-        XCTAssertTrue(deleted)
+        XCTAssertEqual(kit.store.refusalDeletion, .deleting)
+        await kit.store.refusalDeletionTask?.value
+        XCTAssertEqual(kit.store.refusalDeletion, .deleted)
+        XCTAssertNil(kit.store.notice)
+        XCTAssertTrue(kit.store.duos.isEmpty)
         XCTAssertEqual(kit.identity.prepared, 0)
         XCTAssertEqual(token.calls, 0)
         XCTAssertEqual(kit.transport.calls.count, 1)
         guard case .deleteMe = kit.transport.calls.first else { return XCTFail("only DELETE may be sent") }
         XCTAssertEqual(kit.store.ageStatus, .refused)
         XCTAssertEqual(kit.dependencies.cache.ageStatus, .refused)
+    }
+
+    /// Decision a: no identity, nothing to delete and nothing sent; a refusal already kept is not
+    /// answered again, so the request goes once.
+    func testARefusalWithNoIdentitySendsNothingAndARefusalIsAnsweredOnce() async {
+        let fresh = DuoTestKit()
+        fresh.store.recordBirthYear(Calendar.current.component(.year, from: Date()), month: 1)
+        XCTAssertNil(fresh.store.refusalDeletionTask)
+        XCTAssertNil(fresh.store.refusalDeletion)
+        XCTAssertTrue(fresh.exiting.calls.isEmpty)
+        XCTAssertNil(DuoAgeGateView.refusalDeletionLine(fresh.store.refusalDeletion, holdsIdentity: fresh.store.hasIdentity),
+                     "the refusal screen says nothing about data a phone never held")
+
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        kit.store.recordBirthYear(Calendar.current.component(.year, from: Date()), month: 1)
+        await kit.store.refusalDeletionTask?.value
+        kit.store.recordBirthYear(Calendar.current.component(.year, from: Date()) - 3, month: 1)
+        await kit.store.refusalDeletionTask?.value
+        XCTAssertEqual(kit.exiting.calls, ["deleteMyData"])
+    }
+
+    /// Decision a: a delete that fails is said on the refusal screen with the way to try again, and
+    /// not again in an alert once the sheet has gone.
+    func testAFailedRefusalDeleteSaysWhereToDeleteByHand() async {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        kit.dependencies.exiting = DuoExitService(dependencies: kit.dependencies)
+        kit.transport.onDeleteMe = { _, _ in throw DuoTransportError.offline }
+        kit.store.recordBirthYear(Calendar.current.component(.year, from: Date()), month: 1)
+        await kit.store.refusalDeletionTask?.value
+        XCTAssertEqual(kit.store.refusalDeletion, .failed)
+        XCTAssertNil(kit.store.notice)
+        XCTAssertTrue(kit.store.hasIdentity)
+        XCTAssertEqual(DuoAgeGateView.refusalDeletionLine(.failed, holdsIdentity: true), DuoConsentFlow.NewCopy.refusalDataRemains)
+        XCTAssertEqual(DuoAgeGateView.refusalDeletionLine(.deleted, holdsIdentity: false), DuoConsentFlow.NewCopy.refusalDeleted)
+        XCTAssertEqual(DuoAgeGateView.refusalDeletionLine(.removedFromThisPhone, holdsIdentity: false), DuoUserMessage.removedFromThisPhoneOnly)
+        XCTAssertFalse(kit.store.ageAllowsSharing)
+    }
+
+    /// Finding 2: a refusal takes back the Duo notifications already delivered, not only the ones
+    /// still waiting.
+    func testARefusalRemovesDeliveredDuoNotificationsToo() {
+        let kit = DuoTestKit()
+        kit.store.recordBirthYear(Calendar.current.component(.year, from: Date()), month: 1)
+        XCTAssertGreaterThanOrEqual(kit.announcer.removedAll, 1)
+        XCTAssertGreaterThanOrEqual(kit.announcer.removedPending, 1)
+    }
+
+    /// Finding 9: a launch whose Keychain the age check cannot read yet still activates the sync
+    /// engine, which sends nothing, so the rest of the run reads the widget's and the Watch's drinks.
+    func testActivationIsNotSkippedWhileTheAgeAnswerCannotBeRead() {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        let secrets = ToggleAgeSecretStore()
+        secrets.setUnreadable(true)
+        let d = DuoDependencies(host: kit.store, cache: kit.dependencies.cache, secrets: DuoSecrets(store: secrets),
+                                clock: kit.clock, random: kit.random, client: kit.dependencies.client,
+                                attester: kit.attester, deviceCheck: FakeDuoDeviceCheck())
+        d.identity = kit.identity
+        d.sync = kit.sync
+        kit.store.install(d)
+        XCTAssertTrue(kit.store.ageCheckUnavailable)
+        kit.store.activate(logReader: FakeLogReader())
+        XCTAssertEqual(kit.sync.calls, ["activate"])
+    }
+
+    /// Decision b: the thirteenth-birthday month records nothing, in the defaults or the Keychain,
+    /// and sends nothing; the answer can be given again.
+    func testTheThirteenthBirthdayMonthIsKeptNowhere() throws {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = .current
+        let now = Date()
+        let parts = gregorian.dateComponents([.year, .month], from: now)
+        let year = try XCTUnwrap(parts.year) - 13, month = try XCTUnwrap(parts.month)
+        XCTAssertEqual(kit.store.recordBirthYear(year, month: month, now: now), .unknown)
+        XCTAssertEqual(kit.store.ageStatus, .unknown)
+        XCTAssertEqual(kit.dependencies.cache.ageStatus, .unknown)
+        XCTAssertFalse(try kit.dependencies.secrets.readAgeRefused())
+        XCTAssertNil(kit.store.refusalDeletionTask)
+        XCTAssertTrue(kit.exiting.calls.isEmpty)
+        XCTAssertEqual(kit.store.recordBirthYear(1990, month: 1, now: now), .allowed, "not a refusal: asked again, it can pass")
+    }
+
+    /// Finding 5: a phone holding an identity without the rules (a reinstall clears them) is asked
+    /// for them; accepting clears the question.
+    func testAnIdentityWithoutTheRulesIsAskedForThem() async {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        XCTAssertEqual(kit.store.acceptedTermsVersion, 0)
+        XCTAssertTrue(kit.store.needsTermsAgain)
+        XCTAssertFalse(DuoTestKit().store.needsTermsAgain, "no identity, nothing to resume")
+        _ = await kit.store.acceptTerms()
+        XCTAssertFalse(kit.store.needsTermsAgain)
     }
 
     func testRefusedDeleteWithoutCredentialDoesNotClaimSuccess() async {

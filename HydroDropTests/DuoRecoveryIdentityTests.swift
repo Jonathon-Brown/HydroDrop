@@ -328,6 +328,59 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
         XCTAssertNotNil(fresh); XCTAssertEqual(relaunched.credential?.deviceSecret, server.current)
     }
 
+    /// Decision a: the refusal's automatic DELETE /me covers only an identity this install answered
+    /// for. A reinstall cannot be told from an iPhone handed on unerased, and a backup brings another
+    /// phone's, so neither is deleted unasked.
+    func testARefusalDeletesOnlyAnIdentityThisInstallAnsweredFor() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("D65-refusal-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = identity(kit, server: server, directory: folder)
+        XCTAssertFalse(first.refusalMayDeleteIdentity(), "no identity yet")
+        _ = await first.mint(role: .create, replacing: nil)
+        XCTAssertTrue(first.refusalMayDeleteIdentity())
+        try FileManager.default.removeItem(at: folder)
+        let reinstalled = identity(kit, server: server, directory: folder)
+        // The defaults went with the app, so the age is asked again and nothing rotates before it.
+        kit.dependencies.cache.ageStatus = .unknown
+        XCTAssertFalse(reinstalled.refusalMayDeleteIdentity(), "a reinstall, before any launch: maybe a handed-on phone")
+        _ = await reinstalled.prepare()
+        XCTAssertTrue(try XCTUnwrap(try reinstalled.journal.read()).restoreConfirmationRequired)
+        XCTAssertFalse(reinstalled.refusalMayDeleteIdentity(), "and after one, with the question unanswered")
+
+        // A backup restored onto another phone: only the portable mirror comes.
+        let mirror = try XCTUnwrap(try kit.secretStore.read(service: DuoSecrets.service, account: first.journal.mirrorAccount))
+        let otherPhone = DuoMemorySecretStore()
+        try otherPhone.write(mirror, service: DuoSecrets.service, account: first.journal.mirrorAccount, accessibility: .afterFirstUnlock)
+        let otherFolder = FileManager.default.temporaryDirectory.appendingPathComponent("D65-refusal-other-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: otherFolder) }
+        let restored = identity(kit, server: server, store: otherPhone, directory: otherFolder)
+        _ = await restored.prepare()
+        XCTAssertTrue(try XCTUnwrap(try restored.journal.read()).restoreConfirmationRequired)
+        XCTAssertFalse(restored.refusalMayDeleteIdentity(), "another phone's identity, unanswered")
+    }
+
+    /// The same, through the store: refused over a backup's unanswered identity, nothing is sent, and
+    /// the refusal screen does not call that identity "your Duo data".
+    func testARefusalOverABackupsIdentitySendsNothing() async throws {
+        let source = DuoTestKit(); let server = RecoveryServer()
+        let made = identity(source, server: server)
+        _ = await made.mint(role: .create, replacing: nil)
+        let mirror = try XCTUnwrap(try source.secretStore.read(service: DuoSecrets.service, account: made.journal.mirrorAccount))
+        let kit = DuoTestKit()
+        try kit.secretStore.write(mirror, service: DuoSecrets.service, account: made.journal.mirrorAccount, accessibility: .afterFirstUnlock)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("D65-refusal-store-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let restored = identity(kit, server: server, directory: folder)
+        _ = await restored.prepare()
+        kit.store.identityPresenceChanged()
+        XCTAssertTrue(kit.store.hasIdentity)
+        kit.store.recordBirthYear(Calendar.current.component(.year, from: Date()), month: 1)
+        XCTAssertNil(kit.store.refusalDeletionTask)
+        XCTAssertTrue(kit.exiting.calls.isEmpty)
+        XCTAssertNil(DuoAgeGateView.refusalDeletionLine(kit.store.refusalDeletion, holdsIdentity: kit.store.hasIdentity))
+    }
+
     func testSamePhoneReinstallMissingSandboxSentinelRequiresCASAndContinue() async throws {
         let kit = DuoTestKit(); let server = RecoveryServer()
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("D65-reinstall-\(UUID().uuidString)")

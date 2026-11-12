@@ -64,7 +64,7 @@ final class DuoAgePolicyMigrationTests: XCTestCase {
         let duo = DuoState(id: UUID(), myRole: .owner, createdAt: now, ownerDisplayName: "Jo", partnerDisplayName: "Private partner", ownerSkin: "classic", partnerSkin: "classic", statuses: [], partnerHasJoined: true)
         cache.saveDuos([duo])
         let model = DuoWidgetModel.make(duos: cache.loadDuos(), ageStatus: cache.ageStatus, ageCheckUnavailable: false, now: now, snapshotDay: DayKey.key(for: now), snapshotTotalML: 0, snapshotGoalML: 2000)
-        XCTAssertEqual(model.state, .empty)
+        XCTAssertEqual(model.state, .unavailable, "neutral, never \"No duo yet\" over a running duo")
         XCTAssertEqual(model.partnerName, "")
     }
     func testRefusalAlwaysWinsOverPolicyAndLaterAdultAnswer() throws {

@@ -171,6 +171,18 @@ final class DuoNotificationRouterTests: XCTestCase {
         }
     }
 
+    /// Finding 2: after a refusal a Duo push the server still sends is not shown in the foreground,
+    /// and nothing is fetched for it.
+    func testARefusedPersonIsShownNoDuoPushInTheForeground() async throws {
+        let kit = DuoTestKit()
+        kit.store.recordBirthYear(Calendar.current.component(.year, from: Date()), month: 1)
+        XCTAssertEqual(kit.store.ageStatus, .refused)
+        let options = await DuoNotificationRouter.willPresent(try FNotes.notification(pushedNudge, trigger: try FNotes.pushTrigger()), store: kit.store)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(options, [])
+        XCTAssertTrue(kit.sync.calls.isEmpty)
+    }
+
     func testOnlyAnAPNsTriggerIsAPush() throws {
         XCTAssertTrue(DuoNotificationRouter.isPush(try FNotes.pushTrigger()))
         XCTAssertFalse(DuoNotificationRouter.isPush(nil), "a local one shown at once has no trigger")

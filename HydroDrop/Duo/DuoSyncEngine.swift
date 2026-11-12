@@ -1255,7 +1255,9 @@ final class DuoSyncEngine: DuoSyncing, DuoAgeNetworkStopping {
                 if let failure = error as? DuoTransportError {
                     switch failure {
                     case .partnerAlreadyMet, .nudgeLimit:
-                        host.notice = DuoUserMessage.text(for: failure, context: .nudge(partner: duo.displayName(of: duo.myRole.other)))
+                        // The name isolated, as the Duo screen's own sentence has it (D82(6), finding 13): a
+                        // right-to-left name used to turn the whole alert round, full stop and all.
+                        host.notice = DuoUserMessage.text(for: failure, context: .nudge(partner: DuoScreenModel.partnerName(of: duo).atStart))
                     default:
                         // `duo_pending` is "nobody to nudge", which the button already says; the
                         // rest are noted in Diagnostics by `noteFailure`.

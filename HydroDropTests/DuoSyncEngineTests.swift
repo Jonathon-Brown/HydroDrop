@@ -841,7 +841,8 @@ final class DuoSyncEngineTests: XCTestCase {
 
     func testAPartnerWhoAlreadyMetTheirGoalAndTheDaysLimitAreToldInWords() async {
         let rows: [(DuoTransportError, String)] = [
-            (failure(.partnerAlreadyMet, status: 409), "Sam already met their goal. Nothing to nudge."),
+            // The name isolated (finding 13), as the Duo screen's own sentence has it.
+            (failure(.partnerAlreadyMet, status: 409), "\u{2068}Sam\u{2069} already met their goal. Nothing to nudge."),
             (failure(.nudgeLimit, status: 429, retryAfter: 3600), "That is all your nudges for today."),
         ]
         for (refusal, words) in rows {

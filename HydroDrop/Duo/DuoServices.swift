@@ -428,7 +428,9 @@ final class DuoDependencies {
             (push as? DuoAgeNetworkStopping)?.stopForAgeNetwork(refused: refused)
             (ops as? DuoAgeNetworkStopping)?.stopForAgeNetwork(refused: refused)
             (background as? DuoAgeNetworkStopping)?.stopForAgeNetwork(refused: refused)
-            if refused { announcer?.removeAllPending() }
+            // A refusal takes back the partner's nudges already on the Lock Screen and in
+            // Notification Centre too, not only the ones still waiting (finding 2).
+            if refused { announcer?.removeAllPending(); announcer?.removeAllDelivered() }
         }
     }
 

@@ -51,6 +51,12 @@ final class DuoStore: ObservableObject, DuoHost {
         didSet { if blockedDuoIDs != oldValue { cache.saveBlockedDuoIDs(blockedDuoIDs) } }
     }
     @Published var needsTerms = false
+    /// What the one `DELETE /me` sent at a refusal came to (decision a), for the refusal screen.
+    /// Nil when none was sent: no identity, or one nobody on this phone has said is theirs.
+    enum RefusalDeletion: Equatable { case deleting, deleted, removedFromThisPhone, failed }
+    @Published private(set) var refusalDeletion: RefusalDeletion?
+    /// That request's work, so a test can wait for it.
+    private(set) var refusalDeletionTask: Task<Void, Never>?
     @Published private(set) var ageStatus: DuoAgeStatus
     @Published private(set) var ageCheckUnavailable = false
     @Published private(set) var acceptedTermsVersion: Int
@@ -165,6 +171,20 @@ final class DuoStore: ObservableObject, DuoHost {
     func recheckAge() { refusedNow() }
 
     var needsAgeRecheck: Bool { cache.needsAgeRecheck }
+
+    /// A phone holding a Duo identity whose rules are not accepted here: a reinstall clears them with
+    /// the defaults, and `DuoRecoveryIdentity` suspends the identity until they are. Nothing used to
+    /// ask for them again, so answering the recheck brought nothing back (finding 5).
+    var needsTermsAgain: Bool {
+        usesServer && hasIdentity && ageStatus != .refused && acceptedTermsVersion < DuoProtocolConstants.termsVersion
+    }
+
+    /// Whether leaves, blocks, nudges and invites can be sent now. False after a refusal, during the
+    /// recheck and while the age answer cannot be read: every one of them used to be offered and then
+    /// do nothing and say nothing (finding 1). Read from what is already published, never the Keychain.
+    var ageAllowsSharing: Bool {
+        !usesServer || (ageStatus != .refused && !ageCheckUnavailable && !cache.needsAgeRecheck)
+    }
 
     func ageNetworkStatusChanged() {
         if cache.ageStatus == .refused {
@@ -407,8 +427,11 @@ final class DuoStore: ObservableObject, DuoHost {
         dependencies?.sync?.logChanged(summary)
     }
 
+    /// Not behind `refusedNow()`: activating sends nothing, and the app calls this once per process.
+    /// A Keychain the age check could not read yet (a launch before the first unlock) used to skip
+    /// it for the whole run, so Duo later ran without reading drinks from the widget or the Watch
+    /// and lost the guard that keeps a fallback store from publishing (finding 9).
     func activate(logReader: DuoLogReading) {
-        guard !refusedNow() else { return }
         dependencies?.sync?.activate(logReader: logReader)
     }
 
@@ -519,7 +542,8 @@ final class DuoStore: ObservableObject, DuoHost {
         // memory (see `refusedNow`): an adult year given afterwards must not overwrite it.
         if refusedNow() || ageCheckUnavailable || (dependencies != nil && cache.ageCheckUnavailable) { return ageStatus }
         let status = DuoAgeGate.decide(birthYear: year, birthMonth: month, now: now, calendar: .current)
-        // An unreadable year is not an answer: the screen asks again.
+        // An unreadable year is not an answer, and nor is the thirteenth-birthday month (decision b):
+        // nothing is kept and the screen asks again.
         guard status != .unknown else { return ageStatus }
         cache.recordConfirmedAgeStatus(status)
         ageStatus = status
@@ -528,12 +552,53 @@ final class DuoStore: ObservableObject, DuoHost {
         if status == .refused { refusedNow() }
         dependencies?.refreshAgeNetworkState()
         if usesServer { reloadWidget() }
+        if status == .refused { deleteAfterRefusal() }
         return status
+    }
+
+    /// Decision a (2026-11-12, D81): a refusal on a phone that already holds this person's Duo
+    /// identity sends `DELETE /me` once, through the deletion exemption the age gate already lets
+    /// through. Kept, the identity left the child's name and days on the partner's phone, the
+    /// server kept the push token so the partner's nudges still arrived, and the queued Leave or
+    /// Block the refusal threw away never went. Only here, at the refusing answer, so it is sent
+    /// once; if it fails, Delete my Duo data stays on the Duo screen and the refusal screen says so.
+    ///
+    /// Never for an identity this install has not answered for, a reinstall's included
+    /// (`DuoRecoveryIdentity.refusalMayDeleteIdentity`): it may be someone else's.
+    private func deleteAfterRefusal() {
+        guard usesServer, hasIdentity, refusalDeletion == nil, dependencies?.exiting != nil else { return }
+        if let identity = dependencies?.identity as? DuoRecoveryIdentity, !identity.refusalMayDeleteIdentity() { return }
+        refusalDeletion = .deleting
+        refusalDeletionTask = Task { [weak self] in
+            guard let self else { return }
+            let deleted = await self.deleteMyData()
+            // The refusal screen says what happened, so the notice the delete left is not said again
+            // in an alert once the sheet has gone. Any notice but the "removed from this phone" one
+            // means something did not work (the local wipe, say), which the screen calls a failure
+            // and answers with the way to delete by hand: never "deleted" on a guess.
+            let said = self.notice
+            self.notice = nil
+            switch (deleted, said) {
+            case (true, nil): self.refusalDeletion = .deleted
+            case (true, DuoUserMessage.removedFromThisPhoneOnly?): self.refusalDeletion = .removedFromThisPhone
+            default: self.refusalDeletion = .failed
+            }
+        }
     }
 
     /// Only the recheck sheet calls this after its explicit confirmed answer. Ordinary
     /// refresh resumes existing sharing; this is not a Create/Join or notification permission tap.
     func resumeAfterAgeRecheck() async {
+        // The age answer and the recheck sheet's own form can both ask, a moment apart.
+        if let resuming { return await resuming.value }
+        let task = Task { await resumeOnce() }
+        resuming = task
+        await task.value
+        resuming = nil
+    }
+    private var resuming: Task<Void, Never>?
+
+    private func resumeOnce() async {
         guard ageStatus == .allowed, !cache.needsAgeRecheck,
               dependencies?.ageNetworkAllowed == true else { return }
         await duoScreenOpened()

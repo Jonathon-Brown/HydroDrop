@@ -126,7 +126,26 @@ final class DuoOpQueueService: DuoOpQueueing, DuoAgeNetworkStopping {
         generation += 1
         running?.cancel()
         cancelScheduledRetry()
-        if refused { discardAll() }
+        guard refused else { return }
+        // A leave or block the refusal throws away never reached the server, so the end it stamped on
+        // the card at the tap is taken back, as `settle` does for a ban: the card said the duo had
+        // ended while the partner's stayed live (finding 1). An end the card had from elsewhere stays.
+        // shortcut: an exit the server took whose answer was lost looks the same (a `GET /me` keeps the
+        // local end), so that card reads live, with nothing offered while the gate is closed; telling
+        // the two apart needs a sent mark on each queued exit, worth it only if refusals with a lost
+        // answer turn out to happen.
+        let host = dependencies.host
+        for op in pending where op.kind == .leave || op.kind == .block {
+            guard let id = op.duoID.flatMap(UUID.init(uuidString:)) else { continue }
+            host.update(id) { duo in
+                let mine: DuoEndedBy = duo.myRole == .owner ? .owner : .partner
+                if duo.endedAt == op.createdAt, duo.endedBy == mine {
+                    duo.endedAt = nil
+                    duo.endedBy = nil
+                }
+            }
+        }
+        discardAll()
     }
 
     func discardAll() {
@@ -485,9 +504,11 @@ final class DuoOpQueueService: DuoOpQueueing, DuoAgeNetworkStopping {
 
     // MARK: - The network
 
-    /// Starts watching the network once; later calls do nothing.
+    /// Starts watching the network once; later calls do nothing. Not behind the age gate: watching
+    /// sends nothing and `drain` is gated. The caller marks monitoring started whatever this does, so
+    /// a process that launched during the recheck used to never watch at all, and an offline Leave
+    /// waited for the next foreground instead of the connection (finding 10).
     func startMonitoring() {
-        guard dependencies.ageNetworkAllowed else { return }
         guard monitor == nil else { return }
         let monitor = makeMonitor()
         self.monitor = monitor

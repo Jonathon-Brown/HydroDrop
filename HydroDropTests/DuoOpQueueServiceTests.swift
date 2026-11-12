@@ -167,6 +167,44 @@ final class DuoOpQueueServiceTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Stage C review (2026-11-12)
+
+    /// Finding 1: a refusal throws the queued block away, so the end it stamped at the tap is taken
+    /// back (the server never ended the duo); an end the card had from elsewhere stays.
+    func testARefusalTakesBackTheEndItsDroppedExitStampedAndNoOther() throws {
+        let (kit, service) = makeKit()
+        let mine = DuoFixtures.duo()
+        let ended = DuoFixtures.duo(id: otherDuo, ended: true)
+        kit.store.upsert(mine)
+        kit.store.upsert(ended)
+        service.enqueue(try blockOp())
+        service.enqueue(try leaveOp(otherDuo, key: "other-leave"))
+        kit.store.update(mine.id) { $0.endedAt = self.now; $0.endedBy = .owner; $0.pendingOp = .block }
+        kit.store.update(otherDuo) { $0.pendingOp = .leave }
+        try kit.dependencies.secrets.markAgeRefused()
+        kit.store.recheckAge()
+        XCTAssertTrue(service.pending.isEmpty)
+        XCTAssertNil(kit.store.duo(mine.id)?.endedAt, "the block never went: the card is live again")
+        XCTAssertNil(kit.store.duo(mine.id)?.endedBy)
+        XCTAssertNil(kit.store.duo(mine.id)?.pendingOp)
+        XCTAssertNotNil(kit.store.duo(otherDuo)?.endedAt, "an end from elsewhere is kept")
+        XCTAssertNil(kit.store.duo(otherDuo)?.pendingOp)
+    }
+
+    /// Finding 10: a process that starts during the recheck still watches the network, so an
+    /// offline Leave goes when the connection comes back after the recheck is answered.
+    func testTheMonitorStartsDuringTheRecheck() {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        let factory = EMonitorFactory()
+        let service = DuoOpQueueService(dependencies: kit.dependencies, makeMonitor: factory.make)
+        kit.dependencies.ops = service
+        kit.dependencies.cache.requireAgeRecheck()
+        XCTAssertFalse(kit.dependencies.ageNetworkAllowed)
+        service.startMonitoring()
+        XCTAssertEqual(factory.made, 1)
+        XCTAssertEqual(factory.monitor.starts, 1)
+    }
+
     /// A kit with a credential whose launch is settled, and the real queue service in it.
     private func makeKit(credential: DuoCredential? = DuoFixtures.credential()) -> (DuoTestKit, DuoOpQueueService) {
         let kit = DuoTestKit(credential: credential)

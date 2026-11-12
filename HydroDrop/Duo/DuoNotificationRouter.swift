@@ -71,6 +71,9 @@ enum DuoNotificationRouter {
     static func willPresent(userInfo: [AnyHashable: Any], isPush: Bool,
                             store: DuoStore) -> (options: UNNotificationPresentationOptions, fetch: Task<Void, Never>?)? {
         guard let payload = DuoPushPayload.parse(userInfo: userInfo) else { return nil }
+        // A refused person sees nothing of a duo, so a push the server still sends (the refusal's
+        // DELETE /me failed or was never sent) is not drawn while the app is open (finding 2).
+        guard store.ageStatus != .refused else { return ([], nil) }
         return (foregroundPresentation, isPush ? Task { await store.pushArrived(payload) } : nil)
     }
 }

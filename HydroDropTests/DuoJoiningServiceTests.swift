@@ -814,6 +814,22 @@ final class DuoJoiningServiceTests: XCTestCase {
         XCTAssertTrue(h.transport.calls.isEmpty)
     }
 
+    /// Finding 4: a link tapped during the recheck (a reinstall) is kept, through the store as the
+    /// router hands it on, so the join sheet can ask the age question; a refusal still turns it away.
+    func testAnInviteReceivedDuringTheRecheckIsKeptAndARefusalStillDropsIt() throws {
+        let h = DHarness()
+        h.kit.dependencies.cache.requireAgeRecheck()
+        XCTAssertFalse(h.kit.dependencies.ageNetworkAllowed)
+        h.store.receive(DuoParsedInvite(code: "H7K39QWX", k: DFixtures.k), now: DFixtures.now)
+        XCTAssertEqual(h.store.pendingInvite?.code, "H7K39QWX")
+        XCTAssertTrue(h.transport.calls.isEmpty, "keeping a code sends nothing")
+        try h.kit.dependencies.secrets.markAgeRefused()
+        h.store.recheckAge()
+        XCTAssertNil(h.store.pendingInvite)
+        h.store.receive(DuoParsedInvite(code: "H7K39QWX", k: DFixtures.k), now: DFixtures.now)
+        XCTAssertNil(h.store.pendingInvite)
+    }
+
     // MARK: Join
 
     func testJoinSeedsTheWholeDuoKeepsTheSecretAndForgetsTheInvite() async throws {

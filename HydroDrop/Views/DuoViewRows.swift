@@ -19,6 +19,24 @@ extension DuoStore {
     var hCredentialIsAThrowaway: Bool { dependencies?.credentialIsAThrowaway ?? false }
 }
 
+// MARK: - Errors said in place
+
+/// Speaks a line to VoiceOver. A test replaces `post` to hear what would be said.
+@MainActor
+enum DuoVoiceOver {
+    static var post: (String) -> Void = { AccessibilityNotification.Announcement($0).post() }
+}
+
+extension View {
+    /// Says `text` to VoiceOver when this view appears and whenever the text changes (finding 7). An
+    /// error drawn in place under a button that keeps the focus (a code that is not one, a failed
+    /// Create, Join, Reconnect or Accept) was otherwise never heard. iOS 17 has it, so no check.
+    func duoAnnounced(_ text: String) -> some View {
+        onAppear { DuoVoiceOver.post(text) }
+            .onChange(of: text) { _, changed in DuoVoiceOver.post(changed) }
+    }
+}
+
 // MARK: - Doing what a dialog confirmed
 
 /// Carries out what a confirmation asked for, once its button was pressed and the model judged it
@@ -159,6 +177,8 @@ struct DuoSettingsHooks<Router: DuoScreenRouterFlags & ObservableObject, Destina
 struct DuoSettingsNoticeAlert<Router: DuoScreenRouterFlags & ObservableObject>: ViewModifier {
     @ObservedObject var router: Router
     @ObservedObject var duoStore: DuoStore
+    /// No sheet of the index's own is up (the paywall, Event counts, Report a Bug, the intro).
+    var nothingCovers = true
     @State private var indexIsVisible = false
 
     func body(content: Content) -> some View {
@@ -167,7 +187,7 @@ struct DuoSettingsNoticeAlert<Router: DuoScreenRouterFlags & ObservableObject>: 
             .onDisappear { indexIsVisible = false }
             // NavigationStack retains the index while a detail page is pushed. Its alert must
             // relinquish presentation to that page rather than race the page for the same notice.
-            .duoNoticeAlert(duoStore, showsWhen: router.showingSettings && indexIsVisible)
+            .duoNoticeAlert(duoStore, showsWhen: router.showingSettings && indexIsVisible && nothingCovers)
     }
 }
 

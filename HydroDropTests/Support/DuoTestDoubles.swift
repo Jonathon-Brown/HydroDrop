@@ -168,7 +168,9 @@ final class FakeDuoIdentity: DuoIdentityProviding, @unchecked Sendable {
     func replaceSecret(_ secret: String, version: Int) throws { credential?.deviceSecret = secret; credential?.secretVersion = version }
     func discard() { discardCount += 1; credential = nil }
     func prepare() async -> DuoIdentityLaunch { prepared += 1; return launch }
-    func continueAsRestored() async { continued += 1 }
+    /// What Continue does besides counting, such as leaving a sheet's failure as the real one can.
+    var onContinue: (@MainActor () -> Void)?
+    func continueAsRestored() async { continued += 1; await onContinue?() }
 }
 
 final class FakeDuoAttester: DuoAttesting, @unchecked Sendable {

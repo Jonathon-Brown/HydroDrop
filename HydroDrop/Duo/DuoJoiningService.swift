@@ -271,7 +271,10 @@ final class DuoJoiningService: DuoJoining {
     }
 
     func receive(_ invite: DuoParsedInvite, now: Date) {
-        guard dependencies.ageNetworkAllowed else { return }
+        // Not behind the age gate: keeping a code sends nothing, and the join sheet's consent gate
+        // asks the age question before any request. Behind it, a link tapped during the recheck (a
+        // reinstall) was let go by the router and dropped here, so no sheet came and the code was
+        // gone (finding 4). `DuoStore.receive` still turns away a known refusal.
         // Kept (and saved by the store) before anything else, so a kill during onboarding loses
         // nothing (§4.1); the store drops it after 48 hours, and a join drops it. `k` stays in memory.
         host.pendingInvite = DuoPendingInvite(code: invite.code, k: invite.k, receivedAt: now)

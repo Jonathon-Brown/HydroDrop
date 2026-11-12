@@ -373,6 +373,20 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
         } catch { note(error, forSheet: true) }
     }
 
+    /// Whether the refusal's automatic `DELETE /me` (decision a) may delete the identity this phone
+    /// holds: only one this install made or already answered "Continue as <name>?" for (its restore
+    /// question settled, its `ThisDeviceOnly` marker and its sandbox sentinel both this install's).
+    /// A delete-and-reinstall looks exactly like an iPhone handed on with the app deleted but not
+    /// erased, whose Keychain still holds the last owner's identity (why a reinstall asks "Continue
+    /// as <name>?" at all), and a backup brings another phone's: deleting either could end someone
+    /// else's duos for good. So a reinstall is excluded too, which leaves decision a for testers on
+    /// the install they answered on, until Jonathon decides whether to accept that risk. Storage
+    /// that cannot be read answers no.
+    @MainActor func refusalMayDeleteIdentity() -> Bool {
+        guard let r = try? journal.read(), r.phase != .abandoned, !r.restoreConfirmationRequired else { return false }
+        return (try? journal.markerMatches(r) && sentinelMatches(r)) == true
+    }
+
     /// Cleanup never asks for ordinary state, attestation or a fresh Apple token. Each cycle
     /// starts with the candidate and permits one old DELETE only after an exact rejection.
     @MainActor func deleteIdentity() async -> DuoRecoveryDeletion {

@@ -21,6 +21,9 @@ struct DuoAgeGateView: View {
     /// The complete input stays visible, including anything that makes it invalid.
     @State private var fieldText = ""
     @State private var monthText = ""
+    /// The confirmed answer was the thirteenth-birthday month (decision b): the screen says to try
+    /// again next month. Nothing was kept, so it is only this screen's.
+    @State private var notYet = false
     private enum Field: Hashable { case month, year }
     @FocusState private var focusedField: Field?
 
@@ -42,10 +45,26 @@ struct DuoAgeGateView: View {
         Form {
             if showsRefusal {
                 refusal
+            } else if notYet {
+                Section {
+                    // NEW COPY (decision b): `DuoConsentFlow.NewCopy.ageNotYet`.
+                    Text(verbatim: DuoConsentFlow.NewCopy.ageNotYet)
+                        .font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("duo.agegate.notyet")
+                        .duoAnnounced(DuoConsentFlow.NewCopy.ageNotYet)
+                }
+                Section {
+                    Button(action: onRefused) {
+                        Text("Close").frame(maxWidth: .infinity)
+                    }
+                    .accessibilityIdentifier("duo.agegate.close")
+                }
             } else if duoStore.ageCheckUnavailable {
                 Section {
                     // NEW COPY: review before shipping; no age threshold or answer is disclosed.
                     Text("Unable to check Duo availability on this iPhone. Try again.")
+                        .duoAnnounced("Unable to check Duo availability on this iPhone. Try again.")
                     Button("Try again") { duoStore.recheckAge() }
                         .accessibilityIdentifier("duo.agegate.retry")
                     Button("Close", action: onRefused)
@@ -68,12 +87,40 @@ struct DuoAgeGateView: View {
                 .font(.headline)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("duo.agegate.refusal")
+            // Decision a: what became of the Duo data this phone held. NEW COPY, except the approved
+            // line for a delete the service could not confirm.
+            // A Reconnect's throwaway holds none of the person's data (D68), so it gets no line.
+            if let line = Self.refusalDeletionLine(duoStore.refusalDeletion,
+                                                   holdsIdentity: duoStore.hasIdentity && !duoStore.hCredentialIsAThrowaway) {
+                HStack(spacing: 10) {
+                    if duoStore.refusalDeletion == .deleting { ProgressView() }
+                    Text(verbatim: line)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("duo.agegate.refusal.deletion")
+                .duoAnnounced(line)
+            }
         }
         Section {
             Button(action: onRefused) {
                 Text("Close").frame(maxWidth: .infinity)
             }
             .accessibilityIdentifier("duo.agegate.close")
+        }
+    }
+
+    /// The refusal screen's line about the Duo data (decision a): the request under way, its answer,
+    /// or, when it failed and the identity is still held, where to delete it by hand. Nothing when no
+    /// request was sent: an identity this install never answered for may be someone else's, and
+    /// calling it "your Duo data" would point a child at deleting it.
+    static func refusalDeletionLine(_ deletion: DuoStore.RefusalDeletion?, holdsIdentity: Bool) -> String? {
+        switch deletion {
+        case .deleting?: return DuoConsentFlow.NewCopy.refusalDeleting
+        case .deleted?: return DuoConsentFlow.NewCopy.refusalDeleted
+        case .removedFromThisPhone?: return DuoUserMessage.removedFromThisPhoneOnly
+        case .failed?: return holdsIdentity ? DuoConsentFlow.NewCopy.refusalDataRemains : nil
+        case nil: return nil
         }
     }
 
@@ -94,9 +141,9 @@ struct DuoAgeGateView: View {
                 if kept != typed { fieldText = kept }
                 entry.typeYear(kept)
             }
-            // The field's VoiceOver label. The same question is drawn above it, hidden from
-            // VoiceOver, so it is spoken once.
-            .accessibilityLabel(Text(verbatim: DuoConsentFlow.NewCopy.monthYearQuestion))
+            // "Birth year", as the month field is "Birth month" (finding 15): the field used to be read
+            // as the whole question, so a VoiceOver user typed the month and year into it.
+            .accessibilityLabel(Text(verbatim: DuoConsentFlow.NewCopy.yearLabel))
             .keyboardType(.numberPad)
             .textContentType(nil)
             .autocorrectionDisabled()
@@ -111,7 +158,6 @@ struct DuoAgeGateView: View {
                     .accessibilityAddTraits(.isHeader)
                 Text(verbatim: DuoConsentFlow.NewCopy.monthYearQuestion)
                     .font(.body)
-                    .accessibilityHidden(true)
             }
             .foregroundStyle(.primary)
             .textCase(nil)
@@ -175,6 +221,7 @@ struct DuoAgeGateView: View {
     func answer(_ year: Int, month: Int) -> DuoAgeStatus {
         let wasRecheck = duoStore.needsAgeRecheck
         let status = duoStore.recordBirthYear(year, month: month, now: now)
+        if status == .unknown, DuoAgeGate.isNotYet(birthYear: year, birthMonth: month, now: now, calendar: calendar) { notYet = true }
         if status == .allowed {
             onAllowed()
             // A fresh person's answer still sends nothing before Create/Join. Only an explicit
