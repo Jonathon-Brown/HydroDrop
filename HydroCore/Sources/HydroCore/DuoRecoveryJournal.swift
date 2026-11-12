@@ -222,13 +222,35 @@ public final class DuoRecoveryJournal: @unchecked Sendable {
         try verifiedWrite(try Self.encodeRecord(tombstone), service: Self.tombstoneService, account: recordAccount, accessibility: .afterFirstUnlockThisDeviceOnly)
         try purgeAbandonedSecrets()
     }
+    /// Erases this environment's items, and the whole service unless the other environment still
+    /// holds an identity there (`DuoSecrets.deleteEverything`), then reads back what must be gone.
     public func purgeAbandonedSecrets() throws {
         lock.lock(); defer { lock.unlock() }
         guard try read()?.phase == .abandoned else { throw DuoJournalError.changed }
-        try store.deleteAll(service: DuoSecrets.service)
+        try DuoSecrets(store: store).deleteEverything()
         for account in [recordAccount, mirrorAccount, markerAccount, DuoSecrets.deviceAccount, DuoSecrets.installMarkerAccount] {
             guard try store.read(service: DuoSecrets.service, account: account) == nil else { throw DuoJournalError.unavailable }
         }
+    }
+    /// Whether this environment still has an identity on the phone: a record not abandoned or,
+    /// with no record, a mirror a restore can bring back. Storage that cannot be read counts as
+    /// yes, so a wipe never takes another environment's identity it could not look at.
+    func holdsIdentity() -> Bool {
+        do {
+            if let record = try read() { return record.phase != .abandoned }
+            return try readMirror() != nil
+        } catch { return true }
+    }
+    /// The devices this environment's record and mirror in Duo's service still name, whose
+    /// attestation keys go with them. Once abandoned, `read()` answers with the tombstone, so the
+    /// old record is read directly; one that cannot be read names nothing.
+    func leftoverDeviceIDs() -> [String] {
+        var ids: [String] = []
+        if let data = try? store.read(service: DuoSecrets.service, account: recordAccount), let record = try? Self.decodeRecord(data) {
+            ids += [record.active?.deviceID, record.pending?.reservedDeviceID].compactMap { $0 }
+        }
+        if let mirror = try? readMirror() { ids.append(mirror.credential.deviceID) }
+        return ids
     }
     private var retryAccount: String { "retry-after-v1.1.\(environment.rawValue)" }
     /// Retry-After contains no identity or secret, but must survive a restart of an uncertain

@@ -145,8 +145,11 @@ final class DuoKeychainTests: XCTestCase {
     func testDeleteEverythingLeavesTheAgeRefusal() throws {
         let wiped = makeService()
         let kept = wiped + ".age"
-        services.append(kept)
-        let secrets = DuoSecrets(store: BServiceMappingStore(base: store, map: [DuoSecrets.service: wiped, DuoSecrets.ageService: kept]))
+        // The wipe reads each environment's tombstone to learn whether an identity is left.
+        let lifecycle = wiped + ".lifecycle"
+        services += [kept, lifecycle]
+        let secrets = DuoSecrets(store: BServiceMappingStore(base: store, map: [DuoSecrets.service: wiped, DuoSecrets.ageService: kept,
+                                                                                DuoRecoveryJournal.tombstoneService: lifecycle]))
         try secrets.save(DuoFixtures.credential())
         try secrets.writeInstallMarker(random: TestRandom())
         try secrets.saveLinkSecret("ABCDEFGHJKMNPQRSTVWXYZ0123", forDuo: DuoFixtures.duoID)

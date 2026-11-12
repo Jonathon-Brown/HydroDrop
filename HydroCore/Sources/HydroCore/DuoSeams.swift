@@ -54,8 +54,9 @@ public protocol DuoSecretStore: AnyObject, Sendable {
     func write(_ data: Data, service: String, account: String, accessibility: DuoSecretAccessibility) throws
     func delete(service: String, account: String) throws
     /// Removes every item kept under `service`, whatever its account. Delete my Duo data and
-    /// "Start fresh" end with this, so an item for a duo that left the cache by another route,
-    /// or an attestation key under another device's id, cannot outlive the wipe.
+    /// "Start fresh" end with this when no environment still holds an identity
+    /// (`DuoSecrets.deleteEverything`), so an item for a duo that left the cache by another
+    /// route, or an attestation key under another device's id, cannot outlive the wipe.
     func deleteAll(service: String) throws
 }
 
@@ -161,8 +162,36 @@ public struct DuoSecrets: Sendable {
 
     /// Everything Duo keeps in the Keychain: the credential, the install marker, every link
     /// secret and every attestation key. Not the age refusal, which is another service.
+    ///
+    /// Staging and production keep their 1.1 identities side by side in this one service, and a
+    /// tester's Keychain holds both (a Debug build talks to staging, TestFlight to production,
+    /// and the Keychain outlives swapping one for the other). Erasing the whole service used to
+    /// take the other environment's identity along with the one being given up. So while an
+    /// environment still holds an identity, its record, mirror and marker stay, and what goes is
+    /// every other environment's record, mirror and marker and the attestation keys of the
+    /// devices they name, plus what no 1.1 identity needs: the pre-1.1 credential and marker
+    /// (gone with every wipe before this too) and the attestation key still waiting for an
+    /// identity. With no identity left anywhere, the whole service goes, as it always did, which
+    /// is the only case outside testing.
+    ///
+    /// shortcut: link secrets and attestation accounts carry no environment, so while the other
+    /// environment holds an identity, the given-up one's link secrets and the attestation key of
+    /// a device its record no longer names (a cancelled setup's candidate) stay until the last
+    /// wipe. Label those accounts by environment if a tester ever needs a clean wipe of one.
     public func deleteEverything() throws {
-        try store.deleteAll(service: Self.service)
+        let given = [DuoRecoveryEnvironment.staging, .production].map { DuoRecoveryJournal(store: store, environment: $0) }
+            .filter { !$0.holdsIdentity() }
+        // Both given up, which is everyone outside testing.
+        guard given.count < 2 else {
+            try store.deleteAll(service: Self.service)
+            return
+        }
+        var accounts = [Self.deviceAccount, Self.installMarkerAccount, Self.pendingAttestKeyAccount]
+        for journal in given {
+            accounts += journal.leftoverDeviceIDs().map(Self.attestKeyAccount)
+            accounts += [journal.recordAccount, journal.mirrorAccount, journal.markerAccount]
+        }
+        for account in accounts { try store.delete(service: Self.service, account: account) }
     }
 
     public func isAgeRefused() -> Bool {

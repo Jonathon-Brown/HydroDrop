@@ -82,6 +82,58 @@ final class DuoRecoveryJournalTests: XCTestCase {
         try journal.clearRetryDeadline(); XCTAssertNil(try journal.retryDeadline())
     }
 
+    /// A tester's Keychain holds staging and production side by side in Duo's one service.
+    /// Giving one up used to erase the whole service, and the other identity with it.
+    func testAbandoningOneEnvironmentKeepsTheOtherEnvironmentsIdentity() throws {
+        let store = DuoMemorySecretStore(); let secrets = DuoSecrets(store: store)
+        let staging = DuoRecoveryJournal(store: store, environment: .staging)
+        let production = DuoRecoveryJournal(store: store, environment: .production)
+        let productionDevice = "10000000-0000-4000-8000-000000000002"
+        let s = active(); try staging.replace(s, expectedRevision: nil); try staging.writeMirror(s); try staging.writeMarker(s)
+        var p = active(); p.environment = .production
+        p.active = DuoJournalCredential(DuoCredential(memberID: member, deviceID: productionDevice, deviceSecret: secret))
+        try production.replace(p, expectedRevision: nil); try production.writeMirror(p); try production.writeMarker(p)
+        let link = DuoSecrets.linkSecretAccount(duoID: UUID(uuidString: "50000000-0000-4000-8000-000000000001")!)
+        for account in [DuoSecrets.attestKeyAccount(deviceID: device), DuoSecrets.attestKeyAccount(deviceID: productionDevice),
+                        DuoSecrets.pendingAttestKeyAccount, link] {
+            try store.write(Data("x".utf8), service: DuoSecrets.service, account: account, accessibility: .afterFirstUnlock)
+        }
+        try secrets.save(DuoCredential(memberID: member, deviceID: device, deviceSecret: secret))
+        try secrets.writeInstallMarker(random: DuoSystemRandom())
+
+        try staging.abandon(random: DuoSystemRandom())
+
+        XCTAssertEqual(try production.read(), p); XCTAssertEqual(try production.readMirror()?.credential, p.active)
+        XCTAssertTrue(try production.markerMatches(p))
+        // The link secret names no environment, so it waits for the last wipe (the shortcut in
+        // `DuoSecrets.deleteEverything`).
+        XCTAssertEqual(store.accounts(service: DuoSecrets.service),
+                       [DuoSecrets.attestKeyAccount(deviceID: productionDevice), production.markerAccount,
+                        production.mirrorAccount, production.recordAccount, link].sorted())
+        try production.abandon(random: DuoSystemRandom())
+        XCTAssertEqual(store.accounts(service: DuoSecrets.service), [])
+    }
+
+    /// A restored phone holds the other environment's mirror alone, and a record that cannot be
+    /// read may still be an identity: both count as held, so neither is wiped.
+    func testAMirrorOnlyOrUnreadableOtherEnvironmentIsKept() throws {
+        for unreadable in [false, true] {
+            let store = DuoMemorySecretStore()
+            let staging = DuoRecoveryJournal(store: store, environment: .staging)
+            let production = DuoRecoveryJournal(store: store, environment: .production)
+            try staging.replace(active(), expectedRevision: nil)
+            var p = active(); p.environment = .production
+            try production.writeMirror(p)
+            if unreadable {
+                try store.write(Data("{".utf8), service: DuoSecrets.service, account: production.recordAccount,
+                                accessibility: .afterFirstUnlockThisDeviceOnly)
+            }
+            try staging.abandon(random: DuoSystemRandom())
+            XCTAssertEqual(try production.readMirror()?.credential, p.active, "unreadable: \(unreadable)")
+            XCTAssertEqual(store.accounts(service: DuoSecrets.service).count, unreadable ? 2 : 1, "unreadable: \(unreadable)")
+        }
+    }
+
     func testLegacyMigrationRejectsUnknownAndDuplicateFields() throws {
         let original = try JSONEncoder().encode(XCTUnwrap(active().active).credential)
         XCTAssertEqual(try DuoRecoveryJournal.decodeLegacyCredential(original).credentialProtocol, "1.0")

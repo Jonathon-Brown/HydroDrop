@@ -362,7 +362,8 @@ final class DuoExitService: DuoExiting {
     /// this device's attestation key; without it the cached credential stays and the launch answer
     /// stays `.ready`), then every item of Duo's Keychain service, so a link secret for a duo that
     /// left the cache some other way, or an attestation key under another device's id, cannot
-    /// outlive it (the age refusal is a service of its own and stays, D60), then the queue, the
+    /// outlive it (the age refusal is a service of its own and stays, D60; a tester's identity in
+    /// the other environment stays too, see `DuoSecrets.deleteEverything`), then the queue, the
     /// notifications, and last the store and the cache together (`resetLocalState`, which also
     /// empties the in-flight journal and the delete mark and moves `wipeEpoch`, so a request still
     /// out drops its answer). What stays is what `DuoCache.keptKeys` names: the age answer, the
