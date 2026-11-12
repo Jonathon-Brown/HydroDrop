@@ -8,6 +8,9 @@ import XCTest
 @MainActor
 final class HealthTombstoneTests: XCTestCase {
     private var storeDirectory: URL?
+    // A context does not keep its container alive. Dropping the container at the end of
+    // setUp crashed the first insert of both persistence tests.
+    private var container: ModelContainer!
     private var context: ModelContext!
     private let noon = Date(timeIntervalSince1970: 1_790_000_000)
 
@@ -15,11 +18,13 @@ final class HealthTombstoneTests: XCTestCase {
         try await super.setUp()
         let store = try TemporaryStore.make(for: SharedModelContainer.schema)
         storeDirectory = store.directory
-        context = store.container.mainContext
+        container = store.container
+        context = container.mainContext
     }
 
     override func tearDown() async throws {
         context = nil
+        container = nil
         TemporaryStore.remove(storeDirectory)
         try await super.tearDown()
     }
@@ -43,8 +48,10 @@ final class HealthTombstoneTests: XCTestCase {
         context.insert(entry)
         try context.save()
 
+        // A saved deletion invalidates the model, so read what the assertions need first.
+        let healthSyncID = try XCTUnwrap(entry.healthSyncID)
         let samples = HealthSampleReference.all(of: entry)
-        HealthTombstone.leave(for: samples, in: context, now: noon)
+        HealthTombstone.leave(for: [entry], in: context, now: noon)
         context.delete(entry)
         try context.save()
 
@@ -55,19 +62,39 @@ final class HealthTombstoneTests: XCTestCase {
         XCTAssertEqual(water.reference, samples.first { $0.kind == .water })
         XCTAssertEqual(caffeine.reference, samples.first { $0.kind == .caffeine })
         XCTAssertEqual(water.sampleUUID, "water-A")
-        XCTAssertEqual(Set(water.syncIdentifierList), ["old.water", "\(entry.healthSyncID!).water"])
+        XCTAssertEqual(Set(water.syncIdentifierList), ["old.water", "\(healthSyncID).water"])
         XCTAssertEqual(water.createdAt, noon)
         XCTAssertEqual(water.handledBy, "", "nobody has deleted anything yet")
     }
 
-    /// A drink Health never had leaves nothing behind.
+    /// A drink Health never had leaves nothing behind, though every drink carries a sync
+    /// identifier. With Health off everywhere, nothing would ever sweep such tombstones away.
     func testADrinkHealthNeverHadLeavesNothing() throws {
         let entry = WaterEntry(amountML: 250, timestamp: noon)
         context.insert(entry)
-        HealthTombstone.leave(for: HealthSampleReference.all(of: entry), in: context, now: noon)
+        try context.save()
+        XCTAssertNotNil(entry.healthSyncID)
+        HealthTombstone.leave(for: [entry], in: context, now: noon)
         context.delete(entry)
         try context.save()
         XCTAssertEqual(try tombstones().count, 0)
+    }
+
+    /// A written record is enough: the sample's UUID may not have reached this device yet.
+    func testADrinkWithOnlyAWrittenRecordStillLeavesTombstones() throws {
+        let entry = WaterEntry(amountML: 250, timestamp: noon)
+        entry.healthWaterWritten = HealthWrittenRecord(
+            state: .written, sampleUUID: "water-B", syncIdentifier: "other.water", syncVersion: 1,
+            figures: HealthFigures(of: entry), owner: "IPAD"
+        ).encoded
+        context.insert(entry)
+        try context.save()
+        XCTAssertNil(entry.healthKitSampleUUID)
+        HealthTombstone.leave(for: [entry], in: context, now: noon)
+        context.delete(entry)
+        try context.save()
+        let water = try XCTUnwrap(try tombstones().first { $0.kind == .water })
+        XCTAssertTrue(water.syncIdentifierList.contains("other.water"))
     }
 
     // MARK: - Signing off
