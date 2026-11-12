@@ -47,8 +47,9 @@ public struct DuoWidgetModel: Equatable, Sendable {
         let name = duo.displayName(of: partner)
         let isolatedName = "\u{2068}\(name)\u{2069}"
         let count = edge ? "100+ days" : "\(days) \(days == 1 ? "day" : "days")"
-        // Finding 14: the Today card's sentence, "You: …" included (my droplet is drawn too), and "your
-        // partner" in mid-sentence where the partner has no name, never "with Your partner".
+        // NEW COPY (finding 14): the Today card's sentence, "You: …" included (my droplet is drawn too),
+        // and "your partner" in mid-sentence where the partner has no name, never "with Your partner".
+        // The iCloud widget's sentence it replaces was never approved either (stage C, row 11).
         let spokenName = DuoCardModel.partnerName(of: duo).map(DuoCardModel.isolated)
         let myStatus = snapshotDay == today
             ? DuoProgress.status(role: duo.myRole, day: today, totalML: snapshotTotalML, goalML: snapshotGoalML, now: now) : mine
