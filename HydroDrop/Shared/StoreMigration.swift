@@ -260,7 +260,12 @@ enum StoreMigration {
                 // Only once the original is here. Two copies of one drink, from this
                 // device's migration and another's, are still both copies.
                 guard let original = group.first(where: { !isCopy($0) }) else { continue }
-                for copy in group where isCopy(copy) {
+                // Classify before adopting any Health fields. An older original has no
+                // Health identifier and takes its copy's below; testing membership as
+                // the loop advances would then mistake that original for a copy too,
+                // deleting the drink whenever it follows a copy in the fetched order.
+                let groupCopies = group.filter(isCopy)
+                for copy in groupCopies {
                     if let id = copy.healthSyncID { remaining.remove(id) }
                     adoptHealth(of: copy, into: original, leftovers: &leftovers)
                     context.delete(copy)

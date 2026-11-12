@@ -272,12 +272,16 @@ final class StoreMigrationTests: XCTestCase {
         let url = try targetURL()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
         let copies = [WaterEntry(amountML: 250, timestamp: timestamp), WaterEntry(amountML: 250, timestamp: timestamp)]
+        let source = original(amountML: 250, timestamp: timestamp)
         recordAsCopies(copies)
-        let container = try makeStore(at: url, rows: copies + [original(amountML: 250, timestamp: timestamp)])
+        let container = try makeStore(at: url, rows: copies + [source])
+        let sourceID = source.persistentModelID
 
         StoreMigration.deduplicateIfNeeded(in: container)
 
         XCTAssertEqual(try rowCount(at: url), 1)
+        let rows = try ModelContext(container).fetch(FetchDescriptor<WaterEntry>())
+        XCTAssertEqual(rows.map(\.persistentModelID), [sourceID], "the original record survives, not one of its copies")
         XCTAssertNil(recordedCopyIDs, "nothing is left to collapse")
     }
 
@@ -312,7 +316,7 @@ final class StoreMigrationTests: XCTestCase {
         StoreMigration.deduplicateIfNeeded(in: container)
 
         XCTAssertEqual(try rowCount(at: url), 3)
-        XCTAssertEqual(recordedCopyIDs, [copy.healthSyncID], "the copy still waits for its original")
+        XCTAssertEqual(recordedCopyIDs, [try XCTUnwrap(copy.healthSyncID)], "the copy still waits for its original")
     }
 
     /// Until the original arrives, the copy is the only row the user has for that drink.
@@ -372,7 +376,7 @@ final class StoreMigrationTests: XCTestCase {
 
         StoreMigration.deduplicateIfNeeded(in: container)
 
-        XCTAssertEqual(recordedCopyIDs, [copies[0].healthSyncID])
+        XCTAssertEqual(recordedCopyIDs, [try XCTUnwrap(copies[0].healthSyncID)])
     }
 
     /// With iCloud off the originals never come. After a month the copies are simply the
@@ -435,14 +439,19 @@ final class StoreMigrationTests: XCTestCase {
         recordAsCopies([copy])
         var handedOver: [StoreMigration.HealthLeftovers] = []
         let container = try makeStore(at: url, rows: [copy, water])
+        let originalID = water.persistentModelID
+        let copyHealthID = copy.healthSyncID
 
         StoreMigration.deduplicateIfNeeded(in: container) { handedOver.append($0) }
 
         let kept = try XCTUnwrap(ModelContext(container).fetch(FetchDescriptor<WaterEntry>()).first)
         XCTAssertEqual(try rowCount(at: url), 1)
+        XCTAssertEqual(kept.persistentModelID, originalID)
         XCTAssertEqual(kept.healthKitSampleUUID, "water-A")
         XCTAssertEqual(kept.healthWaterWritten, "record of water-A")
         XCTAssertEqual(kept.caffeineSampleUUID, "caffeine-B")
+        XCTAssertEqual(kept.healthSyncID, copyHealthID)
+        XCTAssertNil(recordedCopyIDs, "the original's adopted identifier is no longer a tracked copy")
         XCTAssertEqual(handedOver, [], "nothing is left over")
     }
 
