@@ -19,7 +19,7 @@ final class CloudSettingsStore {
     static let shared = CloudSettingsStore()
 
     private let local: UserDefaults
-    private let cloud = NSUbiquitousKeyValueStore.default
+    private let cloud: NSUbiquitousKeyValueStore
     private var observer: NSObjectProtocol?
 
     /// Screenshot automation runs against whatever iCloud account the machine is signed
@@ -29,6 +29,7 @@ final class CloudSettingsStore {
 
     private init() {
         local = .standard
+        cloud = .default
         #if DEBUG
         isCloudEnabled = !ProcessInfo.processInfo.arguments.contains("-UITestSeedHistory")
         #else
@@ -40,7 +41,16 @@ final class CloudSettingsStore {
     /// without reading or changing the signed-in person's iCloud settings.
     init(localOnly local: UserDefaults) {
         self.local = local
+        cloud = .default
         isCloudEnabled = false
+    }
+
+    /// A stand-in for iCloud lets tests make the two sides disagree, the way a stale
+    /// iCloud value and a locally earned one do at launch.
+    init(local: UserDefaults, cloud: NSUbiquitousKeyValueStore) {
+        self.local = local
+        self.cloud = cloud
+        isCloudEnabled = true
     }
 
     // MARK: - Reading
@@ -80,6 +90,11 @@ final class CloudSettingsStore {
         }
         local.set(value, forKey: key)
         if isCloudEnabled { cloud.set(value, forKey: key) }
+    }
+
+    /// Brings only this device's mirror up to date, for a value iCloud already holds.
+    func setLocal(_ value: Any, forKey key: String) {
+        local.set(value, forKey: key)
     }
 
     // MARK: - Change notification

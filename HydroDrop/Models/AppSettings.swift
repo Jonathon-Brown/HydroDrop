@@ -705,8 +705,16 @@ final class AppSettings: ObservableObject {
         }
         // Persist a legacy sparse shelf once, after every property is initialized.
         // Otherwise another launch or device could bring back the missing badges.
-        if !screenshotMode && (normalizedMilestones != storedMilestones || normalizedMilestones != localMilestones) {
-            synced.set(normalizedMilestones, forKey: Keys.celebratedMilestones)
+        // Only a shelf iCloud is missing something from goes up to it. Re-uploading what
+        // this device's possibly stale iCloud cache already holds could replace a newer
+        // shelf from another device, and a build from before this repair, which ignores
+        // its local mirror, would then celebrate the lost badge again.
+        if !screenshotMode {
+            if normalizedMilestones != storedMilestones {
+                synced.set(normalizedMilestones, forKey: Keys.celebratedMilestones)
+            } else if normalizedMilestones != localMilestones {
+                synced.setLocal(normalizedMilestones, forKey: Keys.celebratedMilestones)
+            }
         }
         if !screenshotMode && (seededMilestones != storedSeededMilestones || seededMilestones != localSeededMilestones) {
             synced.set(seededMilestones, forKey: Keys.hasSeededMilestones)
