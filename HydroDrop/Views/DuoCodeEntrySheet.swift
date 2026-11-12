@@ -261,6 +261,7 @@ struct DuoCodeEntrySheet: View {
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("duo.code.error")
+                        .duoAnnounced(DuoCopy.notACode)
                 }
             }
             Section {

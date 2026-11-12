@@ -15,6 +15,11 @@ struct DuoWidgetCard: View {
                     Text("Start one in HydroDrop, under Settings.")
                         .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
+            } else if model.state == .unavailable {
+                VStack(spacing: 6) {
+                    Image(systemName: "drop.fill").font(.title2).foregroundStyle(.blue)
+                    Text(verbatim: DuoWidgetModel.openHydroDrop).font(.caption.weight(.bold))
+                }
             } else {
                 VStack(spacing: 4) {
                     HStack(alignment: .bottom, spacing: 2) {
@@ -22,9 +27,15 @@ struct DuoWidgetCard: View {
                         droplet(bucket: model.partnerBucket, skin: model.partnerSkin)
                             .opacity(model.state == .pending ? 0.35 : 1)
                     }.frame(height: 70)
-                    Label(model.streakText, systemImage: "flame.fill")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(model.streakDays > 0 ? .orange : .secondary)
+                    // The number stays primary and only the flame is orange: orange text on the light
+                    // widget background was about 2:1, under the 3:1 large text needs (finding 16).
+                    Label {
+                        Text(model.streakText)
+                    } icon: {
+                        Image(systemName: "flame.fill").foregroundStyle(model.streakDays > 0 ? .orange : .secondary)
+                    }
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(model.streakDays > 0 ? .primary : .secondary)
                     Text(verbatim: model.partnerLine)
                         .font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
                     if let badge = model.sampleBadge {
@@ -39,6 +50,10 @@ struct DuoWidgetCard: View {
         .dynamicTypeSize(...DynamicTypeSize.large)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: model.accessibilityLabel))
+        // The partner's name, droplet and streak, and the spoken sentence that names them, are the
+        // partner's to show to this person, not to a room: StandBy on a locked phone and a Mac on the
+        // same Apple ID redact them (finding 3). The neutral states name nobody.
+        .privacySensitive(model.state == .running || model.state == .pending)
     }
 
     private func droplet(bucket: Int, skin: String) -> some View {

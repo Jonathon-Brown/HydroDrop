@@ -86,6 +86,7 @@ struct DuoSetupSheet: View {
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("duo.setup.error")
+                        .duoAnnounced(words)
                 }
             case .unavailable(let words):
                 Section {

@@ -171,6 +171,7 @@ struct DuoReconnectSheet: View {
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("duo.reconnect.error")
+                        .duoAnnounced(error)
                 }
             }
             Section {

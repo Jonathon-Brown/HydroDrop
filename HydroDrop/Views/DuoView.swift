@@ -69,6 +69,9 @@ struct DuoScreen<Router: DuoScreenRouterFlags & ObservableObject>: View {
     @State private var opened = false
     /// iOS has notifications off for the app (read, never asked, in `.task`).
     @State private var notificationsDenied = false
+    /// The screen is on top of its stack: false while Diagnostics is pushed over it, where an alert
+    /// asked for from here would be dropped (finding 12), as Settings' index tracks its own.
+    @State private var screenIsVisible = false
 
     init(duoStore: DuoStore, router: Router,
          notificationStatus: (@MainActor () async -> UNAuthorizationStatus)? = nil) {
@@ -80,10 +83,14 @@ struct DuoScreen<Router: DuoScreenRouterFlags & ObservableObject>: View {
     var body: some View {
         let context = makeContext(now: Date())
         List {
-            if duoStore.needsAgeRecheck {
+            if duoStore.needsAgeRecheck || duoStore.needsTermsAgain {
                 Section {
-                    Button(DuoConsentFlow.NewCopy.ageTitle) { showingAgeRecheck = true }
-                        .accessibilityIdentifier("duo.agegate.recheck")
+                    Button(duoStore.needsAgeRecheck ? DuoScreenModel.recheckAgeRow : DuoScreenModel.recheckTermsRow) {
+                        showingAgeRecheck = true
+                    }
+                    .accessibilityIdentifier("duo.agegate.recheck")
+                } footer: {
+                    Text(DuoScreenModel.recheckFooter)
                 }
             }
             if duoStore.hasNoticeCards {
@@ -106,9 +113,14 @@ struct DuoScreen<Router: DuoScreenRouterFlags & ObservableObject>: View {
                     .accessibilityIdentifier("duo.notifications")
                     // The Reminders page's line: the switch says On while iOS will show nothing.
                     if duoStore.notificationsEnabled && notificationsDenied {
-                        Label(DuoScreenModel.notificationsDisabledInIOS, systemImage: "exclamationmark.triangle.fill")
+                        // Orange text was about 2.2:1 in light mode (finding 16): the words stay secondary
+                        // and only the warning sign is orange.
+                        Label {
+                            Text(DuoScreenModel.notificationsDisabledInIOS).foregroundStyle(.secondary)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        }
                             .font(.footnote)
-                            .foregroundStyle(.orange)
                             .accessibilityIdentifier("duo.notifications.denied")
                     }
                 } footer: {
@@ -138,9 +150,19 @@ struct DuoScreen<Router: DuoScreenRouterFlags & ObservableObject>: View {
             }
         }
         .accessibilityIdentifier("duo.screen")
-        .sheet(isPresented: $showingAgeRecheck) {
-            NavigationStack {
-                DuoAgeGateView(duoStore: duoStore, onAllowed: { showingAgeRecheck = false }, onRefused: { showingAgeRecheck = false })
+        .onAppear { screenIsVisible = true }
+        .onDisappear { screenIsVisible = false }
+        // The age question, then the rules if a reinstall cleared them, through the consent sheets'
+        // own gate, Cancel included (findings 5 and 11). It used to be the age screen alone, so a
+        // reinstalled phone answered it and stayed suspended for want of the rules. Its form is
+        // nothing: reaching it means both are answered, so sharing resumes and the sheet closes. A
+        // failure an Accept left is this sheet's and goes with it.
+        .sheet(isPresented: $showingAgeRecheck, onDismiss: { duoStore.sheetError = nil }) {
+            DuoConsentGate(duoStore: duoStore, onClose: { showingAgeRecheck = false }, onTermsAccepted: {}) {
+                Color.clear.onAppear {
+                    showingAgeRecheck = false
+                    Task { await duoStore.resumeAfterAgeRecheck() }
+                }
             }
         }
         .navigationTitle(DuoScreenModel.title)
@@ -212,7 +234,7 @@ struct DuoScreen<Router: DuoScreenRouterFlags & ObservableObject>: View {
     /// Whether this screen presents the store's notice now: inside Settings, with nothing of its
     /// own on top.
     private var noticeShowsHere: Bool {
-        router.showingSettings && confirming == nil && !showingAgeRecheck && !showingSetup && inviting == nil && !showingCodeEntry
+        router.showingSettings && screenIsVisible && confirming == nil && !showingAgeRecheck && !showingSetup && inviting == nil && !showingCodeEntry
             && !showingReconnect && reporting == nil && paywallSource == nil && askingAgain == nil
     }
 
@@ -343,6 +365,13 @@ struct DuoScreen<Router: DuoScreenRouterFlags & ObservableObject>: View {
                 .accessibilityIdentifier("duo.delete")
                 .duoRowDialog($confirming, anchor: DuoScreenModel.Confirmation.anchor(.delete, nil), onConfirm: confirmed)
             }
+        } footer: {
+            // A refused phone whose refusal DELETE /me failed: the way out, said (finding 1). Not for
+            // one that was never sent, whose identity may be someone else's.
+            if duoStore.refusalDeletion == .failed, DuoScreenModel.showsDelete(in: context), !context.credentialIsAThrowaway {
+                Text(verbatim: DuoConsentFlow.NewCopy.refusalDataRemainsHere)
+                    .accessibilityIdentifier("duo.refused.delete")
+            }
         }
     }
 
@@ -352,7 +381,7 @@ struct DuoScreen<Router: DuoScreenRouterFlags & ObservableObject>: View {
         DuoScreenModel.Context(duos: duoStore.duos, availability: duoStore.availability, nudgesPerDay: duoStore.nudgesPerDay,
                                hasIdentity: duoStore.hasIdentity, credentialIsAThrowaway: duoStore.hCredentialIsAThrowaway,
                                isSubscribed: store.isSubscribed, blocksSent: duoStore.blockedDuoIDs, now: now,
-                               myToday: DayKey.key(for: now))
+                               myToday: DayKey.key(for: now), sharingPaused: !duoStore.ageAllowsSharing)
     }
 
     /// Asks the model what a tap does, against the store as it is now, and does that.

@@ -109,7 +109,7 @@ struct DuoJoinSheet: View {
         case .explainer:
             DuoExplainer(context: .join)
         case .error(let text), .failure(let text):
-            Section { Self.line(text, color: .red) }
+            Section { Self.line(text, color: .red).duoAnnounced(text) }
         case .blocked(let text):
             Section { Self.line(text, color: .secondary) }
         case .restore(let question):

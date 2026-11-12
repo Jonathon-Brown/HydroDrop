@@ -145,11 +145,18 @@ struct DuoCardSide: View {
                     .lineLimit(1)
                 if badged { DuoSampleBadge() }
             }
-            Text(verbatim: side.line)
-                .font(.caption2)
-                .foregroundStyle(side.goalMet ? Color.green : .secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            // Green text was about 2:1 on the light card, under the 4.5:1 small text needs, so the
+            // words stay secondary and the green goes on a checkmark (finding 16).
+            HStack(spacing: 3) {
+                if side.goalMet {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityHidden(true)
+                }
+                Text(verbatim: side.line)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.caption2)
         }
         .frame(maxWidth: .infinity)
     }
@@ -241,9 +248,12 @@ struct DuoCardActions: View {
     /// with no credential or only a Reconnect's throwaway, which stage E's exit service refuses;
     /// no reconnect offer on a phone that may not write).
     static func actions(for duo: DuoState, in store: DuoStore, now: Date) -> DuoCardActionsModel {
-        let canSendExits = store.hasIdentity && !(store.dependencies?.credentialIsAThrowaway ?? false)
-        return DuoCardActionsModel.make(duo: duo, availability: store.availability, now: now, myToday: DayKey.key(for: now),
-                                        canSendExits: canSendExits)
+        let canSendExits = store.hasIdentity && !(store.dependencies?.credentialIsAThrowaway ?? false) && store.ageAllowsSharing
+        var actions = DuoCardActionsModel.make(duo: duo, availability: store.availability, now: now, myToday: DayKey.key(for: now),
+                                               canSendExits: canSendExits)
+        // A reconnect code is a request too, which the closed age gate would drop without a word.
+        if !store.ageAllowsSharing { actions.offersReconnect = false }
+        return actions
     }
 
     /// A full-width label that wraps rather than being cut short at a large text size.
@@ -459,6 +469,8 @@ struct DuoNoticeCards: View {
     var onReconnect: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// The Start fresh button whose question is up, with the label its confirm repeats.
+    @State private var confirmingStartFresh: String?
 
     var body: some View {
         let cards = Self.cards(for: duoStore)
@@ -487,7 +499,15 @@ struct DuoNoticeCards: View {
         switch action {
         case .continueAsRestored:
             let store = duoStore
-            return Task { await store.continueAsRestored() }
+            return Task {
+                await store.continueAsRestored()
+                // The card is not a sheet: a failure is said now, in the alert, and not left in
+                // `sheetError` for the next join sheet to open already showing it (stage B's leftover).
+                if let failure = store.sheetError {
+                    store.sheetError = nil
+                    store.notice = failure
+                }
+            }
         case .startFresh:
             duoStore.startFresh()
         case .reconnect:
@@ -541,12 +561,23 @@ struct DuoNoticeCards: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
         .accessibilityElement(children: .contain)
+        // H12's title; the message is new copy (`startFreshCardMessage`).
+        .confirmationDialog(Text(verbatim: DuoScreenModel.startFreshTitle),
+                            isPresented: Binding(get: { confirmingStartFresh != nil }, set: { if !$0 { confirmingStartFresh = nil } }),
+                            titleVisibility: .visible) {
+            Button(confirmingStartFresh ?? DuoCopy.disconnectedStartFresh, role: .destructive) { perform(.startFresh) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(verbatim: DuoScreenModel.startFreshCardMessage)
+        }
     }
 
     @ViewBuilder
     private func buttons(_ card: DuoNoticeCard) -> some View {
         ForEach(card.buttons, id: \.title) { button in
-            let tap = Button { perform(button.action) } label: {
+            let tap = Button {
+                if button.action.asksFirst { confirmingStartFresh = button.title } else { perform(button.action) }
+            } label: {
                 Text(verbatim: button.title)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

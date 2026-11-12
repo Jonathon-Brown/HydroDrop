@@ -19,6 +19,25 @@ final class DuoWidgetCardTests: XCTestCase {
         kit.defaults.removeObject(forKey: "duo.states.v1")
     }
 
+    /// Finding 3: the partner's name, droplet and streak are marked private, so StandBy on a locked
+    /// phone and a Mac on the same Apple ID redact them; the neutral states have nothing to hide.
+    func testTheRunningCardIsRedactedForPrivacy() throws {
+        let now = Date()
+        let duo = DuoState(id: UUID(), myRole: .owner, createdAt: now, ownerDisplayName: "Jo", partnerDisplayName: "Sam",
+                           ownerSkin: "classic", partnerSkin: "forest", statuses: [], partnerHasJoined: true)
+        func png(_ duos: [DuoState], age: DuoAgeStatus = .allowed, redacted: Bool) throws -> Data {
+            let model = DuoWidgetModel.make(duos: duos, ageStatus: age, ageCheckUnavailable: false, now: now, snapshotDay: DayKey.key(for: now),
+                                            snapshotTotalML: 1500, snapshotGoalML: 2000)
+            let card = DuoWidgetCard(model: model).frame(width: 158, height: 158).background(.white)
+            let renderer = ImageRenderer(content: Group { if redacted { card.redacted(reason: .privacy) } else { card } })
+            renderer.scale = 1
+            return try XCTUnwrap(renderer.uiImage?.pngData())
+        }
+        XCTAssertNotEqual(try png([duo], redacted: true), try png([duo], redacted: false))
+        XCTAssertEqual(try png([], redacted: true), try png([], redacted: false), "\"No duo yet\" names nobody")
+        XCTAssertEqual(try png([], age: .refused, redacted: true), try png([], age: .refused, redacted: false))
+    }
+
     func testAllSmallWidgetStatesRender() throws {
         let now = Date()
         var duo = DuoState(id: UUID(), myRole: .owner, createdAt: now, ownerDisplayName: "Jo",

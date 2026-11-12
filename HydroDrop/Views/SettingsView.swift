@@ -199,7 +199,10 @@ struct SettingsView: View {
             // duo that couldn't be left, a delete that didn't go through) arrives as a notice. The
             // root shows those too, but not while this sheet is covering it. Once the sheet is on
             // its way out, the root takes over. While the Duo screen is pushed it says it itself.
-            .modifier(DuoSettingsNoticeAlert(router: router, duoStore: duoStore))
+            // Not while one of Settings' own sheets covers the index either (finding 12): an alert
+            // asked for under a sheet is dropped, and it never came back when the sheet closed.
+            .modifier(DuoSettingsNoticeAlert(router: router, duoStore: duoStore,
+                                             nothingCovers: paywallSource == nil && !showingEventCounts && !showingBugReport && !showingIntroReplay))
             #endif
         }
         // The daily goal, the unit system and the quick-add sizes all appear on the

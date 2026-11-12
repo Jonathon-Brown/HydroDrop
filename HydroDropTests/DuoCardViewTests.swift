@@ -353,6 +353,20 @@ final class DuoCardViewTests: XCTestCase {
         XCTAssertTrue(blocked, "Block blocks the duo the button is under, not another: \(recorder.calls)")
     }
 
+    /// Finding 1: with the age gate closed neither card action is offered, since both would send.
+    func testNoCardActionWhileTheAgeGateIsClosed() {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        let quiet = silent()
+        let fresh = justJoined("Alex")
+        XCTAssertTrue(DuoCardActions.actions(for: quiet, in: kit.store, now: now).offersReconnect)
+        XCTAssertTrue(DuoCardActions.actions(for: fresh, in: kit.store, now: now).offersNotThem)
+        kit.dependencies.cache.requireAgeRecheck()
+        kit.store.recheckAge()
+        XCTAssertFalse(kit.store.ageAllowsSharing)
+        XCTAssertFalse(DuoCardActions.actions(for: quiet, in: kit.store, now: now).offersReconnect)
+        XCTAssertFalse(DuoCardActions.actions(for: fresh, in: kit.store, now: now).offersNotThem)
+    }
+
     func testNotThemOnlyWhenThePhoneCanSendTheBlock() async throws {
         let duo = justJoined("Sam")
         let none = DuoTestKit()
@@ -467,8 +481,8 @@ final class DuoCardViewTests: XCTestCase {
             XCTAssertTrue(continued, "Continue answers the question (\(size))")
             XCTAssertEqual(kit.exiting.calls, [], "and does not start fresh (\(size))")
             XCTAssertTrue(fresh.accessibilityActivate())
-            let started = await gWait { kit.exiting.calls == ["startFresh"] }
-            XCTAssertTrue(started, "Not me, start fresh (\(size))")
+            // Decision f: it asks first, in H12's title, and its confirm repeats the button.
+            try await confirmStartFresh(on: notice, label: "Not me, start fresh", kit: kit)
             XCTAssertEqual(kit.identity.continued, 1)
             XCTAssertEqual(reconnects, 0)
             XCTAssertTrue(kit.transport.calls.isEmpty, "the services send, not the card")
@@ -494,10 +508,36 @@ final class DuoCardViewTests: XCTestCase {
         XCTAssertTrue(reconnected, "I had a duo opens the reconnect sheet")
         XCTAssertEqual(kit.exiting.calls, [])
         XCTAssertTrue(fresh.accessibilityActivate())
-        let started = await gWait { kit.exiting.calls == ["startFresh"] }
-        XCTAssertTrue(started)
+        // Finding 6: it asks first, as the Duo screen's own Start fresh row does.
+        try await confirmStartFresh(on: notice, label: "Start fresh", kit: kit)
         XCTAssertEqual(reconnects, 1)
         XCTAssertEqual(kit.identity.continued, 0)
+    }
+
+    /// Start fresh's question on a notice card: nothing is wiped until its confirm is pressed.
+    private func confirmStartFresh(on notice: GHost, label: String, kit: DuoTestKit) async throws {
+        var alert: UIAlertController?
+        let shown = await gWait { alert = notice.topAlert; return alert != nil }
+        XCTAssertTrue(shown, "\(label) asks first")
+        XCTAssertEqual(kit.exiting.calls, [], "and wipes nothing before the answer")
+        XCTAssertEqual(alert?.title, DuoScreenModel.startFreshTitle)
+        XCTAssertEqual(alert?.message, DuoScreenModel.startFreshCardMessage)
+        XCTAssertEqual(alert?.actions.map(\.title), [label, "Cancel"])
+        try gRun(try XCTUnwrap(alert?.actions.first { $0.title == label }))
+        let started = await gWait { kit.exiting.calls == ["startFresh"] }
+        XCTAssertTrue(started, label)
+    }
+
+    /// Stage B's leftover: Continue on the card is no sheet, so its failure is said in the alert at
+    /// once and not left for the next join sheet to open already showing it.
+    func testAFailedContinueOnTheCardIsSaidNowAndNotLeftForTheJoinSheet() async {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        kit.store.availability = .needsRestoreChoice(DuoRestorePrompt(partnerName: "Sam", myName: "Jo"))
+        kit.identity.onContinue = { kit.store.sheetError = DuoUserMessage.generic }
+        await DuoNoticeCards(duoStore: kit.store, onReconnect: {}).perform(.continueAsRestored)?.value
+        XCTAssertEqual(kit.identity.continued, 1)
+        XCTAssertNil(kit.store.sheetError)
+        XCTAssertEqual(kit.store.notice, DuoUserMessage.generic)
     }
 
     func testTheNewDeviceNoticeIsDismissedThroughTheTree() async throws {

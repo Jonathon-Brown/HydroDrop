@@ -453,7 +453,10 @@ final class DuoConsentViewTests: XCTestCase {
         XCTAssertNotNil(title)
         XCTAssertTrue(title?.traits.contains(.header) ?? false, "the title is a heading")
         let field = window.element("duo.agegate.year")
-        XCTAssertEqual(field?.label, "What month and year were you born?", "the field is labelled with the question")
+        // Finding 15: the field is the year, as the month field is the month; the question is read
+        // once, as itself, and no longer as the year field's label.
+        XCTAssertEqual(field?.label, "Birth year")
+        XCTAssertEqual(window.element("duo.agegate.month")?.label, "Birth month")
         XCTAssertEqual(window.labels().filter { $0 == "What month and year were you born?" }.count, 1, "and the question is spoken once")
         XCTAssertEqual(window.textField("duo.agegate.year")?.text, "", "no year is filled in")
         XCTAssertEqual(window.textField("duo.agegate.month")?.text, "", "no month is filled in")
@@ -569,6 +572,47 @@ final class DuoConsentViewTests: XCTestCase {
         await window.expect("Close closes the sheet") { !presentation.isPresented }
         XCTAssertTrue(kit.joining.calls.isEmpty)
         XCTAssertTrue(kit.transport.calls.isEmpty)
+    }
+
+    /// Decision b: born in this very month thirteen years ago is "not yet": the screen says to try
+    /// again next month, Close closes, and nothing is kept anywhere.
+    func testTheThirteenthBirthdayMonthSaysNotYetAndKeepsNothing() async {
+        let kit = await iKit(age: .unknown, termsAccepted: false)
+        let presentation = IPresentation()
+        let window = IWindow()
+        defer { window.close() }
+        await window.show(IPresenter(presentation: presentation, sheet: DuoSetupSheet(duoStore: kit.store) { _ in }))
+        await window.expect { window.textField("duo.agegate.year") != nil }
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = .current
+        let parts = gregorian.dateComponents([.year, .month], from: Date())
+        await window.type(String(parts.month!), into: "duo.agegate.month")
+        await window.type(String(parts.year! - 13), into: "duo.agegate.year")
+        await window.expect { window.element("duo.agegate.continue")?.isEnabled == true }
+        window.tap("duo.agegate.continue")
+        await window.expect { window.element("duo.agegate.confirm") != nil }
+        window.tap("duo.agegate.confirm")
+        await window.expect("\(window.labels())") { window.shows(DuoConsentFlow.NewCopy.ageNotYet) }
+        XCTAssertEqual(kit.store.ageStatus, .unknown)
+        XCTAssertEqual(kit.dependencies.cache.ageStatus, .unknown)
+        XCTAssertFalse(kit.dependencies.secrets.isAgeRefused())
+        XCTAssertFalse(window.shows("Duo Streaks is not available on this iPhone."))
+        window.tap("duo.agegate.close")
+        await window.expect("Close closes the sheet") { !presentation.isPresented }
+        XCTAssertTrue(kit.transport.calls.isEmpty)
+    }
+
+    /// Finding 7: an error drawn in place is said to VoiceOver as it appears.
+    func testAnErrorDrawnInPlaceIsSpoken() async {
+        var spoken: [String] = []
+        let post = DuoVoiceOver.post
+        DuoVoiceOver.post = { spoken.append($0) }
+        defer { DuoVoiceOver.post = post }
+        let window = IWindow()
+        defer { window.close() }
+        await window.show(DuoTermsSheet(onAccept: {}, onCancel: {}, message: DuoUserMessage.generic, isWorking: false))
+        await window.expect { window.element("duo.terms.message") != nil }
+        XCTAssertEqual(spoken, [DuoUserMessage.generic])
     }
 
     func testARefusalOnOneKitIsStillARefusalOnASecondOverTheSameKeychain() async {

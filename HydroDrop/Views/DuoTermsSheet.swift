@@ -46,6 +46,7 @@ struct DuoTermsSheet: View {
                             .foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityIdentifier("duo.terms.message")
+                            .duoAnnounced(message)
                     }
                 }
 

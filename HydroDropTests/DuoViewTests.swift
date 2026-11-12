@@ -726,6 +726,36 @@ final class DuoViewTests: XCTestCase {
         XCTAssertTrue(rig.store.needsAgeRecheck, "dismissal is not an age answer")
     }
 
+    /// Finding 5: a phone holding an identity without the rules (a reinstall clears them) is asked
+    /// for them on the Duo screen, through the consent gate, and once they are accepted the sheet
+    /// closes and sharing resumes: the identity is asked about again. Answering the age alone used
+    /// to leave the identity suspended for good.
+    func testTheRecheckAsksForTheRulesAndResumesOnceAccepted() async throws {
+        let rig = rig(duos: [])
+        rig.store.recordBirthYear(1990, month: 1)
+        XCTAssertTrue(rig.store.needsTermsAgain)
+        let router = HRouterFlags()
+        router.showingSettings = true
+        let window = try await screen(rig.store, router: router)
+        let opened = await hWait { rig.kit.identity.prepared >= 1 }
+        XCTAssertTrue(opened)
+        let before = rig.kit.identity.prepared
+        XCTAssertTrue(window.labels().contains(DuoScreenModel.recheckTermsRow))
+        XCTAssertTrue(window.activate("duo.agegate.recheck"))
+        let rules = await hWait { window.has("duo.terms.accept") }
+        XCTAssertTrue(rules, "the rules, not the age screen alone")
+        XCTAssertTrue(window.has("duo.terms.cancel"), "with a way out")
+        XCTAssertTrue(window.activate("duo.terms.accept"))
+        let closed = await hWait { window.presented().isEmpty }
+        XCTAssertTrue(closed, "the sheet closes once both are answered")
+        let resumed = await hWait { rig.kit.identity.prepared > before }
+        XCTAssertTrue(resumed, "sharing resumes")
+        // What the row is drawn from. This window's walk also finds the hidden cells a List keeps
+        // for reuse, so the row's absence is not read from the tree.
+        XCTAssertFalse(rig.store.needsTermsAgain, "the row goes with the question")
+        XCTAssertFalse(rig.store.needsAgeRecheck)
+    }
+
     func testANoticeWaitsUnderTheCodeEntrySheetAndLeavesItAlone() async throws {
         let rig = rig(credential: nil, duos: [])
         let router = HRouterFlags()
