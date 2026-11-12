@@ -437,6 +437,16 @@ struct RootTabView: View {
 
     /// Whether any window has an alert presented, leaving included: UIKit is the one that knows when
     /// an alert has gone, and SwiftUI says nothing when it has.
+    ///
+    /// shortcut: this sees only alerts that SwiftUI draws as a `UIAlertController`. If a later iOS
+    /// draws them some other way it answers false, Settings stops waiting for an alert (the 50 ms
+    /// polling in `reconcileDuoSettingsPresentation` and the notice's wait), the 1.5 s fallback in
+    /// `showDuoNoticeIfFree` lets go of a notice still on screen, so a root sheet asked for under
+    /// it is dropped, and the iOS 27 crash comes back. `DuoRoutingRootTests` look for the notice as a `UIAlertController` and would
+    /// fail on such a runtime, but no simulator test fails with this guard switched off (the iOS
+    /// 27.0 simulator never crashed), so revisit with each major iOS: on a device, close Settings
+    /// while a Duo notice is coming up over it. Drop the polling once SwiftUI reports an alert's
+    /// dismissal or closing both together no longer crashes.
     private static func duoAnAlertIsUp() -> Bool {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
         return windows.contains { window in

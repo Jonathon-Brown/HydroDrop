@@ -582,6 +582,36 @@ final class DuoRoutingRootTests: XCTestCase {
         await kGearStillWorks()
     }
 
+    /// Settings asked to close while its own notice alert is entering. Closing both together
+    /// crashed UIKit on iOS 27, so Settings waits until no alert is up
+    /// (`RootTabView.duoAnAlertIsUp`), and the notice then shows at the root. This does not prove
+    /// the guard: with it switched off, the iOS 27.0 simulator still let the alert leave first and
+    /// did not crash (tried 2026-11-12), so the guard itself needs the device check in its comment.
+    func testClosingSettingsWhileItsNoticeEntersWaitsForTheAlert() async {
+        await kOpenSettings()
+        duoStore.notice = "probe notice"
+        let entering = await kSettle(8) {
+            guard let alert = kChain().compactMap({ $0 as? UIAlertController }).last else { return false }
+            return alert.isBeingPresented || alert.transitionCoordinator != nil
+        }
+        XCTAssertTrue(entering, "the close must land during the alert's entrance: \(kDescribe())")
+        guard entering else { return }
+        router.showingSettings = false
+        var alertLeftFirst = false
+        let closed = await kSettle(8) {
+            if kShowing(kSettingsTitle), !kAlertUp() { alertLeftFirst = true }
+            return !self.router.settingsIsOnScreen && !kShowing(kSettingsTitle)
+        }
+        XCTAssertTrue(closed, kDescribe())
+        XCTAssertTrue(alertLeftFirst, "Settings closed with its alert still on it: \(kDescribe())")
+        let atRoot = await kSettle(8) { kAlertUp() }
+        XCTAssertTrue(atRoot, "the notice did not come back at the root: \(kDescribe())")
+        duoStore.notice = nil
+        let cleared = await kSettle(8) { kChain().isEmpty }
+        XCTAssertTrue(cleared, kDescribe())
+        await kGearStillWorks()
+    }
+
     func testSettingsOpenedForATapStaysClosedOnceClosedAndTheFlagGoes() async {
         router.showingDuoScreen = true
         let opened = await kSettle(8) { self.router.settingsIsOnScreen && kShowing(kSettingsTitle) }
