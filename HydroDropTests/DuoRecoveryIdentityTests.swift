@@ -534,6 +534,24 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
         XCTAssertNil(try elapsed.journal.retryDeadline())
     }
 
+    /// A launch runs in the background as often as for a tap, so its failure (here a 429 during
+    /// the back-off) must not leave the line the next sheet opens with, and neither must a
+    /// failed Delete, which says so as the notice. A Create tap still gets the line.
+    func testOnlyASheetsCallLeavesASheetError() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer(); server.loseCommit = true
+        let sut = identity(kit, server: server); _ = await sut.mint(role: .create, replacing: nil)
+        XCTAssertEqual(kit.store.sheetError, DuoUserMessage.generic, "the Create sheet's own call")
+        kit.store.sheetError = nil
+        server.stateFailures = [.refused(.rateLimited, DuoErrorContext(httpStatus: 429, retryAfter: 60))]
+        let launch = await sut.prepare()
+        XCTAssertEqual(launch, .unavailable); XCTAssertNotNil(try sut.journal.retryDeadline())
+        XCTAssertNil(kit.store.sheetError)
+        let deleted = await sut.deleteIdentity()
+        XCTAssertEqual(deleted, .failed); XCTAssertNil(kit.store.sheetError)
+        let created = await DuoJoiningService(dependencies: kit.dependencies).createDuo(named: nil, skin: "classic")
+        XCTAssertNil(created); XCTAssertEqual(kit.store.sheetError, DuoUserMessage.generic)
+    }
+
     func testContinueStaysAnsweredWhenOrdinaryHydrationIsOffline() async throws {
         let kit = DuoTestKit(); let server = RecoveryServer(); let sut = identity(kit, server: server)
         _ = await sut.mint(role: .create, replacing: nil)

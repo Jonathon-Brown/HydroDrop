@@ -129,7 +129,7 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                 dependencies.host.availability = .available
             }
             return r.ordinaryCredential == nil ? .unavailable : .ready
-        } catch { note(error); return .unavailable }
+        } catch { note(error, forSheet: false); return .unavailable }
     }
 
     /// An unlabelled legacy credential has no trustworthy server provenance. A host selection
@@ -247,7 +247,7 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             guard finished.ordinaryCredential != nil, try journal.read() == finished,
                   lastConfirmedOperationID == r.pending?.operationID else { throw DuoJournalError.changed }
             return lastState
-        } catch { note(error); return nil }
+        } catch { note(error, forSheet: true); return nil }
     }
 
     @MainActor private func beginRotation(_ r: DuoRecoveryRecord) async throws -> DuoRecoveryRecord {
@@ -370,7 +370,7 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             }
             dependencies.host.availability = stillDisconnected ? .disconnected : .available
             if !stillDisconnected { dependencies.push?.reevaluate(.duoStarted) }
-        } catch { note(error) }
+        } catch { note(error, forSheet: true) }
     }
 
     /// Cleanup never asks for ordinary state, attestation or a fresh Apple token. Each cycle
@@ -438,13 +438,19 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             guard try journal.read() == r else { throw DuoJournalError.changed }
             try journal.abandon(random: dependencies.random); rememberPresence(nil)
             return serverConfirmed ? .deleted : .removedFromThisPhone
-        } catch { note(error); return .failed }
+        } catch { note(error, forSheet: false); return .failed }
     }
     @MainActor func establishRole() throws {
         guard let r = try journal.read(), r.pending == nil, let active = r.active else { throw DuoJournalError.changed }
         try store(active.credential)
     }
-    @MainActor private func note(_ error: Error) {
+    /// `forSheet` is true only for `mint` and `continueAsRestored`, whose sheets show the failure.
+    /// Every failure used to set `sheetError`, so after a 429 the next Duo sheet opened already
+    /// saying it did not work, before anything was tapped. `launch()` runs for a refresh, a push
+    /// upload or a back-off's retry as often as for a tap, and a tap that needed it still gets the
+    /// line from `DuoJoiningService.stop(for:)` when it comes back `.unavailable`. Delete my Duo
+    /// data says its failure as the notice (`DuoExitService.deleteMyData`).
+    @MainActor private func note(_ error: Error, forSheet: Bool) {
         if let recovery = error as? DuoRecoveryError {
             if let delay = recovery.context?.retryAfter, delay >= 0, delay <= Int(Int32.max) {
                 let now = dependencies.clock.now
@@ -461,7 +467,7 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             default: break
             }
         }
-        if !(error is CancellationError) { dependencies.host.sheetError = DuoUserMessage.generic }
+        if forSheet, !(error is CancellationError) { dependencies.host.sheetError = DuoUserMessage.generic }
     }
 }
 #endif
