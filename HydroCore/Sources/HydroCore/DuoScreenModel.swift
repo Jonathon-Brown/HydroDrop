@@ -48,6 +48,17 @@ public enum DuoScreenModel {
     // NEW COPY (H12): Start fresh on a card whose queued exit can never be sent.
     public static let startFreshTitle = "Start fresh?"
     public static let startFreshMessage = "This removes the ended duo cards and anything waiting to be sent from this phone."
+    // NEW COPY (finding 6, decision f): Start fresh on the restore and disconnected cards. H12's
+    // message speaks of ended cards only, which these cards' duos may not be.
+    public static let startFreshCardMessage = "This removes every duo card and anything waiting to be sent from this phone."
+    // NEW COPY (finding 8): the recheck row, which used to reuse the age screen's title "Before you
+    // start" and so said nothing of what it does.
+    public static let recheckAgeRow = "Confirm your birth month and year"
+    // NEW COPY (finding 5): the same row when only the rules are missing (a reinstall clears them).
+    public static let recheckTermsRow = "Accept the Duo Streaks rules"
+    // NEW COPY (finding 8): under that row. Sharing, not Duo Streaks: the partner's nudges still
+    // arrive meanwhile.
+    public static let recheckFooter = "Sharing with your partner is paused until then."
     public static let startADuoStreak = "Start a duo streak"
     public static let startAnotherDuoStreak = "Start another duo streak"
     public static let partOfPlus = "Part of HydroDrop Plus"
@@ -149,10 +160,15 @@ public enum DuoScreenModel {
         public var blocksSent: Set<UUID>
         public var now: Date
         public var myToday: String
+        /// The age gate is closed (a refusal, the recheck, an unreadable answer): nothing can be sent
+        /// to the partner or the server but `DELETE /me`, so the rows that would send are not offered
+        /// (finding 1). They used to be, and a confirmed Leave or Block did nothing and said nothing.
+        public var sharingPaused: Bool
 
         public init(duos: [DuoState], availability: DuoAvailability, nudgesPerDay: Int = DuoNudgeRules.dailyLimit,
                     hasIdentity: Bool, credentialIsAThrowaway: Bool = false, isSubscribed: Bool,
-                    blocksSent: Set<UUID> = [], now: Date, myToday: String) {
+                    blocksSent: Set<UUID> = [], now: Date, myToday: String, sharingPaused: Bool = false) {
+            self.sharingPaused = sharingPaused
             self.duos = duos
             self.availability = availability
             self.nudgesPerDay = nudgesPerDay
@@ -170,7 +186,7 @@ public enum DuoScreenModel {
         /// Whether a leave or a block could ever be sent from this phone: a credential, and not the
         /// Reconnect throwaway, which is nobody's member (D83, D87). Without one the exit service
         /// answers "That did not work. Please try again." for ever.
-        var exitsCanBeSent: Bool { hasIdentity && !credentialIsAThrowaway && availability != .banned }
+        var exitsCanBeSent: Bool { hasIdentity && !credentialIsAThrowaway && availability != .banned && !sharingPaused }
 
         var restoreQuestionIsUp: Bool {
             if case .needsRestoreChoice = availability { return true }
@@ -229,7 +245,7 @@ public enum DuoScreenModel {
         var rows = DuoRows()
         let banned = context.availability == .banned
 
-        if !duo.hasEnded, !duo.isPending {
+        if !duo.hasEnded, !duo.isPending, !context.sharingPaused {
             switch verdict {
             case .allowed(let remaining):
                 rows.nudge = .send(remaining: remaining, enabled: context.availability.allowsWrites)
@@ -248,7 +264,7 @@ public enum DuoScreenModel {
         }
 
         // A banned member's codes are voided by the ban (§11.8), so there is no invite to send again.
-        rows.showsInvite = duo.isPending && !banned
+        rows.showsInvite = duo.isPending && !banned && !context.sharingPaused
 
         let serverName = partnerServerName(of: duo)
         if duo.partnerHasJoined, !serverName.isEmpty {

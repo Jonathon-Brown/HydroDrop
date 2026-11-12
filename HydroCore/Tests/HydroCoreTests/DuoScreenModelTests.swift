@@ -43,6 +43,32 @@ private let restore = DuoAvailability.needsRestoreChoice(DuoRestorePrompt(partne
 final class DuoScreenModelTests: XCTestCase {
     // MARK: - States to rows
 
+    /// Finding 1: with the age gate closed (a refusal, the recheck, an unreadable answer) nothing
+    /// that sends is offered, and a stale tap or a dialog left open does nothing. Clear, Report and
+    /// Delete stay: they send nothing to the partner, and Delete goes through the gate's exemption.
+    func testAClosedAgeGateOffersNoNudgeInviteLeaveOrBlock() {
+        let live = hDuo(1)
+        let pending = hDuo(2, joined: false)
+        let ended = hDuo(3, ended: true)
+        var context = hContext([live, pending, ended])
+        context.sharingPaused = true
+        let rows = hRows(live, in: context)
+        XCTAssertNil(rows.nudge)
+        XCTAssertNil(rows.lastNudge)
+        XCTAssertFalse(rows.showsLeave)
+        XCTAssertNil(rows.block)
+        XCTAssertTrue(rows.showsReport)
+        XCTAssertFalse(hRows(pending, in: context).showsInvite)
+        XCTAssertNil(hRows(ended, in: context).block)
+        XCTAssertTrue(hRows(ended, in: context).showsClear)
+        XCTAssertTrue(DuoScreenModel.showsDelete(in: context))
+        XCTAssertEqual(DuoScreenModel.tap(.leave, on: live, verdict: .allowed(remaining: 3), in: context), .nothing)
+        XCTAssertEqual(DuoScreenModel.tap(.block, on: live, verdict: .allowed(remaining: 3), in: context), .nothing)
+        XCTAssertEqual(DuoScreenModel.tap(.nudge, on: live, verdict: .allowed(remaining: 3), in: context), .nothing)
+        XCTAssertEqual(DuoScreenModel.confirm(.block(live.id), in: context), .nothing, "a dialog opened before the refusal does nothing")
+        XCTAssertEqual(DuoScreenModel.confirm(.sendNudge(.waterBreak, live.id), verdict: .allowed(remaining: 3), in: context), .nothing)
+    }
+
     func testALiveJoinedDuoOffersNudgeNicknameLeaveBlockAndReportAndNothingElse() {
         let duo = hDuo()
         let rows = hRows(duo, .allowed(remaining: 2), in: hContext([duo]))

@@ -500,6 +500,8 @@ final class DuoCardModelTests: XCTestCase {
         XCTAssertEqual(rule(), DuoTodayRule(showsNotices: false, showsCards: true, showsSuggestion: true, talksToTheServer: true, refreshable: false))
         XCTAssertFalse(rule(wants: false).showsSuggestion)
         XCTAssertFalse(rule(refused: true).showsSuggestion, "not for someone the birth-year screen refused")
+        XCTAssertFalse(rule(hasDuos: true, hasIdentity: true, refused: true).showsCards,
+                       "nor any duo card: a refusal whose delete failed would show the partner's name and day")
         XCTAssertFalse(rule(notices: true).showsSuggestion, "not while a notice asks something first")
         XCTAssertTrue(rule(notices: true).showsNotices)
         for availability: DuoAvailability in [.disconnected, .banned, .upgradeRequired, .needsRestoreChoice(DuoRestorePrompt(partnerName: nil, myName: nil))] {
@@ -530,5 +532,15 @@ final class DuoCardModelTests: XCTestCase {
     func testThePageValue() {
         XCTAssertEqual(DuoCardModel.pageValue(index: 1, count: 3), "Page 2 of 3")
         XCTAssertEqual(DuoCardModel.pageValue(index: 0, count: 1), "Page 1 of 1")
+    }
+
+    /// Finding 6 and decision f: Start fresh asks first on both cards, restore and disconnected;
+    /// no other notice button does.
+    func testStartFreshAsksFirstOnBothCardsAndNothingElseDoes() {
+        for availability in [DuoAvailability.needsRestoreChoice(DuoRestorePrompt(partnerName: "Sam", myName: "Jo")), .disconnected] {
+            let buttons = DuoNoticeModel.cards(availability: availability, newDeviceNotice: true).flatMap(\.buttons)
+            XCTAssertTrue(buttons.contains { $0.action == .startFresh })
+            for button in buttons { XCTAssertEqual(button.action.asksFirst, button.action == .startFresh, button.title) }
+        }
     }
 }

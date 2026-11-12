@@ -4,7 +4,13 @@ import Foundation
 /// credentials or purchase state. Selection happens here so an ended duo cannot leak into a
 /// widget merely because it precedes a live one in the saved array.
 public struct DuoWidgetModel: Equatable, Sendable {
-    public enum State: Equatable, Sendable { case empty, pending, running }
+    /// `unavailable` (finding 8): a refusal, or duos this phone may not show yet (the age recheck,
+    /// an unreadable age answer). The empty state's "No duo yet. Start one in HydroDrop" used to
+    /// stand in for both, which told a tester in a running duo they had none and invited a refused
+    /// child to start one.
+    public enum State: Equatable, Sendable { case empty, unavailable, pending, running }
+    // NEW COPY (finding 8): the neutral state's only words, drawn and spoken.
+    public static let openHydroDrop = "Open HydroDrop"
     public let state: State
     public let partnerName: String
     public let partnerLine: String
@@ -22,11 +28,14 @@ public struct DuoWidgetModel: Equatable, Sendable {
                             calendar: Calendar = .current) -> Self {
         // A widget cannot consult the private Keychain. Only the app's explicit allowed
         // cache state permits display; a refusal or unreadable/missing state draws no duo.
-        let live = ageStatus == .allowed && !ageCheckUnavailable ? duos.filter { !$0.hasEnded && $0.pendingOp == nil } : []
+        let shown = duos.filter { !$0.hasEnded && $0.pendingOp == nil }
+        let mayShow = ageStatus == .allowed && !ageCheckUnavailable
+        let live = mayShow ? shown : []
         guard let duo = live.first(where: { !$0.isPending }) ?? live.first else {
-            return Self(state: .empty, partnerName: "", partnerLine: "", mySkin: "classic", partnerSkin: "classic",
+            let unavailable = ageStatus == .refused || (!mayShow && !shown.isEmpty)
+            return Self(state: unavailable ? .unavailable : .empty, partnerName: "", partnerLine: "", mySkin: "classic", partnerSkin: "classic",
                         myBucket: 0, partnerBucket: 0, streakDays: 0, streakText: "0", sampleBadge: nil,
-                        accessibilityLabel: "No duo yet. Start one in HydroDrop, under Settings.")
+                        accessibilityLabel: unavailable ? openHydroDrop : "No duo yet. Start one in HydroDrop, under Settings.")
         }
         let today = DayKey.key(for: now, calendar: calendar)
         let partner = duo.myRole.other
@@ -38,8 +47,13 @@ public struct DuoWidgetModel: Equatable, Sendable {
         let name = duo.displayName(of: partner)
         let isolatedName = "\u{2068}\(name)\u{2069}"
         let count = edge ? "100+ days" : "\(days) \(days == 1 ? "day" : "days")"
+        // Finding 14: the Today card's sentence, "You: …" included (my droplet is drawn too), and "your
+        // partner" in mid-sentence where the partner has no name, never "with Your partner".
+        let spokenName = DuoCardModel.partnerName(of: duo).map(DuoCardModel.isolated)
+        let myStatus = snapshotDay == today
+            ? DuoProgress.status(role: duo.myRole, day: today, totalML: snapshotTotalML, goalML: snapshotGoalML, now: now) : mine
         let label = duo.isPending ? "Duo streak. Waiting for your partner to accept the invite."
-            : "Duo streak with \(isolatedName). \(count) together. \(isolatedName): \(DuoProgress.line(for: theirs))."
+            : "Duo streak with \(spokenName ?? "your partner"). \(count) together. You: \(DuoProgress.line(for: myStatus)). \(spokenName ?? "Your partner"): \(DuoProgress.line(for: theirs))."
         return Self(state: duo.isPending ? .pending : .running, partnerName: name,
                     partnerLine: duo.isPending ? "Waiting for your partner" : "with \(isolatedName)",
                     mySkin: duo.skinRawValue(of: duo.myRole), partnerSkin: duo.skinRawValue(of: partner),

@@ -333,7 +333,9 @@ public struct DuoTodayRule: Equatable, Sendable {
         let live = !screenshotMode
         return DuoTodayRule(
             showsNotices: live && hasNoticeCards,
-            showsCards: live,
+            // Nothing of a duo for a refused person, as on the widget: a refusal whose delete failed,
+            // or was not sent, used to leave Today showing the partner's name and day.
+            showsCards: live && !ageRefused,
             showsSuggestion: live && wantsSuggestion && !ageRefused && availability.allowsWrites && !hasNoticeCards,
             talksToTheServer: live,
             refreshable: live && (hasDuos || hasIdentity)
@@ -348,6 +350,11 @@ public enum DuoNoticeAction: Equatable, Sendable {
     /// "I had a duo": the caller presents the reconnect sheet.
     case reconnect
     case dismissNewDevice
+
+    /// Whether the button asks before it acts. Start fresh wipes every duo card and anything
+    /// queued, and on both cards it used to do so in one tap (finding 6; decision f for "Not me,
+    /// start fresh"), where the Duo screen's own Start fresh row asks (D87(4)).
+    public var asksFirst: Bool { self == .startFresh }
 }
 
 public struct DuoNoticeButton: Equatable, Sendable {

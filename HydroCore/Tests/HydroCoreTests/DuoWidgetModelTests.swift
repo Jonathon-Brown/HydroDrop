@@ -78,15 +78,41 @@ final class DuoWidgetModelTests: XCTestCase {
         for age in [DuoAgeStatus.refused, .unknown] {
             let result = DuoWidgetModel.make(duos: [duo()], ageStatus: age, ageCheckUnavailable: false, now: now,
                 snapshotDay: today, snapshotTotalML: 1500, snapshotGoalML: 2000, calendar: calendar)
-            XCTAssertEqual(result.state, .empty)
+            XCTAssertEqual(result.state, .unavailable)
             XCTAssertEqual(result.partnerName, "")
+            XCTAssertEqual(result.accessibilityLabel, "Open HydroDrop")
         }
     }
     func testTemporarilyUnreadableRefusalHidesPreviouslyAllowedDuo() {
         let result = DuoWidgetModel.make(duos: [duo()], ageStatus: .allowed, ageCheckUnavailable: true, now: now,
             snapshotDay: today, snapshotTotalML: 1500, snapshotGoalML: 2000, calendar: calendar)
-        XCTAssertEqual(result.state, .empty)
+        XCTAssertEqual(result.state, .unavailable)
         XCTAssertEqual(result.partnerName, "")
+    }
+    /// Finding 8: "No duo yet. Start one" only for someone who may start one and has none. A
+    /// refused person is never invited, with or without duos left; a recheck with no duos cached
+    /// (a reinstall) is a person with none.
+    func testOnlyAnAllowedOrUnaskedPersonWithNoDuoIsInvitedToStartOne() {
+        func state(_ duos: [DuoState], _ age: DuoAgeStatus) -> DuoWidgetModel.State {
+            DuoWidgetModel.make(duos: duos, ageStatus: age, ageCheckUnavailable: false, now: now, snapshotDay: today,
+                                snapshotTotalML: 0, snapshotGoalML: 2000, calendar: calendar).state
+        }
+        var ended = duo(); ended.endedAt = now
+        XCTAssertEqual(state([], .refused), .unavailable)
+        XCTAssertEqual(state([ended], .refused), .unavailable)
+        XCTAssertEqual(state([], .unknown), .empty)
+        XCTAssertEqual(state([ended], .unknown), .empty, "an ended duo is never drawn, so it is not hidden either")
+        XCTAssertEqual(state([duo(joined: false)], .unknown), .unavailable)
+        XCTAssertEqual(state([], .allowed), .empty)
+    }
+    /// Finding 14: the spoken sentence has my own line, as the Today card's does, and a partner with
+    /// no name is "your partner" in mid-sentence.
+    func testSpokenSentenceHasMyLineAndALowercasePartnerFallback() {
+        var d = duo("")
+        d.statuses = [.init(role: .partner, day: today, goalMet: true, progressBucket: 100, updatedAt: now)]
+        let label = model([d], day: today, total: 1000).accessibilityLabel
+        XCTAssertEqual(label, "Duo streak with your partner. 0 days together. You: Halfway there. Your partner: Goal met.")
+        XCTAssertTrue(model([duo()]).accessibilityLabel.contains(" You: Nothing yet today. "))
     }
     func testPendingDuoNeverReusesRetainedPartnerProgressOrStreak() {
         var d = duo(joined: false)
