@@ -7,9 +7,13 @@ import Foundation
 /// all agree with the strictly decoded legacy credential before migration can write anything.
 /// This is an isolated staging overlay; it is not a general legacy migration policy.
 enum DuoLegacyStagingProvenance {
+    #if DEBUG
+    // Debug only, like the mapping: a staging test identity's Support ID has no place in a Release
+    // binary's strings (finding 17).
     static let approvalArgument = "-DuoVerifiedLegacyStaging"
     static let approvalReceipt = "nov3-staging-build34-qcxz"
     static let approvedSupportID = "QCXZKZJCAYW7"
+    #endif
 
     static func approvedEnvironment(baseURL: URL, arguments: [String], bundleIdentifier: String?,
                                     cachedMember: DuoMemberInfo?, credential: DuoCredential) -> DuoRecoveryEnvironment? {
