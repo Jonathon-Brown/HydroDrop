@@ -333,7 +333,8 @@ final class DuoConsentFlowTests: XCTestCase {
         let rules = DuoConsentFlow.termsRules
         XCTAssertEqual(rules.last, "If you break these rules, we may remove your name from Duo Streaks or bar you from using it.",
                        "TM1, approved 2026-10-02, word for word")
-        XCTAssertTrue(rules.contains("We act on reports within 24 hours."), "kept exactly until Jonathon decides")
+        XCTAssertTrue(rules.contains("We aim to act on every report within 24 hours."), "D85, decision d (2026-11-12)")
+        XCTAssertFalse(rules.joined(separator: " ").contains("We act on reports"), "never the absolute promise")
         let all = rules.joined(separator: " ")
         XCTAssertTrue(all.contains("support@hydrodrop.us"))
         XCTAssertTrue(all.contains("under 13"))
@@ -375,7 +376,7 @@ final class DuoConsentFlowTests: XCTestCase {
         XCTAssertEqual(C.noOffensiveNames, "No offensive names and no harassment. We do not tolerate either.")
         XCTAssertEqual(C.notUnder13, "Duo Streaks is not for anyone under 13.")
         XCTAssertEqual(C.howToReport, "Report a problem from the Duo Streaks screen, or email support@hydrodrop.us.")
-        XCTAssertEqual(C.reportsActedOn, "We act on reports within 24 hours.")
+        XCTAssertEqual(C.reportsActedOn, "We aim to act on every report within 24 hours.")
         XCTAssertEqual(C.acceptanceLine, "By tapping Accept you agree to the Duo Streaks rules.")
         XCTAssertEqual(C.accept, "Accept")
         XCTAssertEqual(C.inProgress, "In progress")

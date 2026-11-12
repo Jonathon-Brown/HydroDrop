@@ -405,14 +405,35 @@ public enum DuoAgeGate {
     /// Month/year never proves which day a birthday falls on. Eligibility therefore begins
     /// only after the entire thirteenth-birthday month, and an implausibly early clock asks
     /// again rather than creating a permanent refusal from a fabricated date.
+    ///
+    /// Born in this very month thirteen years ago is neither: it answers `.unknown`, so nothing is
+    /// recorded (`isNotYet`). It used to be a refusal, and a refusal is final, so someone who
+    /// turned 13 that month was locked out for good on that iPhone a few weeks before the rule
+    /// itself would have let them in.
     public static func decide(birthYear: Int, birthMonth: Int, now: Date, calendar: Calendar) -> DuoAgeStatus {
+        guard let months = monthsSinceBirth(birthYear: birthYear, birthMonth: birthMonth, now: now, calendar: calendar),
+              months != minimumAge * 12 else { return .unknown }
+        return months > minimumAge * 12 ? .allowed : .refused
+    }
+
+    /// Born in this very month thirteen years ago: "not yet" (decision b, 2026-11-12, refining
+    /// D84). The screen says to try again next month and nothing is stored; permanent refusals
+    /// stay for answers clearly under 13.
+    public static func isNotYet(birthYear: Int, birthMonth: Int, now: Date, calendar: Calendar) -> Bool {
+        monthsSinceBirth(birthYear: birthYear, birthMonth: birthMonth, now: now, calendar: calendar) == minimumAge * 12
+    }
+
+    /// Whole months from the birth month to this one, in the Gregorian calendar and the phone's time
+    /// zone, or nil for an answer the rule cannot read (a future month, a year before 1900, a month
+    /// outside 1 to 12, a clock before `earliestPlausibleYear`).
+    private static func monthsSinceBirth(birthYear: Int, birthMonth: Int, now: Date, calendar: Calendar) -> Int? {
         var gregorian = Calendar(identifier: .gregorian)
         gregorian.timeZone = calendar.timeZone
         let today = gregorian.dateComponents([.year, .month], from: now)
         guard let year = today.year, let month = today.month, year >= earliestPlausibleYear,
               (1...12).contains(birthMonth), birthYear >= 1900, birthYear <= year,
-              birthYear < year || birthMonth <= month else { return .unknown }
-        return (year - birthYear) * 12 + month - birthMonth > minimumAge * 12 ? .allowed : .refused
+              birthYear < year || birthMonth <= month else { return nil }
+        return (year - birthYear) * 12 + month - birthMonth
     }
 
     public static let minimumAge = 13

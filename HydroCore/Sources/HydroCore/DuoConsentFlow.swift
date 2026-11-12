@@ -148,6 +148,7 @@ public enum DuoConsentFlow {
                   let month = decimal(monthText), (1...12).contains(month),
                   let year = typedYear(yearText, now: now, calendar: calendar),
                   DuoAgeGate.decide(birthYear: year, birthMonth: month, now: now, calendar: calendar) != .unknown
+                    || DuoAgeGate.isNotYet(birthYear: year, birthMonth: month, now: now, calendar: calendar)
             else { return nil }
             return BirthAnswer(year: year, month: month)
         }
@@ -369,6 +370,21 @@ public enum DuoConsentFlow {
         // NEW COPY: shown in place of the question after a refusal, which is final and kept per
         // iPhone (the defaults and a ThisDeviceOnly Keychain item), so it says so.
         public static let ageRefusal = "Duo Streaks is not available on this iPhone."
+        // NEW COPY (decision b): born in this very month thirteen years ago. Nothing is kept, so the
+        // screen asks again whenever it is opened.
+        public static let ageNotYet = "Duo Streaks is not available on this iPhone yet. Try again next month."
+        // NEW COPY (decision a): the refusal screen while the one DELETE /me sent at a refusal is out,
+        // and once the server confirmed it. Only for a phone that held this person's Duo identity.
+        public static let refusalDeleting = "Deleting your Duo data from HydroDrop's Duo service."
+        public static let refusalDeleted = "Your Duo data was deleted from HydroDrop's Duo service. Copies may remain in our backups for up to 30 days."
+        // NEW COPY (decision a, finding 1): a refused phone that still holds a Duo identity, because
+        // that request failed or was never sent (an identity nobody has said is theirs yet). On the
+        // refusal screen and on the Duo screen, under Delete my Duo data.
+        public static let refusalDataRemains = "To delete your Duo data from HydroDrop's Duo service, use Delete my Duo data in Settings, under Duo Streaks."
+        // NEW COPY (finding 1): the same, as the Duo screen's footer under Delete my Duo data itself.
+        public static let refusalDataRemainsHere = "To delete your Duo data from HydroDrop's Duo service, use Delete my Duo data."
+        // NEW COPY (finding 15): the year field's VoiceOver label. The question above it is read too.
+        public static let yearLabel = "Birth year"
 
         // NEW COPY: the processors line on the consent sheets (§3.1), naming DeviceCheck's part:
         // the server sets bit0 on every mint and Apple keeps it with the iPhone.
@@ -395,9 +411,9 @@ public enum DuoConsentFlow {
         public static let notUnder13 = "Duo Streaks is not for anyone under 13."
         // NEW COPY
         public static let howToReport = "Report a problem from the Duo Streaks screen, or email support@hydrodrop.us."
-        // NEW COPY: waits for the admin Worker (Stage 17), like TM1. Kept exactly as it is until
-        // Jonathon decides between it and "We aim to act on every report within 24 hours."
-        public static let reportsActedOn = "We act on reports within 24 hours."
+        // D85 (decision d, approved 2026-11-12): the aim, not the absolute "We act on reports within
+        // 24 hours.", until clear_name and ban are proven to work from Jonathon's phone on a school day.
+        public static let reportsActedOn = "We aim to act on every report within 24 hours."
 
         // NEW COPY: the line above Accept saying what the tap is (section-compliance §2.5, P7a:
         // the service records that the person accepted the rules, which version and when).
