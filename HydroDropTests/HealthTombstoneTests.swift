@@ -8,8 +8,8 @@ import XCTest
 @MainActor
 final class HealthTombstoneTests: XCTestCase {
     private var storeDirectory: URL?
-    // A context does not keep its container alive. Dropping the local container at the
-    // end of setUp left the two persistence tests trapping on their first insert.
+    // A context does not keep its container alive. Dropping the container at the end of
+    // setUp crashed the first insert of both persistence tests.
     private var container: ModelContainer!
     private var context: ModelContext!
     private let noon = Date(timeIntervalSince1970: 1_790_000_000)
@@ -48,11 +48,10 @@ final class HealthTombstoneTests: XCTestCase {
         context.insert(entry)
         try context.save()
 
-        // A saved deletion invalidates the model. Keep the scalar used by the assertion
-        // while the drink is still alive, just as the deletion path keeps its references.
+        // A saved deletion invalidates the model, so read what the assertions need first.
         let healthSyncID = try XCTUnwrap(entry.healthSyncID)
         let samples = HealthSampleReference.all(of: entry)
-        HealthTombstone.leave(for: samples, in: context, now: noon)
+        HealthTombstone.leave(for: [entry], in: context, now: noon)
         context.delete(entry)
         try context.save()
 
@@ -68,46 +67,34 @@ final class HealthTombstoneTests: XCTestCase {
         XCTAssertEqual(water.handledBy, "", "nobody has deleted anything yet")
     }
 
-    /// A missing local sample UUID does not mean Health never had the drink: another
-    /// device can have written it before its UUID or written record reaches this one.
-    /// The synced identifiers still let that device honour the deletion for both kinds.
-    func testADrinkWithoutLocalSampleUUIDsLeavesBothSyncIdentifierTombstones() throws {
+    /// A drink Health never had leaves nothing behind, though every drink carries a sync
+    /// identifier. With Health off everywhere, nothing would ever sweep such tombstones away.
+    func testADrinkHealthNeverHadLeavesNothing() throws {
         let entry = WaterEntry(amountML: 250, timestamp: noon)
         context.insert(entry)
         try context.save()
-        let healthSyncID = try XCTUnwrap(entry.healthSyncID)
-        XCTAssertNil(entry.healthKitSampleUUID)
-        XCTAssertNil(entry.caffeineSampleUUID)
-        XCTAssertNil(entry.healthWaterWritten)
-        XCTAssertNil(entry.healthCaffeineWritten)
-        HealthTombstone.leave(for: HealthSampleReference.all(of: entry), in: context, now: noon)
+        XCTAssertNotNil(entry.healthSyncID)
+        HealthTombstone.leave(for: [entry], in: context, now: noon)
         context.delete(entry)
         try context.save()
-
-        let left = try tombstones()
-        XCTAssertEqual(left.map(\.kindRawValue), ["caffeine", "water"])
-        XCTAssertEqual(left.map(\.sampleUUID), [nil, nil])
-        XCTAssertEqual(left.map(\.syncIdentifierList), [["\(healthSyncID).caffeine"], ["\(healthSyncID).water"]])
-        XCTAssertEqual(left.map(\.createdAt), [noon, noon])
-        XCTAssertEqual(left.map(\.handledBy), ["", ""])
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<WaterEntry>()), 0)
+        XCTAssertEqual(try tombstones().count, 0)
     }
 
-    /// A pre-1.9 drink can have no sync identifier at all. With no UUID or written
-    /// record either, there is nothing a remote device could use to find a sample.
-    func testALegacyDrinkWithoutAnyHealthIdentifierLeavesNothing() throws {
+    /// A written record is enough: the sample's UUID may not have reached this device yet.
+    func testADrinkWithOnlyAWrittenRecordStillLeavesTombstones() throws {
         let entry = WaterEntry(amountML: 250, timestamp: noon)
-        entry.healthSyncID = nil
+        entry.healthWaterWritten = HealthWrittenRecord(
+            state: .written, sampleUUID: "water-B", syncIdentifier: "other.water", syncVersion: 1,
+            figures: HealthFigures(of: entry), owner: "IPAD"
+        ).encoded
         context.insert(entry)
         try context.save()
-        let samples = HealthSampleReference.all(of: entry)
-        XCTAssertEqual(samples, [])
-        HealthTombstone.leave(for: samples, in: context, now: noon)
+        XCTAssertNil(entry.healthKitSampleUUID)
+        HealthTombstone.leave(for: [entry], in: context, now: noon)
         context.delete(entry)
         try context.save()
-
-        XCTAssertEqual(try tombstones().count, 0)
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<WaterEntry>()), 0)
+        let water = try XCTUnwrap(try tombstones().first { $0.kind == .water })
+        XCTAssertTrue(water.syncIdentifierList.contains("other.water"))
     }
 
     // MARK: - Signing off

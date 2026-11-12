@@ -1187,7 +1187,7 @@ struct HomeView: View {
         // which Health samples belonged to it. Left as tombstones in the same save, for
         // the devices that hold these samples and would otherwise never hear.
         let samples = remaining.flatMap(HealthSampleReference.all(of:))
-        HealthTombstone.leave(for: samples, in: modelContext)
+        HealthTombstone.leave(for: remaining, in: modelContext)
         remaining.forEach(modelContext.delete)
         afterLogChange()
         retireHealthSamples(samples)
@@ -1372,7 +1372,7 @@ struct HomeView: View {
             clearUndo()
         }
         let samples = HealthSampleReference.all(of: entry)
-        HealthTombstone.leave(for: samples, in: modelContext)
+        HealthTombstone.leave(for: [entry], in: modelContext)
         modelContext.delete(entry)
         afterLogChange()
         retireHealthSamples(samples)
