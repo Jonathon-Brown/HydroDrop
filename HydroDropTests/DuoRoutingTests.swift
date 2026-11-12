@@ -359,12 +359,13 @@ final class DuoRoutingRootTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        // These cases include the subscriber-only weekly recap. Without the explicit
-        // paid fixture, the root correctly refuses it and a routing timeout hides the
-        // missing prerequisite. This does not bypass the Duo age or consent gates.
-        let subscribed = await kSettle { StoreManager.shared.isSubscribed }
-        _ = try XCTUnwrap(subscribed ? true : nil,
-                          "Run root routing with -UITestForceSubscribed; never use -DuoPreview or -DuoClientVersion")
+        // These cases include the subscriber-only weekly recap, which the root refuses a free
+        // user. They used to need the host launched with -UITestForceSubscribed, which nothing
+        // passed, so a plain run failed every one of them; they now take the subscription
+        // themselves and give it back in tearDown. This does not bypass the Duo age or consent
+        // gates. Never run them with -DuoPreview or -DuoClientVersion.
+        await StoreManager.shared.forceSubscriptionForTests(true)
+        XCTAssertTrue(StoreManager.shared.isSubscribed)
         XCTAssertTrue(KRoutingAutomation.enable(), "the real consent gate must be observable")
         try await kClean()
     }
@@ -372,6 +373,7 @@ final class DuoRoutingRootTests: XCTestCase {
     override func tearDown() async throws {
         try? await kClean()
         KRoutingAutomation.restore()
+        await StoreManager.shared.forceSubscriptionForTests(false)
         try await super.tearDown()
     }
 

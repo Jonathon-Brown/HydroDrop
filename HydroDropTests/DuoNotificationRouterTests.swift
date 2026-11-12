@@ -199,6 +199,9 @@ final class DuoNotificationRouterTests: XCTestCase {
     /// A Duo tap through the delegate raises the Duo screen's flag and nothing else, and leaves the
     /// recap's own tap to open the recap.
     func testATapThroughTheDelegateRaisesOnlyTheDuoFlag() async throws {
+        // The hosted root clears a recap tap for a free user, and the recap's half below needs it.
+        await StoreManager.shared.forceSubscriptionForTests(true)
+        addTeardownBlock { await StoreManager.shared.forceSubscriptionForTests(false) }
         let router = AppRouter.shared
         let saved = (router.showingSettings, router.showingWeeklyRecap, router.showingDuoScreen, router.duoEntrySheetIsOnScreen)
         defer {

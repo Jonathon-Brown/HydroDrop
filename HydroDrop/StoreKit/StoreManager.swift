@@ -238,11 +238,25 @@ final class StoreManager: ObservableObject {
     /// entitled state.
     private static var isScreenshotModeForcingSubscription: Bool {
         #if DEBUG
-        ProcessInfo.processInfo.arguments.contains("-UITestForceSubscribed")
+        isForcedByTest || ProcessInfo.processInfo.arguments.contains("-UITestForceSubscribed")
         #else
         false
         #endif
     }
+
+    #if DEBUG
+    private static var isForcedByTest = false
+
+    /// The same forced subscription, for a unit test that hosts the real root and routes the
+    /// subscriber-only weekly recap. Nothing launches the unit test host with
+    /// `-UITestForceSubscribed`, and putting it in the scheme would subscribe every test, so
+    /// such a test turns this on in its setUp and off in its tearDown, which reads the real
+    /// entitlement again.
+    func forceSubscriptionForTests(_ forced: Bool) async {
+        Self.isForcedByTest = forced
+        await refreshEntitlement()
+    }
+    #endif
 
     /// Debug-only hook so UI tests can run as a free user on a simulator that holds
     /// StoreKit test purchases. A Lifetime bought on one by hand, while trying the
@@ -281,6 +295,11 @@ final class StoreManager: ObservableObject {
                 }
             }
         }
+        #if DEBUG
+        // A read that was already waiting on the App Store when a test forced the subscription
+        // must not take it away halfway through that test.
+        if Self.isForcedByTest { return }
+        #endif
         let entitlements = PlusEntitlements(productIDs: ownedProductIDs)
         // A subscription starting or ending makes the last renewal answer stale.
         if entitlements.hasActiveSubscription != hasActiveSubscription { hasReadRenewalState = false }
