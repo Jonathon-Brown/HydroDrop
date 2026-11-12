@@ -312,7 +312,7 @@ final class StoreMigrationTests: XCTestCase {
         StoreMigration.deduplicateIfNeeded(in: container)
 
         XCTAssertEqual(try rowCount(at: url), 3)
-        XCTAssertEqual(recordedCopyIDs, [copy.healthSyncID], "the copy still waits for its original")
+        XCTAssertEqual(recordedCopyIDs, [try XCTUnwrap(copy.healthSyncID)], "the copy still waits for its original")
     }
 
     /// Until the original arrives, the copy is the only row the user has for that drink.
@@ -372,7 +372,7 @@ final class StoreMigrationTests: XCTestCase {
 
         StoreMigration.deduplicateIfNeeded(in: container)
 
-        XCTAssertEqual(recordedCopyIDs, [copies[0].healthSyncID])
+        XCTAssertEqual(recordedCopyIDs, [try XCTUnwrap(copies[0].healthSyncID)])
     }
 
     /// With iCloud off the originals never come. After a month the copies are simply the
