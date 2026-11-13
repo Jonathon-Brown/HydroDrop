@@ -56,9 +56,10 @@ public enum DuoScreenModel {
     public static let recheckAgeRow = "Confirm your birth month and year"
     // NEW COPY (finding 5): the same row when only the rules are missing (a reinstall clears them).
     public static let recheckTermsRow = "Accept the Duo Streaks rules"
-    // NEW COPY (finding 8): under that row. Sharing, not Duo Streaks: the partner's nudges still
-    // arrive meanwhile.
-    public static let recheckFooter = "Sharing with your partner is paused until then."
+    // Approved by Jonathon 2026-11-12 (decision e; finding 8): under that row. Sharing, not Duo
+    // Streaks: the partner's nudges still arrive meanwhile. It said "until then", which pointed at
+    // nothing, since the row above is a button label.
+    public static let recheckFooter = "Sharing with your partner is paused until you do."
     public static let startADuoStreak = "Start a duo streak"
     public static let startAnotherDuoStreak = "Start another duo streak"
     public static let partOfPlus = "Part of HydroDrop Plus"

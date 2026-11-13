@@ -62,9 +62,10 @@ struct DuoAgeGateView: View {
                 }
             } else if duoStore.ageCheckUnavailable {
                 Section {
-                    // NEW COPY: review before shipping; no age threshold or answer is disclosed.
-                    Text("Unable to check Duo availability on this iPhone. Try again.")
-                        .duoAnnounced("Unable to check Duo availability on this iPhone. Try again.")
+                    // Approved by Jonathon 2026-11-12 (decision e), reworded from "Unable to check Duo
+                    // availability…" to use the feature's full name. No age threshold or answer is disclosed.
+                    Text("Couldn't check whether Duo Streaks is available on this iPhone. Try again.")
+                        .duoAnnounced("Couldn't check whether Duo Streaks is available on this iPhone. Try again.")
                     Button("Try again") { duoStore.recheckAge() }
                         .accessibilityIdentifier("duo.agegate.retry")
                     Button("Close", action: onRefused)
