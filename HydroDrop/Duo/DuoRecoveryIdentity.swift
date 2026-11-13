@@ -26,28 +26,39 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
     @MainActor init(dependencies: DuoDependencies, environment: DuoRecoveryEnvironment,
                     verifiedLegacyEnvironment: DuoRecoveryEnvironment? = nil, directory: URL = DuoIdentity.defaultDirectory,
                     legacyProvenance: (@MainActor (DuoCredential) -> DuoRecoveryEnvironment?)? = nil) {
-        self.dependencies = dependencies; self.legacyEnvironment = verifiedLegacyEnvironment; self.directory = directory
+        self.dependencies = dependencies
+        self.legacyEnvironment = verifiedLegacyEnvironment
+        self.directory = directory
         self.legacyProvenance = legacyProvenance
         let host = dependencies.host
         presenceChanged = { [weak host] in Task { @MainActor in host?.identityPresenceChanged() } }
         journal = DuoRecoveryJournal(store: dependencies.secrets.store, environment: environment)
         // Presence is a local read, independent of whether provenance or a restore choice
         // permits use. Rendering this flag never retries Keychain or starts recovery.
-        if let record = try? journal.read() { presence = record.active != nil || record.pending != nil }
-        else {
+        if let record = try? journal.read() {
+            presence = record.active != nil || record.pending != nil
+        } else {
             presence = ((try? journal.readMirror()) != nil) ||
                 ((try? dependencies.secrets.store.read(service: DuoSecrets.service, account: DuoSecrets.deviceAccount)) != nil)
         }
     }
-    var cachedCredentialPresence: Bool { presenceLock.lock(); defer { presenceLock.unlock() }; return presence }
+    var cachedCredentialPresence: Bool {
+        presenceLock.lock()
+        defer { presenceLock.unlock() }
+        return presence
+    }
     var credential: DuoCredential? {
-        guard let record = try? journal.read(), (try? journal.markerMatches(record)) == true, (try? sentinelMatches(record)) == true else { return nil }
+        guard let record = try? journal.read(),
+              (try? journal.markerMatches(record)) == true,
+              (try? sentinelMatches(record)) == true else { return nil }
         return record.ordinaryCredential
     }
     var peekCredential: DuoCredential? { credential }
     var installDay: String { DayKey.key(for: Date(), calendar: .current) }
     private func rememberPresence(_ record: DuoRecoveryRecord?) {
-        presenceLock.lock(); presence = record?.active != nil || record?.pending != nil; presenceLock.unlock()
+        presenceLock.lock()
+        presence = record?.active != nil || record?.pending != nil
+        presenceLock.unlock()
         presenceChanged()
     }
     /// Only a verified reassociation of this same bearer may change the member. A caller cannot
@@ -57,21 +68,33 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
               active.deviceID == credential.deviceID, active.deviceSecret == credential.deviceSecret,
               active.secretVersion == credential.secretVersion else { throw DuoJournalError.changed }
         let revision = r.recordRevision
-        r.active = DuoJournalCredential(credential, protocolVersion: active.credentialProtocol); r.activeRole = .established
-        r.recordRevision += 1; try journal.replace(r, expectedRevision: revision); try journal.writeMirror(r); rememberPresence(r)
+        r.active = DuoJournalCredential(credential, protocolVersion: active.credentialProtocol)
+        r.activeRole = .established
+        r.recordRevision += 1
+        try journal.replace(r, expectedRevision: revision)
+        try journal.writeMirror(r)
+        rememberPresence(r)
     }
     func replaceSecret(_ secret: String, version: Int) throws { throw DuoJournalError.changed }
     func discard() { _ = abandonLocally() }
     @discardableResult func abandonLocally() -> Bool {
-        do { try journal.abandon(random: dependencies.random); rememberPresence(nil); return true }
-        catch { return false }
+        do {
+            try journal.abandon(random: dependencies.random)
+            rememberPresence(nil)
+            return true
+        } catch {
+            return false
+        }
     }
 
     func prepare() async -> DuoIdentityLaunch { await prepareOnMain() }
     @MainActor private func prepareOnMain() async -> DuoIdentityLaunch {
         if let running { return await running.value }
         let task = Task { @MainActor in await self.launch() }
-        running = task; let result = await task.value; running = nil; return result
+        running = task
+        let result = await task.value
+        running = nil
+        return result
     }
     @MainActor private var ordinaryAllowed: Bool {
         dependencies.ageNetworkAllowed && dependencies.cache.ageStatus == .allowed && dependencies.cache.hasCurrentAgePolicy &&
@@ -95,14 +118,24 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
         retryNotBefore = nil
     }
     private func replace(_ record: DuoRecoveryRecord, _ change: (inout DuoRecoveryRecord) -> Void) throws -> DuoRecoveryRecord {
-        var next = record; change(&next); next.recordRevision = record.recordRevision + 1
-        try journal.replace(next, expectedRevision: record.recordRevision); rememberPresence(next); return next
+        var next = record
+        change(&next)
+        next.recordRevision = record.recordRevision + 1
+        try journal.replace(next, expectedRevision: record.recordRevision)
+        rememberPresence(next)
+        return next
     }
     @MainActor private func launch() async -> DuoIdentityLaunch {
         do {
-            guard var r = try loadOrImport() else { rememberPresence(nil); return .none }
+            guard var r = try loadOrImport() else {
+                rememberPresence(nil)
+                return .none
+            }
             rememberPresence(r)
-            if r.phase == .abandoned { try journal.purgeAbandonedSecrets(); return .none }
+            if r.phase == .abandoned {
+                try journal.purgeAbandonedSecrets()
+                return .none
+            }
             guard r.intent == .use else { return .unavailable }
             if r.phase == .promotionPending { r = try finishPromotion(r) }
             if !ordinaryAllowed {
@@ -110,7 +143,9 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                 return .unavailable
             }
             try readyForNetwork()
-            if r.access == .suspended { r = try replace(r) { $0.access = $0.restoreConfirmationRequired ? .restoreConfirmationRequired : .eligible } }
+            if r.access == .suspended {
+                r = try replace(r) { $0.access = $0.restoreConfirmationRequired ? .restoreConfirmationRequired : .eligible }
+            }
             if r.pending != nil { r = try await reconcile(r) }
             if r.restoreRotationRequired {
                 r = try await beginRotation(r)
@@ -129,7 +164,10 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                 dependencies.host.availability = .available
             }
             return r.ordinaryCredential == nil ? .unavailable : .ready
-        } catch { note(error, forSheet: false); return .unavailable }
+        } catch {
+            note(error, forSheet: false)
+            return .unavailable
+        }
     }
 
     /// An unlabelled legacy credential has no trustworthy server provenance. A host selection
@@ -145,7 +183,11 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                 // rotationRequired in confirm(), while Continue remains an independent choice.
                 let sameInstall = try journal.markerMatches(r) && sentinelMatches(r)
                 if !sameInstall, !r.restoreRotationRequired || !r.restoreConfirmationRequired {
-                    r = try replace(r) { $0.restoreRotationRequired = true; $0.restoreConfirmationRequired = true; $0.access = .restoreConfirmationRequired }
+                    r = try replace(r) {
+                        $0.restoreRotationRequired = true
+                        $0.restoreConfirmationRequired = true
+                        $0.access = .restoreConfirmationRequired
+                    }
                 }
             }
             if [.active, .activeLegacy].contains(r.phase) {
@@ -161,7 +203,10 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
         let rotationRequired: Bool
         let confirmationRequired: Bool
         if let mirror {
-            active = mirror.credential; role = mirror.credentialRole; rotationRequired = true; confirmationRequired = true
+            active = mirror.credential
+            role = mirror.credentialRole
+            rotationRequired = true
+            confirmationRequired = true
         } else {
             guard let legacyData else { throw DuoJournalError.legacyProvenanceRequired }
             active = try DuoRecoveryJournal.decodeLegacyCredential(legacyData)
@@ -178,15 +223,27 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             rotationRequired = marker == nil
             confirmationRequired = rotationRequired || !FileManager.default.fileExists(atPath: directory.appendingPathComponent("duo.settled").path)
         }
-        var r = DuoRecoveryRecord(environment: journal.environment, installationID: dependencies.random.uuid().uuidString.lowercased(), phase: active.credentialProtocol == "1.0" ? .activeLegacy : .active)
-        r.active = active; r.activeRole = role; r.restoreRotationRequired = rotationRequired; r.restoreConfirmationRequired = confirmationRequired
+        var r = DuoRecoveryRecord(
+            environment: journal.environment,
+            installationID: dependencies.random.uuid().uuidString.lowercased(),
+            phase: active.credentialProtocol == "1.0" ? .activeLegacy : .active
+        )
+        r.active = active
+        r.activeRole = role
+        r.restoreRotationRequired = rotationRequired
+        r.restoreConfirmationRequired = confirmationRequired
         r.access = confirmationRequired ? .restoreConfirmationRequired : .eligible
-        try journal.replace(r, expectedRevision: nil); try journal.writeMirror(r); try journal.writeMarker(r); try writeSentinel(r)
+        try journal.replace(r, expectedRevision: nil)
+        try journal.writeMirror(r)
+        try journal.writeMarker(r)
+        try writeSentinel(r)
         // Erasing the old record comes last. Downgrade safety is not promised: the old client
         // cannot understand the new journal and must not be run after this migration.
         if legacyData != nil {
             try dependencies.secrets.store.delete(service: DuoSecrets.service, account: DuoSecrets.deviceAccount)
-            guard try dependencies.secrets.store.read(service: DuoSecrets.service, account: DuoSecrets.deviceAccount) == nil else { throw DuoJournalError.unavailable }
+            guard try dependencies.secrets.store.read(service: DuoSecrets.service, account: DuoSecrets.deviceAccount) == nil else {
+                throw DuoJournalError.unavailable
+            }
         }
         return r
     }
@@ -229,43 +286,86 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                       answer.credentialProtocol == credential.credentialProtocol else { throw DuoJournalError.changed }
                 return answer
             }
-            guard old == nil || old?.phase == .abandoned || (role == .reconnectThrowaway && old?.active?.credential == replacing) else { throw DuoJournalError.changed }
-            let capabilities = try await transport.recoveryCapabilities(); try capabilities.validate()
+            guard old == nil || old?.phase == .abandoned || (role == .reconnectThrowaway && old?.active?.credential == replacing) else {
+                throw DuoJournalError.changed
+            }
+            let capabilities = try await transport.recoveryCapabilities()
+            try capabilities.validate()
             try readyForNetwork()
             // Reload after capability negotiation: a privacy action may have changed the record.
             guard try journal.read() == old else { throw DuoJournalError.changed }
             let secret = try freshSecret(excluding: old?.active?.deviceSecret)
-            var r = DuoRecoveryRecord(environment: journal.environment, installationID: old?.installationID ?? dependencies.random.uuid().uuidString.lowercased(), phase: .prepareReady)
-            r.recordRevision = (old?.recordRevision ?? 0) + 1; r.identityGeneration = (old?.identityGeneration ?? 0) + 1
-            if role == .reconnectThrowaway, old?.phase != .abandoned { r.active = old?.active; r.activeRole = old?.activeRole }
-            r.pending = DuoRecoveryPending(kind: .mint, operationID: dependencies.random.uuid().uuidString.lowercased(), candidateSecret: secret, role: role, acceptedTermsVersion: dependencies.cache.acceptedTermsVersion, appVersion: dependencies.client.appVersion)
-            try journal.writeMarker(r); try writeSentinel(r)
-            try journal.replace(r, expectedRevision: old?.recordRevision); old = nil
-            lastState = nil; lastConfirmedOperationID = nil
+            var r = DuoRecoveryRecord(
+                environment: journal.environment,
+                installationID: old?.installationID ?? dependencies.random.uuid().uuidString.lowercased(),
+                phase: .prepareReady
+            )
+            r.recordRevision = (old?.recordRevision ?? 0) + 1
+            r.identityGeneration = (old?.identityGeneration ?? 0) + 1
+            if role == .reconnectThrowaway, old?.phase != .abandoned {
+                r.active = old?.active
+                r.activeRole = old?.activeRole
+            }
+            r.pending = DuoRecoveryPending(
+                kind: .mint,
+                operationID: dependencies.random.uuid().uuidString.lowercased(),
+                candidateSecret: secret,
+                role: role,
+                acceptedTermsVersion: dependencies.cache.acceptedTermsVersion,
+                appVersion: dependencies.client.appVersion
+            )
+            try journal.writeMarker(r)
+            try writeSentinel(r)
+            try journal.replace(r, expectedRevision: old?.recordRevision)
+            old = nil
+            lastState = nil
+            lastConfirmedOperationID = nil
             let finished = try await reconcile(r)
             try readyForNetwork()
             guard finished.ordinaryCredential != nil, try journal.read() == finished,
                   lastConfirmedOperationID == r.pending?.operationID else { throw DuoJournalError.changed }
             return lastState
-        } catch { note(error, forSheet: true); return nil }
+        } catch {
+            note(error, forSheet: true)
+            return nil
+        }
     }
 
     @MainActor private func beginRotation(_ r: DuoRecoveryRecord) async throws -> DuoRecoveryRecord {
         try readyForNetwork()
-        guard let transport = dependencies.recoveryTransport, let active = r.active, active.secretVersion < Int(Int32.max), r.pending == nil else { throw DuoJournalError.invalid }
-        let capabilities = try await transport.recoveryCapabilities(); try capabilities.validate(); try readyForNetwork()
+        guard let transport = dependencies.recoveryTransport,
+              let active = r.active,
+              active.secretVersion < Int(Int32.max),
+              r.pending == nil else { throw DuoJournalError.invalid }
+        let capabilities = try await transport.recoveryCapabilities()
+        try capabilities.validate()
+        try readyForNetwork()
         let secret = try freshSecret(excluding: active.deviceSecret)
         return try replace(r) {
-            var pending = DuoRecoveryPending(kind: .rotation, operationID: dependencies.random.uuid().uuidString.lowercased(), candidateSecret: secret, role: .restore, acceptedTermsVersion: dependencies.cache.acceptedTermsVersion, appVersion: dependencies.client.appVersion)
-            pending.reservedDeviceID = active.deviceID; pending.expectedMemberID = active.memberID; pending.expectedSecretVersion = active.secretVersion
-            $0.pending = pending; $0.phase = .rotateReady
+            var pending = DuoRecoveryPending(
+                kind: .rotation,
+                operationID: dependencies.random.uuid().uuidString.lowercased(),
+                candidateSecret: secret,
+                role: .restore,
+                acceptedTermsVersion: dependencies.cache.acceptedTermsVersion,
+                appVersion: dependencies.client.appVersion
+            )
+            pending.reservedDeviceID = active.deviceID
+            pending.expectedMemberID = active.memberID
+            pending.expectedSecretVersion = active.secretVersion
+            $0.pending = pending
+            $0.phase = .rotateReady
         }
     }
     private func freshSecret(excluding previous: String?) throws -> String {
         let bytes = dependencies.random.bytes(32)
         guard bytes.count == 32 else { throw DuoJournalError.invalid }
-        let secret = Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-        guard DuoRecoveryWire.isSecret(secret), secret != previous else { throw DuoJournalError.invalid }; return secret
+        let secret = Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        guard DuoRecoveryWire.isSecret(secret), secret != previous else { throw DuoJournalError.invalid }
+        return secret
     }
 
     @MainActor private func reconcile(_ initial: DuoRecoveryRecord) async throws -> DuoRecoveryRecord {
@@ -279,69 +379,142 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             try readyForNetwork()
             guard dependencies.cache.acceptedTermsVersion >= p.acceptedTermsVersion else { throw DuoJournalError.unavailable }
             switch r.phase {
-            case .prepareReady:
-                let answer = try await transport.prepareDeviceIssuance(DuoRecoveryPrepareRequest(appVersion: p.appVersion, termsVersion: p.acceptedTermsVersion, deviceSecret: p.candidateSecret))
-                try answer.validate(); try readyForNetwork()
-                r = try replace(r) { $0.pending?.reservedDeviceID = answer.deviceID; $0.pending?.reservationExpiresAt = answer.expiresAt; $0.phase = .reservationSaved }
-            case .reservationSaved:
-                guard let candidate = p.candidate else { throw DuoJournalError.invalid }
-                // Mark before obtaining a token or sending. A crash after this write is handled
-                // by the candidate probe, even when the actual send never happened.
-                r = try replace(r) { $0.pending?.commitMayHaveRun = true; $0.phase = .commitUncertain }
-                let token = await dependencies.deviceCheck.token(); try readyForNetwork()
-                guard try journal.read() == r else { throw DuoJournalError.changed }
-                let answer = try await transport.commitDevice(DuoRecoveryCommitRequest(deviceID: candidate.deviceID, deviceCheckToken: token), as: candidate)
-                r = try confirm(answer, record: r)
-            case .commitUncertain:
-                guard let candidate = p.candidate else { throw DuoJournalError.invalid }
-                do { r = try confirm(try await transport.credentialState(as: candidate), record: r) }
-                catch let error as DuoRecoveryError where error.code == .credentialRejected {
-                    try readyForNetwork(); guard try journal.read() == r else { throw DuoJournalError.changed }
-                    let token = await dependencies.deviceCheck.token(); try readyForNetwork()
-                    guard try journal.read() == r else { throw DuoJournalError.changed }
-                    r = try confirm(try await transport.commitDevice(DuoRecoveryCommitRequest(deviceID: candidate.deviceID, deviceCheckToken: token), as: candidate), record: r)
-                }
-            case .rotateReady:
-                guard let active = r.active, let version = p.expectedSecretVersion else { throw DuoJournalError.invalid }
-                r = try replace(r) { $0.pending?.commitMayHaveRun = true; $0.phase = .rotateUncertain }
-                try readyForNetwork()
-                r = try confirm(try await transport.rotateCredential(DuoRecoveryRotateRequest(expectedSecretVersion: version, nextDeviceSecret: p.candidateSecret), as: active.bearer), record: r)
-            case .rotateUncertain:
-                guard let candidate = p.candidate, let active = r.active, let version = p.expectedSecretVersion else { throw DuoJournalError.invalid }
-                do { r = try confirm(try await transport.credentialState(as: candidate), record: r) }
-                catch let error as DuoRecoveryError where error.code == .credentialRejected {
-                    try readyForNetwork(); guard try journal.read() == r else { throw DuoJournalError.changed }
-                    let old = try await transport.credentialState(as: active.bearer)
-                    try old.validate()
-                    guard old.deviceID == active.deviceID, old.memberID == active.memberID, old.secretVersion == version else { throw DuoJournalError.changed }
-                    try readyForNetwork(); guard try journal.read() == r else { throw DuoJournalError.changed }
-                    r = try confirm(try await transport.rotateCredential(DuoRecoveryRotateRequest(expectedSecretVersion: version, nextDeviceSecret: p.candidateSecret), as: active.bearer), record: r)
-                }
+            case .prepareReady: r = try await reserveDevice(r, p, transport)
+            case .reservationSaved: r = try await commitReservation(r, p, transport)
+            case .commitUncertain: r = try await settleUncertainCommit(r, p, transport)
+            case .rotateReady: r = try await rotateSecret(r, p, transport)
+            case .rotateUncertain: r = try await settleUncertainRotation(r, p, transport)
             default: throw DuoJournalError.invalid
             }
         }
         throw DuoJournalError.invalid
+    }
+    /// From `prepare_ready` to `reservation_saved`.
+    @MainActor private func reserveDevice(
+        _ r: DuoRecoveryRecord,
+        _ p: DuoRecoveryPending,
+        _ transport: DuoCredentialRecoveryTransport
+    ) async throws -> DuoRecoveryRecord {
+        let request = DuoRecoveryPrepareRequest(appVersion: p.appVersion, termsVersion: p.acceptedTermsVersion, deviceSecret: p.candidateSecret)
+        let answer = try await transport.prepareDeviceIssuance(request)
+        try answer.validate()
+        try readyForNetwork()
+        return try replace(r) {
+            $0.pending?.reservedDeviceID = answer.deviceID
+            $0.pending?.reservationExpiresAt = answer.expiresAt
+            $0.phase = .reservationSaved
+        }
+    }
+    /// From `reservation_saved` through `commit_uncertain` to `promotion_pending`.
+    @MainActor private func commitReservation(
+        _ r: DuoRecoveryRecord,
+        _ p: DuoRecoveryPending,
+        _ transport: DuoCredentialRecoveryTransport
+    ) async throws -> DuoRecoveryRecord {
+        guard let candidate = p.candidate else { throw DuoJournalError.invalid }
+        // Mark before obtaining a token or sending. A crash after this write is handled
+        // by the candidate probe, even when the actual send never happened.
+        let marked = try replace(r) {
+            $0.pending?.commitMayHaveRun = true
+            $0.phase = .commitUncertain
+        }
+        let token = await dependencies.deviceCheck.token()
+        try readyForNetwork()
+        guard try journal.read() == marked else { throw DuoJournalError.changed }
+        let request = DuoRecoveryCommitRequest(deviceID: candidate.deviceID, deviceCheckToken: token)
+        let answer = try await transport.commitDevice(request, as: candidate)
+        return try confirm(answer, record: marked)
+    }
+    /// From `commit_uncertain` to `promotion_pending`: asks as the candidate, and commits again only
+    /// after the server's exact rejection of it.
+    @MainActor private func settleUncertainCommit(
+        _ r: DuoRecoveryRecord,
+        _ p: DuoRecoveryPending,
+        _ transport: DuoCredentialRecoveryTransport
+    ) async throws -> DuoRecoveryRecord {
+        guard let candidate = p.candidate else { throw DuoJournalError.invalid }
+        do {
+            return try confirm(try await transport.credentialState(as: candidate), record: r)
+        } catch let error as DuoRecoveryError where error.code == .credentialRejected {
+            try readyForNetwork()
+            guard try journal.read() == r else { throw DuoJournalError.changed }
+            let token = await dependencies.deviceCheck.token()
+            try readyForNetwork()
+            guard try journal.read() == r else { throw DuoJournalError.changed }
+            let request = DuoRecoveryCommitRequest(deviceID: candidate.deviceID, deviceCheckToken: token)
+            return try confirm(try await transport.commitDevice(request, as: candidate), record: r)
+        }
+    }
+    /// From `rotate_ready` through `rotate_uncertain` to `promotion_pending`.
+    @MainActor private func rotateSecret(
+        _ r: DuoRecoveryRecord,
+        _ p: DuoRecoveryPending,
+        _ transport: DuoCredentialRecoveryTransport
+    ) async throws -> DuoRecoveryRecord {
+        guard let active = r.active, let version = p.expectedSecretVersion else { throw DuoJournalError.invalid }
+        let marked = try replace(r) {
+            $0.pending?.commitMayHaveRun = true
+            $0.phase = .rotateUncertain
+        }
+        try readyForNetwork()
+        let request = DuoRecoveryRotateRequest(expectedSecretVersion: version, nextDeviceSecret: p.candidateSecret)
+        return try confirm(try await transport.rotateCredential(request, as: active.bearer), record: marked)
+    }
+    /// From `rotate_uncertain` to `promotion_pending`: asks as the candidate, and rotates again only
+    /// after the server's exact rejection of it and confirmation that the old secret still holds.
+    @MainActor private func settleUncertainRotation(
+        _ r: DuoRecoveryRecord,
+        _ p: DuoRecoveryPending,
+        _ transport: DuoCredentialRecoveryTransport
+    ) async throws -> DuoRecoveryRecord {
+        guard let candidate = p.candidate, let active = r.active, let version = p.expectedSecretVersion else { throw DuoJournalError.invalid }
+        do {
+            return try confirm(try await transport.credentialState(as: candidate), record: r)
+        } catch let error as DuoRecoveryError where error.code == .credentialRejected {
+            try readyForNetwork()
+            guard try journal.read() == r else { throw DuoJournalError.changed }
+            let old = try await transport.credentialState(as: active.bearer)
+            try old.validate()
+            guard old.deviceID == active.deviceID, old.memberID == active.memberID, old.secretVersion == version else { throw DuoJournalError.changed }
+            try readyForNetwork()
+            guard try journal.read() == r else { throw DuoJournalError.changed }
+            let request = DuoRecoveryRotateRequest(expectedSecretVersion: version, nextDeviceSecret: p.candidateSecret)
+            return try confirm(try await transport.rotateCredential(request, as: active.bearer), record: r)
+        }
     }
     @MainActor private func confirm(_ answer: DuoRecoveryCredentialState, record r: DuoRecoveryRecord) throws -> DuoRecoveryRecord {
         try answer.validate()
         guard let p = r.pending, answer.deviceID == p.reservedDeviceID, answer.credentialProtocol == "1.1",
               answer.secretVersion == (p.kind == .mint ? 1 : (p.expectedSecretVersion! + 1)),
               p.expectedMemberID.map({ $0 == answer.memberID }) ?? true else { throw DuoJournalError.invalid }
-        let confirmed = DuoJournalCredential(DuoCredential(memberID: answer.memberID, deviceID: answer.deviceID, deviceSecret: p.candidateSecret, secretVersion: answer.secretVersion))
+        let confirmed = DuoJournalCredential(DuoCredential(
+            memberID: answer.memberID,
+            deviceID: answer.deviceID,
+            deviceSecret: p.candidateSecret,
+            secretVersion: answer.secretVersion
+        ))
         let next = try replace(r) {
-            $0.pending?.confirmed = confirmed; $0.active = confirmed; $0.phase = .promotionPending
+            $0.pending?.confirmed = confirmed
+            $0.active = confirmed
+            $0.phase = .promotionPending
             if p.kind == .mint { $0.activeRole = p.role == .reconnectThrowaway ? .reconnectThrowaway : .established }
             if p.kind == .rotation { $0.restoreRotationRequired = false }
             if !ordinaryAllowed { $0.access = .suspended }
         }
-        lastState = answer; lastConfirmedOperationID = p.operationID; return next
+        lastState = answer
+        lastConfirmedOperationID = p.operationID
+        return next
     }
     @MainActor private func finishPromotion(_ r: DuoRecoveryRecord) throws -> DuoRecoveryRecord {
         // A later failure here only retries these writes. It cannot dispatch another CAS.
         guard try journal.read() == r else { throw DuoJournalError.changed }
-        try journal.writeMirror(r); try journal.writeMarker(r); try writeSentinel(r)
+        try journal.writeMirror(r)
+        try journal.writeMarker(r)
+        try writeSentinel(r)
         return try replace(r) {
-            $0.pending = nil; $0.phase = .active; $0.mirrorWrittenRevision = r.recordRevision
+            $0.pending = nil
+            $0.phase = .active
+            $0.mirrorWrittenRevision = r.recordRevision
             $0.access = ordinaryAllowed ? ($0.restoreConfirmationRequired ? .restoreConfirmationRequired : .eligible) : .suspended
         }
     }
@@ -350,8 +523,15 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
     @MainActor private func continueOnMain() async {
         do {
             try readyForNetwork()
-            guard let r = try journal.read(), r.restoreConfirmationRequired, !r.restoreRotationRequired, r.pending == nil, r.intent == .use else { return }
-            let next = try replace(r) { $0.restoreConfirmationRequired = false; $0.access = .eligible }
+            guard let r = try journal.read(),
+                  r.restoreConfirmationRequired,
+                  !r.restoreRotationRequired,
+                  r.pending == nil,
+                  r.intent == .use else { return }
+            let next = try replace(r) {
+                $0.restoreConfirmationRequired = false
+                $0.access = .eligible
+            }
             guard next.ordinaryCredential != nil else { throw DuoJournalError.invalid }
             let stillDisconnected = next.activeRole == .reconnectThrowaway && dependencies.host.duos.contains(where: { !$0.hasEnded })
             // Continue is durably answered even when the following hydration is offline. Leaving
@@ -360,7 +540,8 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             // The user has now chosen this identity; partner/name hydration is allowed only here.
             let epoch = dependencies.host.wipeEpoch
             let me = try await dependencies.transport.me()
-            try readyForNetwork(); guard try journal.read() == next, dependencies.host.wipeEpoch == epoch else { return }
+            try readyForNetwork()
+            guard try journal.read() == next, dependencies.host.wipeEpoch == epoch else { return }
             let now = dependencies.clock.now
             dependencies.host.memberInfo = DuoMapping.member(me, now: now)
             for header in me.duos {
@@ -370,7 +551,9 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             }
             dependencies.host.availability = stillDisconnected ? .disconnected : .available
             if !stillDisconnected { dependencies.push?.reevaluate(.duoStarted) }
-        } catch { note(error, forSheet: true) }
+        } catch {
+            note(error, forSheet: true)
+        }
     }
 
     /// Whether the refusal's automatic `DELETE /me` (decision a) may delete the identity this phone
@@ -397,7 +580,8 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                 r = try replace(r) {
                     if $0.phase == .promotionPending { $0.pending = nil }
                     $0.intent = $0.pending?.kind == .mint ? .cancelSetup : .deleteIdentity
-                    $0.access = .cleanupOnly; $0.phase = .cleanupPending
+                    $0.access = .cleanupOnly
+                    $0.phase = .cleanupPending
                 }
             }
             guard r.phase == .cleanupPending else { return .failed }
@@ -409,7 +593,8 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                     var committed = false
                     do {
                         let cancelled = try await transport.cancelDeviceIssuance(deviceID: candidate.deviceID, as: candidate)
-                        try cancelled.validate(); guard cancelled.deviceID == candidate.deviceID, try journal.read() == r else { throw DuoJournalError.changed }
+                        try cancelled.validate()
+                        guard cancelled.deviceID == candidate.deviceID, try journal.read() == r else { throw DuoJournalError.changed }
                         committed = cancelled.outcome == .committed
                     } catch let error as DuoRecoveryError where error.code == .issuanceUnavailable {
                         // Nothing this phone holds can cancel or delete it any more, and a 410 is
@@ -435,24 +620,34 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                     // trying the old member. A restart must not need an expired reservation to
                     // prove the already completed candidate cleanup again.
                     r = try replace(r) {
-                        $0.abandonedOperationID = p.operationID; $0.pending = nil; $0.intent = .deleteIdentity
+                        $0.abandonedOperationID = p.operationID
+                        $0.pending = nil
+                        $0.intent = .deleteIdentity
                     }
                     try respectBackoff()
                     try await transport.deleteMe(as: old.bearer, request, key: DuoIdempotencyKey.make(random: dependencies.random))
                 }
             } else if let p = r.pending, p.kind == .rotation, let candidate = p.candidate {
-                do { try await transport.deleteMe(as: candidate, request, key: key) }
-                catch let error as DuoRecoveryError where error.code == .credentialRejected {
+                do {
+                    try await transport.deleteMe(as: candidate, request, key: key)
+                } catch let error as DuoRecoveryError where error.code == .credentialRejected {
                     guard try journal.read() == r, let old = r.active else { throw DuoJournalError.changed }
                     try respectBackoff()
                     try await transport.deleteMe(as: old.bearer, request, key: key)
                 }
-            } else if let active = r.active { try await transport.deleteMe(as: active.bearer, request, key: key) }
-            else { throw DuoJournalError.invalid }
+            } else if let active = r.active {
+                try await transport.deleteMe(as: active.bearer, request, key: key)
+            } else {
+                throw DuoJournalError.invalid
+            }
             guard try journal.read() == r else { throw DuoJournalError.changed }
-            try journal.abandon(random: dependencies.random); rememberPresence(nil)
+            try journal.abandon(random: dependencies.random)
+            rememberPresence(nil)
             return serverConfirmed ? .deleted : .removedFromThisPhone
-        } catch { note(error, forSheet: false); return .failed }
+        } catch {
+            note(error, forSheet: false)
+            return .failed
+        }
     }
     @MainActor func establishRole() throws {
         guard let r = try journal.read(), r.pending == nil, let active = r.active else { throw DuoJournalError.changed }
