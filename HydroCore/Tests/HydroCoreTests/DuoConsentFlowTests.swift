@@ -367,7 +367,7 @@ final class DuoConsentFlowTests: XCTestCase {
         XCTAssertEqual(C.bornIn(2001), "Born in 2001?")
         XCTAssertEqual(C.change, "Change")
         XCTAssertEqual(C.ageRefusal, "Duo Streaks is not available on this iPhone.")
-        XCTAssertEqual(C.processors, "Our service runs on Cloudflare. Apple delivers notifications, checks that this is a real copy of HydroDrop, and keeps a note on this iPhone that it has used Duo Streaks.")
+        XCTAssertEqual(C.processors, "Our service runs on Cloudflare. Apple delivers notifications, vouches that this is a real copy of HydroDrop, and keeps a note for us, tied to this iPhone, that it has used Duo Streaks, which stays even if the iPhone is erased.")
         XCTAssertEqual(C.lastWeek(.setup), "Your last week, from the moment you tap Create")
         XCTAssertEqual(C.lastWeek(.join), "Your last week, from the moment you tap Join")
         XCTAssertNil(C.lastWeek(.reconnect))

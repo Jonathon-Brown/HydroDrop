@@ -386,9 +386,11 @@ public enum DuoConsentFlow {
         // NEW COPY (finding 15): the year field's VoiceOver label. The question above it is read too.
         public static let yearLabel = "Birth year"
 
-        // NEW COPY: the processors line on the consent sheets (§3.1), naming DeviceCheck's part:
-        // the server sets bit0 on every mint and Apple keeps it with the iPhone.
-        public static let processors = "Our service runs on Cloudflare. Apple delivers notifications, checks that this is a real copy of HydroDrop, and keeps a note on this iPhone that it has used Duo Streaks."
+        // Approved by Jonathon 2026-11-13 (store text decision): the processors line on the consent
+        // sheets (§3.1), naming DeviceCheck's part. The server sets bit0 on every mint and Apple keeps
+        // it on its own servers, so it said "keeps a note on this iPhone", which suggested erasing the
+        // phone removed it. "Vouches", because the service doesn't read the attestation yet.
+        public static let processors = "Our service runs on Cloudflare. Apple delivers notifications, vouches that this is a real copy of HydroDrop, and keeps a note for us, tied to this iPhone, that it has used Duo Streaks, which stays even if the iPhone is erased."
 
         // NEW COPY: the explainer's line about the week sent at the tap, naming the sheet's button
         // ("Create" for the setup sheet; "Join" for the join sheet is this placeholder's extension).

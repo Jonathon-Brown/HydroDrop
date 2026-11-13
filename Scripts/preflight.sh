@@ -871,8 +871,10 @@ MANIFEST = "HydroDrop/PrivacyInfo.xcprivacy"
 DUO_MANIFEST = "HydroDrop/Duo/PrivacyInfo.xcprivacy"
 PREFIX = "NSPrivacyCollectedDataType"
 # Compliance §2.2 and decision 3's recommended defaults: what the Duo server keeps, linked to the
-# member, never tracking, for the app's functionality only.
-DECLARED = ["Name", "UserID", "DeviceID", "Health", "OtherUsageData", "OtherUserContent"]
+# member, never tracking, for the app's functionality only. OtherDiagnosticData since Jonathon's
+# 2026-11-13 store text decision: the server's request logs carry a scrambled tag of the Duo
+# identity for seven days, which Apple counts as collected and linked.
+DECLARED = ["Name", "UserID", "DeviceID", "Health", "OtherUsageData", "OtherUserContent", "OtherDiagnosticData"]
 PURPOSES = ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
 CAMERA = "NSCameraUsageDescription"
 # The settings that pick a manifest and merge the camera string, as project.yml must have them.
@@ -937,7 +939,7 @@ def check_9d():
                 for problem in problems:
                     detail(problem)
             else:
-                say("ok", f"{DUO_MANIFEST} declares the six types of compliance 2.2, linked, not tracking, "
+                say("ok", f"{DUO_MANIFEST} declares the {len(DECLARED)} types of compliance 2.2, linked, not tracking, "
                           "for app functionality")
     if plain is not None and duo is not None:
         differ = sorted(k for k in set(plain) | set(duo) if k != "NSPrivacyCollectedDataTypes" and plain.get(k) != duo.get(k))
