@@ -448,8 +448,42 @@ extension DuoTodayRule {
     @MainActor
     static func today(_ store: DuoStore, soloStreak: Int, screenshotMode: Bool = AppSettings.isScreenshotMode) -> DuoTodayRule {
         make(hasDuos: !store.duos.isEmpty, hasIdentity: store.hasIdentity, hasNoticeCards: store.hasNoticeCards,
-             wantsSuggestion: store.shouldSuggestDuo(soloStreak: soloStreak), ageRefused: store.ageStatus == .refused,
+             wantsSuggestion: store.shouldSuggestDuo(soloStreak: soloStreak),
+             needsRecheck: store.needsAgeRecheck || store.needsTermsAgain, ageRefused: store.ageStatus == .refused,
              availability: store.availability, screenshotMode: screenshotMode)
+    }
+}
+
+/// Today's line for the age recheck, or for the rules a reinstall cleared (finding 8). Sharing is
+/// paused until they are answered, and Today used to go on showing the cached duo as if nothing
+/// had happened, with the only sign a row on the Duo screen. The Duo screen's row and footer, word
+/// for word; the tap is Today's, which presents the same sheet (`DuoAgeRecheckSheet`).
+struct DuoRecheckCard: View {
+    @ObservedObject var duoStore: DuoStore
+    var onOpen: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button(action: onOpen) {
+                Text(verbatim: duoStore.needsAgeRecheck ? DuoScreenModel.recheckAgeRow : DuoScreenModel.recheckTermsRow)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            Text(verbatim: DuoScreenModel.recheckFooter)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
+        // One element, the footer read with the button: on its own at the top of Today, "Confirm your
+        // birth month and year" sounded like an age check for the whole app.
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("duo.today.recheck")
     }
 }
 

@@ -317,9 +317,15 @@ public struct DuoTodayRule: Equatable, Sendable {
     /// Pull to refresh, and the foreground's refresh and log hand-over.
     public var talksToTheServer: Bool
     public var refreshable: Bool
+    /// The Duo screen's recheck row, repeated on Today (finding 8).
+    public var showsRecheck: Bool = false
 
     /// - Parameters:
     ///   - wantsSuggestion: `DuoInviteMoment.shouldShow` (a few solo days, no duo, never dismissed).
+    ///   - needsRecheck: the age question or the rules are asked again, and sharing is paused until
+    ///     they are answered. Today used to show the cached duo as if nothing had happened (finding
+    ///     8), so it says so, but only to someone with a duo or a Duo identity, who has something
+    ///     paused: for anyone else it would ask about a feature they never used.
     ///   - screenshotMode: the App Store capture run (`-UITestSeedHistory`). A capture simulator
     ///     that holds a cached duo would otherwise put a card in every capture of Today, and its
     ///     refresh and seeded log could reach the server; nothing of Duo shows or is sent then.
@@ -328,7 +334,7 @@ public struct DuoTodayRule: Equatable, Sendable {
     /// not write (disconnected, banned, out of date, the restore question), or while a notice card
     /// asks something first. Pull to refresh is only for someone with a duo or a Duo identity: for
     /// everyone else there is nothing to fetch, and a spinner that does nothing is worse than none.
-    public static func make(hasDuos: Bool, hasIdentity: Bool, hasNoticeCards: Bool, wantsSuggestion: Bool,
+    public static func make(hasDuos: Bool, hasIdentity: Bool, hasNoticeCards: Bool, wantsSuggestion: Bool, needsRecheck: Bool = false,
                             ageRefused: Bool, availability: DuoAvailability, screenshotMode: Bool) -> DuoTodayRule {
         let live = !screenshotMode
         return DuoTodayRule(
@@ -338,7 +344,8 @@ public struct DuoTodayRule: Equatable, Sendable {
             showsCards: live && !ageRefused,
             showsSuggestion: live && wantsSuggestion && !ageRefused && availability.allowsWrites && !hasNoticeCards,
             talksToTheServer: live,
-            refreshable: live && (hasDuos || hasIdentity)
+            refreshable: live && (hasDuos || hasIdentity),
+            showsRecheck: live && needsRecheck && !ageRefused && (hasDuos || hasIdentity)
         )
     }
 }

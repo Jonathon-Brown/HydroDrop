@@ -77,6 +77,9 @@ struct HomeView: View {
     /// The reconnect sheet contributes to the router's modal count. Keep its own appearance
     /// separate from the request, so that counting it cannot dismiss the sheet it just opened.
     @State private var duoReconnectIsOnScreen = false
+    /// Today's recheck sheet (finding 8), and whether it is up, as for reconnect.
+    @State private var showingDuoRecheck = false
+    @State private var duoRecheckIsOnScreen = false
 
     /// The app's own store, or a test's, so Today can be hosted and checked with a store that
     /// talks to nobody.
@@ -271,6 +274,10 @@ struct HomeView: View {
                                 // would put its card there too. Screenshot mode is always off in
                                 // Release.
                                 let duoToday = DuoTodayRule.today(duoStore, soloStreak: streak)
+                                if duoToday.showsRecheck {
+                                    DuoRecheckCard(duoStore: duoStore) { showingDuoRecheck = true }
+                                }
+
                                 if duoToday.showsNotices {
                                     DuoNoticeCards(duoStore: duoStore) { showingDuoReconnect = true }
                                 }
@@ -354,6 +361,24 @@ struct HomeView: View {
                     .onAppear {
                         guard !duoReconnectIsOnScreen else { return }
                         duoReconnectIsOnScreen = true
+                        router.modalDidAppear()
+                    }
+            }
+            // The recheck, counted like reconnect, so the root's Duo alert, join sheet and routes wait
+            // for it to go. A failure an Accept left goes with it.
+            .sheet(isPresented: Binding(
+                get: { showingDuoRecheck && (duoRecheckIsOnScreen || !router.somethingIsOnScreen) },
+                set: { showingDuoRecheck = $0 }
+            ), onDismiss: {
+                duoStore.sheetError = nil
+                guard duoRecheckIsOnScreen else { return }
+                duoRecheckIsOnScreen = false
+                sheetDidDismiss()
+            }) {
+                DuoAgeRecheckSheet(duoStore: duoStore) { showingDuoRecheck = false }
+                    .onAppear {
+                        guard !duoRecheckIsOnScreen else { return }
+                        duoRecheckIsOnScreen = true
                         router.modalDidAppear()
                     }
             }

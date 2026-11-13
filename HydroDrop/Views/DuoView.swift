@@ -152,18 +152,9 @@ struct DuoScreen<Router: DuoScreenRouterFlags & ObservableObject>: View {
         .accessibilityIdentifier("duo.screen")
         .onAppear { screenIsVisible = true }
         .onDisappear { screenIsVisible = false }
-        // The age question, then the rules if a reinstall cleared them, through the consent sheets'
-        // own gate, Cancel included (findings 5 and 11). It used to be the age screen alone, so a
-        // reinstalled phone answered it and stayed suspended for want of the rules. Its form is
-        // nothing: reaching it means both are answered, so sharing resumes and the sheet closes. A
-        // failure an Accept left is this sheet's and goes with it.
+        // A failure an Accept left is this sheet's and goes with it.
         .sheet(isPresented: $showingAgeRecheck, onDismiss: { duoStore.sheetError = nil }) {
-            DuoConsentGate(duoStore: duoStore, onClose: { showingAgeRecheck = false }, onTermsAccepted: {}) {
-                Color.clear.onAppear {
-                    showingAgeRecheck = false
-                    Task { await duoStore.resumeAfterAgeRecheck() }
-                }
-            }
+            DuoAgeRecheckSheet(duoStore: duoStore) { showingAgeRecheck = false }
         }
         .navigationTitle(DuoScreenModel.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -450,6 +441,25 @@ struct DuoScreen<Router: DuoScreenRouterFlags & ObservableObject>: View {
     private func readNotificationStatus() async {
         let denied = await notificationStatus() == .denied
         if denied != notificationsDenied { notificationsDenied = denied }
+    }
+}
+
+/// The age question, then the rules if a reinstall cleared them, through the consent sheets' own
+/// gate, Cancel included (findings 5 and 11). It used to be the age screen alone, so a reinstalled
+/// phone answered it and stayed suspended for want of the rules. Its form is nothing: reaching it
+/// means both are answered, so sharing resumes and the sheet closes. The Duo screen and Today
+/// (finding 8) both present it.
+struct DuoAgeRecheckSheet: View {
+    @ObservedObject var duoStore: DuoStore
+    var close: () -> Void
+
+    var body: some View {
+        DuoConsentGate(duoStore: duoStore, onClose: close, onTermsAccepted: {}) {
+            Color.clear.onAppear {
+                close()
+                Task { await duoStore.resumeAfterAgeRecheck() }
+            }
+        }
     }
 }
 #endif

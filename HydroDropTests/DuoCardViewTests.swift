@@ -778,6 +778,48 @@ final class DuoCardViewTests: XCTestCase {
         XCTAssertTrue(shown, "the reconnect sheet comes up")
     }
 
+    /// Finding 8: a phone whose Duo identity waits for the rules again (a reinstall clears them)
+    /// says so on Today, with the Duo screen's row and footer, and the row opens the same sheet: the
+    /// rules, with a way out. Today used to show the cached duo as if nothing had happened.
+    func testTodaySaysTheRecheckAndOpensItsSheet() async throws {
+        let kit = DuoTestKit(credential: DuoFixtures.credential())
+        kit.store.upsert(DuoFixtures.duo())
+        kit.store.recordBirthYear(1990, month: 1)
+        XCTAssertTrue(kit.store.needsTermsAgain)
+        let page = try today(kit.store)
+        await gSettle(2.5)
+        let row = try XCTUnwrap(page.element("duo.today.recheck"), "the recheck is on Today")
+        let label = row.accessibilityLabel ?? ""
+        XCTAssertTrue(label.contains(DuoScreenModel.recheckTermsRow) && label.contains(DuoScreenModel.recheckFooter),
+                      "VoiceOver reads the row with its footer: \(label)")
+        XCTAssertNotNil(page.element("duo.card"), "above the cached duo, which stays")
+        XCTAssertNil(page.presented)
+        // The sheet is counted while it is up, so the root's alert, join sheet and routes wait for it,
+        // and uncounted once it has gone: a count left behind would hold all of them back for good.
+        let modals = AppRouter.shared.otherModalCount
+        XCTAssertTrue(row.accessibilityActivate())
+        let rules = await gWait { page.element("duo.terms.accept") != nil }
+        XCTAssertTrue(rules, "the rules come up, as from the Duo screen")
+        let counted = await gWait { AppRouter.shared.otherModalCount == modals + 1 }
+        XCTAssertTrue(counted, "the recheck sheet is Today's own, counted: \(AppRouter.shared.otherModalCount)")
+        XCTAssertNotNil(page.element("duo.terms.cancel"), "with a way out")
+        // Accepting closes it, which the reconnect sheet (the same gate, then its code field) would not.
+        XCTAssertTrue(try XCTUnwrap(page.element("duo.terms.accept")).accessibilityActivate())
+        let gone = await gWait { page.presented == nil && AppRouter.shared.otherModalCount == modals }
+        XCTAssertTrue(gone, "once answered the sheet closes and the count goes back: \(AppRouter.shared.otherModalCount)")
+        XCTAssertFalse(kit.store.needsTermsAgain, "the rules are accepted")
+        XCTAssertNil(page.element("duo.reconnect.field"), "it was never the reconnect sheet")
+    }
+
+    func testTodayShowsNoRecheckWhenNothingIsAsked() async throws {
+        let store = ownedPreviewStore(duos: [DuoStore.previewDuo(partner: "Sam", joined: true, now: now, metDays: 3)])
+        XCTAssertFalse(store.needsAgeRecheck || store.needsTermsAgain)
+        let page = try today(store)
+        await gSettle(2.5)
+        XCTAssertNotNil(page.element("duo.card"))
+        XCTAssertNil(page.element("duo.today.recheck"))
+    }
+
     func testTodayShowsNoDuoRowsAndNoPullToRefreshForSomeoneWithoutADuo() async throws {
         let store = ownedPreviewStore(duos: [])
         let page = try today(store)

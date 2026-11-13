@@ -492,10 +492,10 @@ final class DuoCardModelTests: XCTestCase {
     }
 
     func testTodaysRule() {
-        func rule(hasDuos: Bool = false, hasIdentity: Bool = false, notices: Bool = false, wants: Bool = true, refused: Bool = false,
-                  availability: DuoAvailability = .available, screenshots: Bool = false) -> DuoTodayRule {
+        func rule(hasDuos: Bool = false, hasIdentity: Bool = false, notices: Bool = false, wants: Bool = true, recheck: Bool = false,
+                  refused: Bool = false, availability: DuoAvailability = .available, screenshots: Bool = false) -> DuoTodayRule {
             DuoTodayRule.make(hasDuos: hasDuos, hasIdentity: hasIdentity, hasNoticeCards: notices, wantsSuggestion: wants,
-                              ageRefused: refused, availability: availability, screenshotMode: screenshots)
+                              needsRecheck: recheck, ageRefused: refused, availability: availability, screenshotMode: screenshots)
         }
         XCTAssertEqual(rule(), DuoTodayRule(showsNotices: false, showsCards: true, showsSuggestion: true, talksToTheServer: true, refreshable: false))
         XCTAssertFalse(rule(wants: false).showsSuggestion)
@@ -512,7 +512,15 @@ final class DuoCardModelTests: XCTestCase {
         XCTAssertTrue(rule(hasDuos: true).refreshable)
         XCTAssertTrue(rule(hasIdentity: true).refreshable)
         XCTAssertFalse(rule().refreshable, "nothing to fetch for someone with neither")
-        XCTAssertEqual(rule(hasDuos: true, hasIdentity: true, notices: true, screenshots: true),
+        // Finding 8: the recheck says so on Today, to someone with something paused.
+        XCTAssertTrue(rule(hasDuos: true, recheck: true).showsRecheck)
+        XCTAssertTrue(rule(hasIdentity: true, recheck: true).showsRecheck)
+        XCTAssertFalse(rule(recheck: true).showsRecheck, "nothing paused for someone with neither a duo nor an identity")
+        XCTAssertFalse(rule(hasDuos: true, hasIdentity: true).showsRecheck, "nothing asked, nothing said")
+        XCTAssertFalse(rule(hasDuos: true, hasIdentity: true, recheck: true, refused: true).showsRecheck,
+                       "a refusal is final: there is nothing to answer again")
+        XCTAssertFalse(rule(hasDuos: true, hasIdentity: true, recheck: true, screenshots: true).showsRecheck)
+        XCTAssertEqual(rule(hasDuos: true, hasIdentity: true, notices: true, recheck: true, screenshots: true),
                        DuoTodayRule(showsNotices: false, showsCards: false, showsSuggestion: false, talksToTheServer: false, refreshable: false),
                        "nothing of Duo shows or is sent during an App Store capture")
     }
