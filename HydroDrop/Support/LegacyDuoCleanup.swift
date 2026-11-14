@@ -47,6 +47,10 @@ enum LegacyDuoCleanup {
     /// Saved in the private and the shared database respectively.
     private static let privateSubscriptionID = "duo-private-changes"
     private static let sharedSubscriptionID = "duo-shared-changes"
+    #if DUO_V2
+    /// Set once the local half below has run on this phone, which it then never does again.
+    private static let localDoneKey = "legacyDuoCleanup.v1.localDone"
+    #endif
 
     static func runOnce() {
         let own = UserDefaults.standard
@@ -54,6 +58,27 @@ enum LegacyDuoCleanup {
         // Those builds kept Duo in the App Group, or in the app's own defaults when the
         // build had no group, so both are looked at and cleared.
         let stores = [AppGroup.defaults, own].compactMap { $0 }
+        #if DUO_V2
+        // The local half used to run on every launch for as long as the iCloud half was owed,
+        // which is every launch of a Debug or simulator build and of a phone signed out of
+        // iCloud. Each run cancelled the pending duo.refresh request and withdrew every
+        // notification named `hydrodrop.duo.`, which is what Duo v2's own background refresh
+        // and held announcements are called, so a phone that once ran the iCloud TestFlight
+        // builds would have lost them at every launch. It runs once now; the iCloud half
+        // still retries on its own flags. The lines inside are the `#else` branch's, which is
+        // the file as it stands without Duo, so a change to one is made to both.
+        if !own.bool(forKey: localDoneKey) {
+            if stores.contains(where: { $0.bool(forKey: subscriptionsSavedKey) || $0.object(forKey: statesKey) != nil }) {
+                own.set(true, forKey: iCloudOwedKey)
+            }
+            for store in stores {
+                for key in localKeys { store.removeObject(forKey: key) }
+            }
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: refreshIdentifier)
+            withdrawNotifications()
+            own.set(true, forKey: localDoneKey)
+        }
+        #else
         if stores.contains(where: { $0.bool(forKey: subscriptionsSavedKey) || $0.object(forKey: statesKey) != nil }) {
             own.set(true, forKey: iCloudOwedKey)
         }
@@ -62,6 +87,7 @@ enum LegacyDuoCleanup {
         }
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: refreshIdentifier)
         withdrawNotifications()
+        #endif
         guard own.bool(forKey: iCloudOwedKey) else {
             own.set(true, forKey: doneKey)
             return

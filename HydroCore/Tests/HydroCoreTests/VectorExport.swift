@@ -200,7 +200,21 @@ enum Vectors {
     }
 
     static func all() -> [Vector] {
-        streak() + progress() + outbox() + coalescer() + nudges() + announcements() + quietHours() + names() + dayKeys()
+        let base = streak() + progress() + outbox() + coalescer() + nudges() + announcements() + quietHours() + names() + dayKeys()
+        return includesClientVectors ? base + clientCases() : base
+    }
+
+    /// Whether the file carries the Duo v2 client's cases (KV1, KV4, KV10 to KV17, KV20, X6, X7,
+    /// X10, X14, X15), which the stages of plan P2 write beside the foundation's. It is false
+    /// until the integration pass has merged every stage, regenerated the file and told the
+    /// server and Android repos to take it; each stage tests its own cases without it
+    /// (`DuoClientVectorsTests`), so no stage ever has to touch the file or its SHA-256.
+    static let includesClientVectors = false
+
+    /// The client's cases, one provider per file: `VectorsClientFoundation.swift` is the
+    /// foundation's, and each stage owns exactly one of the others and nothing else here.
+    static func clientCases() -> [Vector] {
+        foundationCases() + apiCases() + syncCases() + exitCases() + pushCases()
     }
 
     // MARK: Building blocks
@@ -530,10 +544,10 @@ enum Vectors {
 
     static func duo(joined: Bool = true, ended: Bool = false, statuses: [DuoDayStatus] = [], nudges: [DuoNudge] = [],
                     partnerName: String = "Sam") -> DuoState {
-        DuoState(id: duoID, zoneName: "Duo-\(duoID.uuidString)", zoneOwnerName: "owner", myRole: .owner, createdAt: epoch,
+        DuoState(id: duoID, myRole: .owner, createdAt: epoch,
                  ownerDisplayName: "Jo", partnerDisplayName: partnerName, ownerSkin: "classic", partnerSkin: "forest",
-                 statuses: sorted(statuses), shareURL: nil, partnerHasJoined: joined, endedAt: ended ? instant("2026-09-20T00:00:00Z") : nil,
-                 changeToken: nil, nudges: nudges)
+                 statuses: sorted(statuses), partnerHasJoined: joined, endedAt: ended ? instant("2026-09-20T00:00:00Z") : nil,
+                 nudges: nudges)
     }
 
     static func nudgeJSON(_ nudge: DuoNudge) -> JSON {

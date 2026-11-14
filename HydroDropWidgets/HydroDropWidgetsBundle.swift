@@ -6,6 +6,9 @@ struct HydroDropWidgetsBundle: WidgetBundle {
     var body: some Widget {
         HydrationWidget()
         HydrationAccessoryWidget()
+        #if DUO_V2
+        DuoWidget()
+        #endif
     }
 }
 

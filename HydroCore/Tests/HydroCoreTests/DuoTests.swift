@@ -364,8 +364,6 @@ final class DuoTests: XCTestCase {
         let id = UUID()
         return DuoState(
             id: id,
-            zoneName: "Duo-\(id.uuidString)",
-            zoneOwnerName: "owner",
             myRole: .owner,
             createdAt: instant(2026, 9, 1),
             ownerDisplayName: "Jo",
@@ -373,7 +371,6 @@ final class DuoTests: XCTestCase {
             ownerSkin: "classic",
             partnerSkin: "forest",
             statuses: [],
-            shareURL: nil,
             partnerHasJoined: true,
             endedAt: ended ? instant(2026, 9, 2) : nil
         )

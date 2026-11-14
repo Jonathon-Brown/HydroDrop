@@ -72,6 +72,13 @@ case "$("$XCODEGEN" --version)" in
 esac
 cd "$REPO_ROOT"
 
+# Xcode Cloud does not use release.sh, so it used to inherit the default-off Duo
+# configuration even when the workflow requested DUO_V2=1. Select both compilation
+# and signing in this disposable checkout before XcodeGen reads the files. The helper
+# rejects a typo or a pre-2.0 Duo version, and never imports Debug's local override
+# into Release. An unset switch deliberately keeps the shipped non-Duo path.
+python3 "$REPO_ROOT/Scripts/configure_ci_duo.py" "$REPO_ROOT"
+
 # CURRENT_PROJECT_VERSION is committed as a fixed value, and the project is regenerated
 # from project.yml on every CI run — so every Xcode Cloud build uploaded the same build
 # number, and App Store Connect rejects a duplicate during processing. The build goes

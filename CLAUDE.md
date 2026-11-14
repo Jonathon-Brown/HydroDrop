@@ -33,8 +33,10 @@ such as FoundationModels for Say it, sit behind `#available`.
 - Claude Code on the web runs on Linux, so it cannot build, run or test the app. Review
   changes carefully, and say plainly that they're unbuilt. Jonathon builds on his Mac.
 - Releasing:
-  - `Scripts/release.sh` handles `status`, `bump`, `archive`, `export` and `upload`.
-  - `Scripts/preflight.sh` checks for past App Review rejection causes, including a bare
+  - `Scripts/release.sh` handles `status`, `bump`, `archive`, `export` and `upload`. `DUO_V2=1`
+    before `archive`, `export` or `upload` makes and checks a build with Duo Streaks (below).
+  - Run `bash Scripts/preflight.sh "$PWD"` from the intended worktree; without the explicit
+    path it checks the main checkout. It checks past App Review rejection causes, including a bare
     ad `Request()`. Every ad request has to go through `AdManager.makeRequest()`. It also
     checks that CloudKit's Production schema has every stored property of every `@Model`,
     which needs a CloudKit management token saved once with
@@ -89,6 +91,102 @@ such as FoundationModels for Say it, sit behind `#available`.
 - **Settings storage and the widget.** `AppSettings` syncs most settings through
   `CloudSettingsStore` (iCloud key-value storage). The widget is republished when the
   goal, units or quick-add sizes change, from `HomeView.mirrorToCompanions`.
+
+## Duo Streaks v2 (branch `feature/duo-v2`)
+
+- Duo compiles in only when the Swift condition `DUO_V2` is set, and it is off by default, so with
+  it off the app has no Duo screen, service or request. (HydroCore's Duo rules and wire types are
+  compiled in either way, being pure and shared with the widget and the Watch app, and nothing
+  calls them without the flag. Public types cannot be dropped by the optimiser, so a flag-off
+  build is not byte-identical to one from `main`: about 1.8 MB larger in the app and about 3.5 MB
+  in each of the widget and the Watch app, with one extra system link, `libswift_StringProcessing`,
+  from a regex literal in `DuoNudge`. Behaviour and entitlements are unchanged, and so are the
+  built app's `Info.plist` and privacy manifest: the tracked `HydroDrop/Info.plist` and
+  `HydroDrop/PrivacyInfo.xcprivacy` are main's, and only a build with `DUO_V2` bundles
+  `HydroDrop/Duo/PrivacyInfo.xcprivacy` instead, merges in the camera string from
+  `INFOPLIST_KEY_NSCameraUsageDescription`, with Xcode's `LSRequiresIPhoneOS` beside it, and carries
+  Duo's push words (`HydroDrop/Resources/en.lproj/Localizable.strings`) in the app and the Watch
+  app (decision D77, see project.yml).) Switch it on for one `xcodebuild` run with `DUO_V2_CONDITION=DUO_V2`
+  after the destination, or for Xcode's Run and Test with a gitignored `Config/Duo.local.xcconfig`
+  holding `DUO_V2_CONDITION = DUO_V2`, and for a run on a real iPhone also
+  `DUO_ENTITLEMENTS = HydroDrop/HydroDrop.duo.entitlements`, which adds App Attest (it takes effect
+  without regenerating the project). Release and archive builds never read that local file (they
+  use `Config/Duo.Release.xcconfig`), so an archive that ships Duo says so on purpose:
+  `DUO_V2=1 Scripts/release.sh archive` passes both settings and needs version 2.0 or higher and
+  the website's Duo pages (`docs/terms.html` and a `#duo` section in `docs/privacy.html`), and
+  `export` and `upload` take the same switch. Screenshots and
+  App Store captures run through the Debug test action, which does read it: pass
+  `DUO_V2_CONDITION=` (empty) on the command line, or remove the file, so they come from a Duo-off
+  build. Every Duo file under `HydroDrop/` and `HydroDropWidgets/` is wrapped in `#if DUO_V2`.
+- Rules, the wire contract and every pure helper live in `HydroCore` (`cd HydroCore && swift test`).
+  `HydroDrop/Duo/` holds the app side: `DuoStore` (state only), the services it asks (sync, joining,
+  exits and the op queue, push, identity, the API client), and `DuoComposition`, the one file that
+  names them all. A service reads what it needs from `DuoDependencies` when it needs it.
+- The words on Duo's screens come from `HydroCore`'s `DuoCopy` and `DuoUserMessage`, which hold only
+  approved wording, apart from the few lines plan P2 lists as awaiting Jonathon's approval (marked
+  in `DuoErrors.swift`). Any other user-facing string is new copy and needs his approval first.
+- Client conformance vectors added for Duo v2 stay out of `duo-vectors-v1.json` until
+  `Vectors.includesClientVectors` is turned on in one commit that regenerates the file; the server
+  and Android repos take the new file after that.
+- Test with `xcodebuild test -project HydroDrop.xcodeproj -scheme HydroDrop -destination "id=$SIM"
+  DUO_V2_CONDITION=DUO_V2 -only-testing:HydroDropTests/<Class>`, and build once without the flag to
+  show the app still builds with Duo off.
+- `-DuoPreview [scenario]` (Debug, with `DUO_V2`) draws sample duos from a store that talks to
+  nobody; the scenario names are `DuoStore.previewScenarioNames` (empty, waiting, silent, ended,
+  restore, maintenance and so on).
+- `-DuoClientVersion <N.N>` (Debug, with `DUO_V2`) makes the app tell the Duo server it is that marketing
+  version. Both servers answer `426` to a write from a client older than 2.0 and this branch still says
+  1.8.1 until the first Duo TestFlight build is bumped, so the two-simulator staging loop needs
+  `xcrun simctl launch $SIM com.jonathonbrown.HydroDrop -UITestSkipOnboarding -DuoClientVersion 2.0`
+  (for a device run, put the two words in the scheme's Arguments). Compiled out of Release.
+
+### Phase 2 file map and checks
+
+- Pure Swift in `HydroCore/Sources/HydroCore/`: `DuoConsentFlow`, `DuoCardModel`,
+  `DuoScreenModel`, `DuoCodeEntryModel`, `DuoJoinPlan` and `DuoWidgetModel` decide
+  presentation; `DuoNetworkGate` invalidates work when the age check blocks networking.
+  The other `Duo*` files hold contract types, identity decisions, sync, queues, push,
+  diagnostics and sharing rules. They import no app frameworks.
+- App services in `HydroDrop/Duo/`: `DuoComposition` connects `DuoStore` to identity,
+  API client, joining, exits, queue, sync, push and background services. `DuoAgeNetwork`
+  gates typed requests, the HTTP session, App Attest and DeviceCheck. A confirmed refusal
+  allows only deletion; an already dispatched rotation may save its answer so deletion
+  still has a usable credential. An unreadable age Keychain item temporarily stops work
+  without recording a permanent refusal.
+- Screens in `HydroDrop/Views/Duo*.swift`: consent and terms, Today card, Duo screen,
+  code entry and QR scanning, joining/reconnecting, invite sharing, diagnostics and report.
+  `DuoViewRows` owns the Settings hand-offs and notice alert. Confirmed block IDs come
+  from the service and persist in `HydroDrop/Shared/DuoCache.swift`.
+- Widget: `HydroDropWidgets/DuoWidget.swift` reads the shared cache and hydration snapshot;
+  `HydroDrop/Shared/DuoWidgetCard.swift` draws the pure widget model. It never creates a
+  service, reads Keychain, makes a request or checks a purchase. Age refusal or an unavailable
+  age check suppresses cached partner content.
+- Accessibility IDs used by the UI checks include `settings.duo`, `duo.screen`, `duo.card`,
+  `duo.start`, `duo.haveCode`, `duo.setup.create`, `duo.agegate.month`, `duo.agegate.year`,
+  `duo.agegate.continue`, `duo.agegate.confirm`, `duo.agegate.change`,
+  `duo.agegate.retry`, `duo.leave`, `duo.block`, `duo.delete`, `duo.diagnostics`
+  and `duo.report`. The Settings gear retains its spoken label `Settings`.
+- Run `Scripts/generate.sh` first. Run the full HydroCore suite, then app tests with
+  `DUO_V2_CONDITION=DUO_V2` and with `DUO_V2_CONDITION=` using separate DerivedData
+  directories. Keep hosted runs serial when simulator contention causes timeouts.
+  Do not pass `-DuoPreview` to service or composition tests: it intentionally replaces
+  every `makeLiveStore` call with an inert preview. UI smoke uses that preview and
+  `TEST_RUNNER_DUO_EXPECT=YES` or `NO` to assert the selected build's Settings row.
+- Before public release, independently review the age/refusal policy and new copy.
+  The approved month/year policy allows eligibility only after the entire thirteenth-birthday
+  month ends. Earlier year-only approvals require explicit rechecking; ordinary networking
+  and partner widgets remain paused until confirmation. Birth month and year stay in memory,
+  and existing refusals remain permanent. Verify the promised report response time operationally.
+  A failed Keychain write cannot guarantee refusal survives uninstall, and self-reported
+  birth information cannot establish identity or defeat a false answer.
+- By hand on a real iPhone: confirm VoiceOver and rapid taps on the age confirmation,
+  reinstall/restore and first-unlock refusal handling, camera indicator shutdown on Cancel,
+  background and interruption, and the native sharing/mail paths. Verify paired Watch push
+  wording and CloudKit behavior. On two staging simulators run create, join, publish,
+  nudge, leave and delete with `-DuoClientVersion 2.0`; inspect staging traffic for no
+  authenticated request before consent. Device signing needs App Attest enabled, a fresh
+  profile, and an exported IPA whose App Attest entitlement is `production`. CloudKit
+  Production schema deployment and the real 2.0 marketing-version bump remain owner steps.
 
 ## Conventions
 

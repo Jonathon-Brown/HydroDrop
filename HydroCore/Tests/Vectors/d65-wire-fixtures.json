@@ -1,0 +1,1028 @@
+{
+  "notice": "Public deterministic dummy credentials; never use in an app or service. Shape validation only; semantic checks are specified in PROPOSAL.md.",
+  "cases": [
+    {
+      "id": "valid-Capabilities",
+      "schema": "Capabilities",
+      "valid": true,
+      "payload": {
+        "contract_version": "1.1",
+        "credential_recovery": true,
+        "issuance_ttl_s": 86400
+      }
+    },
+    {
+      "id": "missing-Capabilities-contract_version",
+      "schema": "Capabilities",
+      "valid": false,
+      "payload": {
+        "credential_recovery": true,
+        "issuance_ttl_s": 86400
+      }
+    },
+    {
+      "id": "missing-Capabilities-credential_recovery",
+      "schema": "Capabilities",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "issuance_ttl_s": 86400
+      }
+    },
+    {
+      "id": "missing-Capabilities-issuance_ttl_s",
+      "schema": "Capabilities",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "credential_recovery": true
+      }
+    },
+    {
+      "id": "extra-Capabilities",
+      "schema": "Capabilities",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "credential_recovery": true,
+        "issuance_ttl_s": 86400,
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-PrepareRequest",
+      "schema": "PrepareRequest",
+      "valid": true,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "terms_version": 1,
+        "device_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+      }
+    },
+    {
+      "id": "missing-PrepareRequest-platform",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "app_version": "2.0 (57)",
+        "terms_version": 1,
+        "device_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+      }
+    },
+    {
+      "id": "missing-PrepareRequest-app_version",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "terms_version": 1,
+        "device_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+      }
+    },
+    {
+      "id": "missing-PrepareRequest-terms_version",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "device_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+      }
+    },
+    {
+      "id": "missing-PrepareRequest-device_secret",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "terms_version": 1
+      }
+    },
+    {
+      "id": "extra-PrepareRequest",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "terms_version": 1,
+        "device_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-PrepareResponse",
+      "schema": "PrepareResponse",
+      "valid": true,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "expires_at": "2026-11-05T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "missing-PrepareResponse-contract_version",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "expires_at": "2026-11-05T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "missing-PrepareResponse-device_id",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "expires_at": "2026-11-05T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "missing-PrepareResponse-expires_at",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111"
+      }
+    },
+    {
+      "id": "extra-PrepareResponse",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "expires_at": "2026-11-05T00:00:00.000Z",
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-CommitRequest",
+      "schema": "CommitRequest",
+      "valid": true,
+      "payload": {
+        "device_id": "11111111-1111-4111-8111-111111111111"
+      }
+    },
+    {
+      "id": "missing-CommitRequest-device_id",
+      "schema": "CommitRequest",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-CommitRequest",
+      "schema": "CommitRequest",
+      "valid": false,
+      "payload": {
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-CredentialState",
+      "schema": "CredentialState",
+      "valid": true,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": "1.1",
+        "device_tier": "low",
+        "support_id": "0123456789AB"
+      }
+    },
+    {
+      "id": "missing-CredentialState-contract_version",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": "1.1",
+        "device_tier": "low",
+        "support_id": "0123456789AB"
+      }
+    },
+    {
+      "id": "missing-CredentialState-device_id",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": "1.1",
+        "device_tier": "low",
+        "support_id": "0123456789AB"
+      }
+    },
+    {
+      "id": "missing-CredentialState-member_id",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "secret_version": 1,
+        "credential_protocol": "1.1",
+        "device_tier": "low",
+        "support_id": "0123456789AB"
+      }
+    },
+    {
+      "id": "missing-CredentialState-secret_version",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "credential_protocol": "1.1",
+        "device_tier": "low",
+        "support_id": "0123456789AB"
+      }
+    },
+    {
+      "id": "missing-CredentialState-credential_protocol",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "device_tier": "low",
+        "support_id": "0123456789AB"
+      }
+    },
+    {
+      "id": "missing-CredentialState-device_tier",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": "1.1",
+        "support_id": "0123456789AB"
+      }
+    },
+    {
+      "id": "missing-CredentialState-support_id",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": "1.1",
+        "device_tier": "low"
+      }
+    },
+    {
+      "id": "extra-CredentialState",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": "1.1",
+        "device_tier": "low",
+        "support_id": "0123456789AB",
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-RotateRequest",
+      "schema": "RotateRequest",
+      "valid": true,
+      "payload": {
+        "expected_secret_version": 1,
+        "next_device_secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+      }
+    },
+    {
+      "id": "missing-RotateRequest-expected_secret_version",
+      "schema": "RotateRequest",
+      "valid": false,
+      "payload": {
+        "next_device_secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+      }
+    },
+    {
+      "id": "missing-RotateRequest-next_device_secret",
+      "schema": "RotateRequest",
+      "valid": false,
+      "payload": {
+        "expected_secret_version": 1
+      }
+    },
+    {
+      "id": "extra-RotateRequest",
+      "schema": "RotateRequest",
+      "valid": false,
+      "payload": {
+        "expected_secret_version": 1,
+        "next_device_secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-EmptyRequest",
+      "schema": "EmptyRequest",
+      "valid": true,
+      "payload": {}
+    },
+    {
+      "id": "extra-EmptyRequest",
+      "schema": "EmptyRequest",
+      "valid": false,
+      "payload": {
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-CancelResponse",
+      "schema": "CancelResponse",
+      "valid": true,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "outcome": "cancelled"
+      }
+    },
+    {
+      "id": "missing-CancelResponse-contract_version",
+      "schema": "CancelResponse",
+      "valid": false,
+      "payload": {
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "outcome": "cancelled"
+      }
+    },
+    {
+      "id": "missing-CancelResponse-device_id",
+      "schema": "CancelResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "outcome": "cancelled"
+      }
+    },
+    {
+      "id": "missing-CancelResponse-outcome",
+      "schema": "CancelResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111"
+      }
+    },
+    {
+      "id": "extra-CancelResponse",
+      "schema": "CancelResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "outcome": "cancelled",
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error400",
+      "schema": "Error400",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "schema",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error400-error",
+      "schema": "Error400",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error400",
+      "schema": "Error400",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "schema",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error401",
+      "schema": "Error401",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "credential_rejected",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error401-error",
+      "schema": "Error401",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error401",
+      "schema": "Error401",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "credential_rejected",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error403",
+      "schema": "Error403",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "banned",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error403-error",
+      "schema": "Error403",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error403",
+      "schema": "Error403",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "banned",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error409",
+      "schema": "Error409",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "credential_conflict",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error409-error",
+      "schema": "Error409",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error409",
+      "schema": "Error409",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "credential_conflict",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error410",
+      "schema": "Error410",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "issuance_unavailable",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error410-error",
+      "schema": "Error410",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error410",
+      "schema": "Error410",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "issuance_unavailable",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error413",
+      "schema": "Error413",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "payload_too_large",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error413-error",
+      "schema": "Error413",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error413",
+      "schema": "Error413",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "payload_too_large",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error422",
+      "schema": "Error422",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "schema",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error422-error",
+      "schema": "Error422",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error422",
+      "schema": "Error422",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "schema",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error426",
+      "schema": "Error426",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "upgrade_required",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error426-error",
+      "schema": "Error426",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error426",
+      "schema": "Error426",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "upgrade_required",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error428",
+      "schema": "Error428",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "terms_required",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error428-error",
+      "schema": "Error428",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error428",
+      "schema": "Error428",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "terms_required",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error429",
+      "schema": "Error429",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "rate_limited",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef",
+          "retry_after_s": 60
+        }
+      }
+    },
+    {
+      "id": "missing-Error429-error",
+      "schema": "Error429",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error429",
+      "schema": "Error429",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "rate_limited",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef",
+          "retry_after_s": 60
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "valid-Error503",
+      "schema": "Error503",
+      "valid": true,
+      "payload": {
+        "error": {
+          "code": "maintenance",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "id": "missing-Error503-error",
+      "schema": "Error503",
+      "valid": false,
+      "payload": {}
+    },
+    {
+      "id": "extra-Error503",
+      "schema": "Error503",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "maintenance",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef"
+        },
+        "extra": "forbidden"
+      }
+    },
+    {
+      "id": "invalid-PrepareRequest-device_secret-0",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "terms_version": 1,
+        "device_secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "id": "invalid-PrepareRequest-device_secret-1",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "terms_version": 1,
+        "device_secret": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+      }
+    },
+    {
+      "id": "invalid-PrepareRequest-device_secret-2",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "terms_version": 1,
+        "device_secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "id": "invalid-PrepareRequest-device_secret-3",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "terms_version": 1,
+        "device_secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      }
+    },
+    {
+      "id": "invalid-RotateRequest-expected_secret_version-0",
+      "schema": "RotateRequest",
+      "valid": false,
+      "payload": {
+        "expected_secret_version": 0,
+        "next_device_secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+      }
+    },
+    {
+      "id": "invalid-RotateRequest-expected_secret_version-1",
+      "schema": "RotateRequest",
+      "valid": false,
+      "payload": {
+        "expected_secret_version": -1,
+        "next_device_secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+      }
+    },
+    {
+      "id": "invalid-RotateRequest-expected_secret_version-2",
+      "schema": "RotateRequest",
+      "valid": false,
+      "payload": {
+        "expected_secret_version": 1.5,
+        "next_device_secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+      }
+    },
+    {
+      "id": "invalid-RotateRequest-expected_secret_version-3",
+      "schema": "RotateRequest",
+      "valid": false,
+      "payload": {
+        "expected_secret_version": 2147483648,
+        "next_device_secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+      }
+    },
+    {
+      "id": "invalid-RotateRequest-expected_secret_version-4",
+      "schema": "RotateRequest",
+      "valid": false,
+      "payload": {
+        "expected_secret_version": "1",
+        "next_device_secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+      }
+    },
+    {
+      "id": "invalid-PrepareResponse-device_id-0",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "ABCDEFAB-1111-4111-8111-ABCDEFAB1111",
+        "expires_at": "2026-11-05T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "invalid-PrepareResponse-device_id-1",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-1111-8111-111111111111",
+        "expires_at": "2026-11-05T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "invalid-CredentialState-credential_protocol-0",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": "1.2",
+        "device_tier": "low",
+        "support_id": "0123456789AB"
+      }
+    },
+    {
+      "id": "invalid-CredentialState-credential_protocol-1",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": 11,
+        "device_tier": "low",
+        "support_id": "0123456789AB"
+      }
+    },
+    {
+      "id": "terminator-PrepareRequest-device_secret-1",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "terms_version": 1,
+        "device_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\n"
+      }
+    },
+    {
+      "id": "terminator-PrepareRequest-device_secret-2",
+      "schema": "PrepareRequest",
+      "valid": false,
+      "payload": {
+        "platform": "ios",
+        "app_version": "2.0 (57)",
+        "terms_version": 1,
+        "device_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\r\n"
+      }
+    },
+    {
+      "id": "terminator-PrepareResponse-device_id-1",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111\n",
+        "expires_at": "2026-11-05T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "terminator-PrepareResponse-device_id-2",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111\r\n",
+        "expires_at": "2026-11-05T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "terminator-PrepareResponse-expires_at-1",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "expires_at": "2026-11-05T00:00:00.000Z\n"
+      }
+    },
+    {
+      "id": "terminator-PrepareResponse-expires_at-2",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "expires_at": "2026-11-05T00:00:00.000Z\r\n"
+      }
+    },
+    {
+      "id": "terminator-CredentialState-support_id-1",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": "1.1",
+        "device_tier": "low",
+        "support_id": "0123456789AB\n"
+      }
+    },
+    {
+      "id": "terminator-CredentialState-support_id-2",
+      "schema": "CredentialState",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "member_id": "22222222-2222-4222-8222-222222222222",
+        "secret_version": 1,
+        "credential_protocol": "1.1",
+        "device_tier": "low",
+        "support_id": "0123456789AB\r\n"
+      }
+    },
+    {
+      "id": "terminator-request-id-1",
+      "schema": "Error401",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "credential_rejected",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef\n"
+        }
+      }
+    },
+    {
+      "id": "terminator-request-id-2",
+      "schema": "Error401",
+      "valid": false,
+      "payload": {
+        "error": {
+          "code": "credential_rejected",
+          "message": "Synthetic fixture only.",
+          "request_id": "0123456789abcdef\r\n"
+        }
+      }
+    },
+    {
+      "id": "invalid-calendar-2026-02-31T00:00:00.000Z",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "expires_at": "2026-02-31T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "invalid-calendar-2026-11-05T24:00:00.000Z",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "expires_at": "2026-11-05T24:00:00.000Z"
+      }
+    },
+    {
+      "id": "invalid-calendar-2026-11-05T23:59:60.000Z",
+      "schema": "PrepareResponse",
+      "valid": false,
+      "payload": {
+        "contract_version": "1.1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "expires_at": "2026-11-05T23:59:60.000Z"
+      }
+    }
+  ]
+}

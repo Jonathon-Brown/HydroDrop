@@ -283,6 +283,9 @@ final class StoreMigrationTests: XCTestCase {
         let rows = try ModelContext(container).fetch(FetchDescriptor<WaterEntry>())
         XCTAssertEqual(rows.map(\.persistentModelID), [sourceID], "the original record survives, not one of its copies")
         XCTAssertNil(recordedCopyIDs, "nothing is left to collapse")
+        StoreMigration.deduplicateIfNeeded(in: container)
+        XCTAssertEqual(try ModelContext(container).fetch(FetchDescriptor<WaterEntry>()).map(\.persistentModelID), [sourceID],
+                       "the Health identifier adopted from a copy must not make the original a later deletion candidate")
     }
 
     /// The pass used to collapse any rows that matched, which took two real drinks logged
