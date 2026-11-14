@@ -570,9 +570,11 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
         return (try? journal.markerMatches(r) && sentinelMatches(r)) == true
     }
 
-    /// Cleanup never asks for ordinary state, attestation or a fresh Apple token. Each cycle
-    /// starts with the candidate and permits one old DELETE only after an exact rejection.
-    @MainActor func deleteIdentity() async -> DuoRecoveryDeletion {
+    /// Cleanup never asks for ordinary state or attestation, and it never waits long on Apple: each
+    /// DELETE carries a DeviceCheck token only if Apple answers within `deviceCheckWait`
+    /// (`deleteRequest`). Each cycle starts with the candidate and permits one old DELETE only after
+    /// an exact rejection.
+    @MainActor func deleteIdentity(deviceCheckWait: Duration = .seconds(4)) async -> DuoRecoveryDeletion {
         do {
             try respectBackoff()
             guard let transport = dependencies.recoveryTransport, var r = try loadOrImport(), r.phase != .abandoned else { return .failed }
@@ -585,7 +587,6 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                 }
             }
             guard r.phase == .cleanupPending else { return .failed }
-            let request = DuoWireDeleteMeRequest(deviceCheckToken: nil)
             let key = DuoIdempotencyKey.make(random: dependencies.random)
             var serverConfirmed = true
             if let p = r.pending, p.kind == .mint {
@@ -606,7 +607,9 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                         serverConfirmed = r.active != nil
                     }
                     if committed {
+                        // The back-off first, so a phone that may not send yet asks Apple nothing.
                         try respectBackoff()
+                        let request = try await deleteRequest(after: r, wait: deviceCheckWait)
                         try await transport.deleteMe(as: candidate, request, key: key)
                     }
                 } else {
@@ -625,9 +628,13 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                         $0.intent = .deleteIdentity
                     }
                     try respectBackoff()
+                    let request = try await deleteRequest(after: r, wait: deviceCheckWait)
                     try await transport.deleteMe(as: old.bearer, request, key: DuoIdempotencyKey.make(random: dependencies.random))
                 }
             } else if let p = r.pending, p.kind == .rotation, let candidate = p.candidate {
+                // One request for both tries: they share the key, so their bytes must match, and the
+                // candidate's rejection comes before the server asks Apple anything with the token.
+                let request = try await deleteRequest(after: r, wait: deviceCheckWait)
                 do {
                     try await transport.deleteMe(as: candidate, request, key: key)
                 } catch let error as DuoRecoveryError where error.code == .credentialRejected {
@@ -636,6 +643,7 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
                     try await transport.deleteMe(as: old.bearer, request, key: key)
                 }
             } else if let active = r.active {
+                let request = try await deleteRequest(after: r, wait: deviceCheckWait)
                 try await transport.deleteMe(as: active.bearer, request, key: key)
             } else {
                 throw DuoJournalError.invalid
@@ -648,6 +656,28 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             note(error, forSheet: false)
             return .failed
         }
+    }
+    /// One DELETE /me's body, with a DeviceCheck token asked for as it goes (D62). With the token
+    /// the server bars a banned member's iPhone and clears flag one for anyone else (D54,
+    /// `settleBits` in the server's `exits.ts`). Cleanup used to send none, so that Apple could
+    /// never keep anyone from deleting, which left a barred person free to delete and start again
+    /// on the same iPhone (decided 2026-11-14). It still can't get in the way: there is no token
+    /// while the age gate holds the network, as on the old delete path, and none once `wait` passes
+    /// without Apple's answer, so the delete goes without it.
+    @MainActor private func deleteRequest(after r: DuoRecoveryRecord, wait: Duration) async throws -> DuoWireDeleteMeRequest {
+        guard dependencies.ageNetworkAllowed else { return DuoWireDeleteMeRequest(deviceCheckToken: nil) }
+        let deviceCheck = dependencies.deviceCheck
+        let token: String? = await withCheckedContinuation { continuation in
+            let answer = DuoFirstAnswer(continuation)
+            let asking = Task { @MainActor in answer.give(await deviceCheck.token()) }
+            Task { @MainActor in
+                try? await Task.sleep(for: wait)
+                asking.cancel()
+                answer.give(nil)
+            }
+        }
+        guard try journal.read() == r else { throw DuoJournalError.changed }
+        return DuoWireDeleteMeRequest(deviceCheckToken: token)
     }
     @MainActor func establishRole() throws {
         guard let r = try journal.read(), r.pending == nil, let active = r.active else { throw DuoJournalError.changed }
@@ -677,6 +707,16 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             }
         }
         if forSheet, !(error is CancellationError) { dependencies.host.sheetError = DuoUserMessage.generic }
+    }
+}
+/// Resumes its continuation with the first answer it is given and ignores the rest: Apple's
+/// token or the deadline, whichever comes first (`deleteRequest`).
+@MainActor private final class DuoFirstAnswer<Value> {
+    private var continuation: CheckedContinuation<Value, Never>?
+    init(_ continuation: CheckedContinuation<Value, Never>) { self.continuation = continuation }
+    func give(_ value: Value) {
+        continuation?.resume(returning: value)
+        continuation = nil
     }
 }
 #endif

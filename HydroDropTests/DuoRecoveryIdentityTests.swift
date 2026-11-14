@@ -28,6 +28,7 @@ private final class RecoveryServer: DuoCredentialRecoveryTransport, @unchecked S
     var deleteFailures: [DuoRecoveryError] = []
     var deleteHandler: ((DuoRecoveryCredential) throws -> Void)?
     var deletionDevices: [String] = []
+    var deleteTokens: [String?] = []
     func state() -> DuoRecoveryCredentialState {
         overrideState ?? DuoRecoveryCredentialState(deviceID: Self.device, memberID: Self.member, secretVersion: version, deviceTier: "low", supportID: "0123456789AB")
     }
@@ -67,8 +68,7 @@ private final class RecoveryServer: DuoCredentialRecoveryTransport, @unchecked S
         return DuoRecoveryCancelResponse(deviceID: deviceID, outcome: current == nil ? .cancelled : .committed)
     }
     func deleteMe(as credential: DuoRecoveryCredential, _ request: DuoWireDeleteMeRequest, key: DuoIdempotencyKey) async throws {
-        calls.append("delete"); deletionDevices.append(credential.deviceID)
-        XCTAssertNil(request.deviceCheckToken)
+        calls.append("delete"); deletionDevices.append(credential.deviceID); deleteTokens.append(request.deviceCheckToken)
         if let deleteHandler { try deleteHandler(credential); return }
         if !deleteFailures.isEmpty { throw deleteFailures.removeFirst() }
         guard current == credential.deviceSecret else { throw DuoRecoveryError.refused(.credentialRejected, DuoErrorContext(httpStatus: 401)) }
@@ -101,6 +101,18 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
     }
     func delete(service: String, account: String) throws { try memory.delete(service: service, account: account) }
     func deleteAll(service: String) throws { try memory.deleteAll(service: service) }
+}
+
+/// Apple taking longer than any delete should wait, and, like `DCDevice.generateToken`, not
+/// stopping when its task is cancelled: the delete must not wait for it.
+private struct SlowDeviceCheck: DuoDeviceCheckProviding {
+    var isSupported: Bool { true }
+    func token() async -> String? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().asyncAfter(deadline: .now() + 3) { continuation.resume() }
+        }
+        return "late"
+    }
 }
 
 @MainActor final class DuoRecoveryIdentityTests: XCTestCase {
@@ -168,6 +180,45 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
         let deleted = await sut.deleteIdentity()
         XCTAssertEqual(deleted, .deleted); XCTAssertTrue(server.deleted); XCTAssertEqual(server.calls.last, "delete")
     }
+    /// D54, decided 2026-11-14: Delete carries a DeviceCheck token, so the server can bar a banned
+    /// member's iPhone and clear flag one for anyone else. Cleanup used to send none, so a barred
+    /// person could delete and start again on the same iPhone.
+    func testDeleteCarriesADeviceCheckTokenWhenAppleAnswers() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer()
+        let sut = identity(kit, server: server)
+        _ = await sut.mint(role: .create, replacing: nil)
+        XCTAssertTrue(kit.dependencies.ageNetworkAllowed)
+        let deleted = await sut.deleteIdentity()
+        XCTAssertEqual(deleted, .deleted)
+        XCTAssertEqual(server.deleteTokens, [FakeDuoDeviceCheck().value])
+    }
+
+    /// Apple never keeps anyone from deleting: a token that doesn't come in time is left out, and
+    /// the delete goes on without it.
+    func testDeleteGoesWithoutATokenWhenAppleIsSlow() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer()
+        let sut = identity(kit, server: server)
+        _ = await sut.mint(role: .create, replacing: nil)
+        kit.dependencies.deviceCheck = SlowDeviceCheck()
+        let started = Date()
+        let deleted = await sut.deleteIdentity(deviceCheckWait: .milliseconds(200))
+        XCTAssertEqual(deleted, .deleted)
+        XCTAssertEqual(server.deleteTokens, [nil])
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2, "the wait is the deadline, not Apple's")
+    }
+
+    /// No token while the age gate holds the network, as on the old delete path: a refused person's
+    /// delete asks Apple nothing.
+    func testARefusedPersonsDeleteSendsNoToken() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer()
+        let sut = identity(kit, server: server)
+        _ = await sut.mint(role: .create, replacing: nil)
+        kit.dependencies.cache.ageStatus = .refused
+        let deleted = await sut.deleteIdentity()
+        XCTAssertEqual(deleted, .deleted)
+        XCTAssertEqual(server.deleteTokens, [nil])
+    }
+
     func testPrivacyCleanupOfLostMintCancelsThenDeletesWithoutStateProbe() async throws {
         let kit = DuoTestKit(); let server = RecoveryServer(); server.loseCommit = true
         let first = identity(kit, server: server); _ = await first.mint(role: .create, replacing: nil)
