@@ -130,14 +130,14 @@ check_extensions_signing() {
 # (DuoAPIClient, the one class that talks to the server, is in the binary only when Duo is
 # compiled in), the three privacy manifests (app, widget, Watch app; recon 06 §5 check 4 and
 # compliance §2.2), tracking off in each, the app's collected data types (none without Duo, the
-# six of compliance §2.2 with it, decision D77), the camera's purpose string only with Duo, and
-# Duo's push words (Localizable.strings) in the app and the Watch app only with Duo, since main's
-# bundles have no strings file at all.
+# six of compliance §2.2 with it, decision D77, and Other Diagnostic Data since 2026-11-13), the
+# camera's purpose string only with Duo, and Duo's push words (Localizable.strings) in the app and
+# the Watch app only with Duo, since main's bundles have no strings file at all.
 # $1 = the .app. Returns 1 after saying why.
 check_app_contents() {
   local app=$1 manifest count camera=no part strings
   local with=without want_types=0 want_camera=no
-  if duo_switch; then with=with; want_types=6; want_camera=yes; fi
+  if duo_switch; then with=with; want_types=7; want_camera=yes; fi
   [[ -f "$app/HydroDrop" ]] || { err "${app##*/} has no HydroDrop binary"; return 1; }
   if grep -qa DuoAPIClient "$app/HydroDrop"; then
     [[ $with == with ]] || { err "the app has Duo Streaks compiled in (DuoAPIClient), but DUO_V2 is unset"; return 1; }

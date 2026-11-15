@@ -1266,7 +1266,7 @@ ENTITLEMENT_KINDS = {
     # Larger than a pipe holds, which is what made printf piped to grep -q fail under pipefail.
     "huge": dict({"aps-environment": "production"}, **{f"com.example.filler-{i:05d}": "x" * 40 for i in range(4000)}),
 }
-SIX = ["Name", "UserID", "DeviceID", "Health", "OtherUsageData", "OtherUserContent"]
+DUO_TYPES = ["Name", "UserID", "DeviceID", "Health", "OtherUsageData", "OtherUserContent", "OtherDiagnosticData"]
 WIDGET_MANIFEST = "PlugIns/HydroDropWidgets.appex/PrivacyInfo.xcprivacy"
 WATCH_MANIFEST = "Watch/HydroDrop Watch App.app/PrivacyInfo.xcprivacy"
 # Every step of a Duo build with the switch: the archive's app and signing, and the IPA's.
@@ -1321,12 +1321,12 @@ class ReleaseHarness(Tree):
         for where in ((["app", "watch"] if duo else []) if strings is None else strings):
             folder = "" if where == "app" else "Watch/HydroDrop Watch App.app/"
             write(app, folder + "en.lproj/Localizable.strings", '"duo.nudge.title" = "%@ nudged you";\n')
-        count = (6 if duo else 0) if types is None else types
+        count = (len(DUO_TYPES) if duo else 0) if types is None else types
         for rel in ("PrivacyInfo.xcprivacy", WIDGET_MANIFEST, WATCH_MANIFEST):
             if rel == drop:
                 continue
             value = {"NSPrivacyTracking": rel == (tracking_in or ""), "NSPrivacyTrackingDomains": [],
-                     "NSPrivacyCollectedDataTypes": [{PREFIX: PREFIX + SIX[i % 6]} for i in range(count)] if rel == "PrivacyInfo.xcprivacy" else []}
+                     "NSPrivacyCollectedDataTypes": [{PREFIX: PREFIX + DUO_TYPES[i % len(DUO_TYPES)]} for i in range(count)] if rel == "PrivacyInfo.xcprivacy" else []}
             write(app, rel, plistlib.dumps(value), "wb")
         return name
 
@@ -1556,7 +1556,7 @@ class ReleaseTests(ReleaseHarness):
             ({}, {"FAKE_IPA_APP": "plain-with-duo"}, "compiled in (DuoAPIClient), but DUO_V2 is unset"),
             (DUO, dict(DUO, FAKE_IPA_APP="duo-without"), "no Duo Streaks (no DuoAPIClient)"),
             ({}, {"FAKE_IPA_APP": "plain-six"}, "declares 6 collected data type(s); a build without Duo declares 0"),
-            (DUO, dict(DUO, FAKE_IPA_APP="duo-none"), "declares 0 collected data type(s); a build with Duo declares 6"),
+            (DUO, dict(DUO, FAKE_IPA_APP="duo-none"), "declares 0 collected data type(s); a build with Duo declares 7"),
             ({}, {"FAKE_IPA_APP": "plain-camera"}, "Info.plist has NSCameraUsageDescription; a build without Duo has none"),
             (DUO, dict(DUO, FAKE_IPA_APP="duo-no-camera"), "Info.plist lacks NSCameraUsageDescription; a build with Duo has it"),
             ({}, {"FAKE_IPA_APP": "plain-app-strings"}, "the app/Localizable.strings is there; a build without Duo has none"),
