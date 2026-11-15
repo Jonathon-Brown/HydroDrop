@@ -661,12 +661,23 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
     /// the server bars a banned member's iPhone and clears flag one for anyone else (D54,
     /// `settleBits` in the server's `exits.ts`). Cleanup used to send none, so that Apple could
     /// never keep anyone from deleting, which left a barred person free to delete and start again
-    /// on the same iPhone (decided 2026-11-14). It still can't get in the way: there is no token
-    /// while the age gate holds the network, as on the old delete path, and none once `wait` passes
-    /// without Apple's answer, so the delete goes without it.
+    /// on the same iPhone (decided 2026-11-14). It still can't get in the way: there is none once
+    /// `wait` passes without Apple's answer, so the delete goes without it.
+    ///
+    /// A pending age recheck used to send none either, as the gate holds the network then. But a
+    /// reinstall puts a returning identity into a recheck and Delete still works before it is
+    /// answered, so a barred person could reinstall, delete and start again (decided 2026-11-15).
+    /// So only a refusal, or an age answer that can't be read, keeps the token back now, and
+    /// Apple is asked past the gate's DeviceCheck wrapper, as the DELETE itself goes past the gate.
+    /// The wrapper also dropped a token when the gate closed while Apple was being asked, so the
+    /// same question is asked again once Apple answers.
     @MainActor private func deleteRequest(after r: DuoRecoveryRecord, wait: Duration) async throws -> DuoWireDeleteMeRequest {
-        guard dependencies.ageNetworkAllowed else { return DuoWireDeleteMeRequest(deviceCheckToken: nil) }
-        let deviceCheck = dependencies.deviceCheck
+        func tokenAllowed() -> Bool {
+            dependencies.ageNetworkAllowed || (dependencies.ageNetworkGate.state == .unavailable
+                && dependencies.cache.needsAgeRecheck && !dependencies.cache.ageCheckUnavailable)
+        }
+        guard tokenAllowed() else { return DuoWireDeleteMeRequest(deviceCheckToken: nil) }
+        let deviceCheck = (dependencies.deviceCheck as? DuoAgeGatedDeviceCheck)?.base ?? dependencies.deviceCheck
         let token: String? = await withCheckedContinuation { continuation in
             let answer = DuoFirstAnswer(continuation)
             let asking = Task { @MainActor in answer.give(await deviceCheck.token()) }
@@ -677,7 +688,7 @@ final class DuoRecoveryIdentity: DuoIdentityProviding, @unchecked Sendable {
             }
         }
         guard try journal.read() == r else { throw DuoJournalError.changed }
-        return DuoWireDeleteMeRequest(deviceCheckToken: token)
+        return DuoWireDeleteMeRequest(deviceCheckToken: tokenAllowed() ? token : nil)
     }
     @MainActor func establishRole() throws {
         guard let r = try journal.read(), r.pending == nil, let active = r.active else { throw DuoJournalError.changed }
