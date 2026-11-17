@@ -150,7 +150,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
         MARKETING_VERSION: "2.0"
-        CURRENT_PROJECT_VERSION: "35"
+        CURRENT_PROJECT_VERSION: "36"
         # HydroDrop/HydroDrop.entitlements, from Config/Duo.xcconfig and Config/Duo.Release.xcconfig,
         # unless a build that compiles Duo in sets HydroDrop/HydroDrop.duo.entitlements, which adds
         # App Attest. The plain file stays free of a capability the provisioning profile may not
@@ -232,7 +232,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
         MARKETING_VERSION: "2.0"
-        CURRENT_PROJECT_VERSION: "35"
+        CURRENT_PROJECT_VERSION: "36"
         SKIP_INSTALL: "YES"
     dependencies:
       - package: HydroCore
@@ -280,7 +280,7 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         ENABLE_PREVIEWS: YES
         MARKETING_VERSION: "2.0"
-        CURRENT_PROJECT_VERSION: "35"
+        CURRENT_PROJECT_VERSION: "36"
         SKIP_INSTALL: "YES"
     dependencies:
       - package: HydroCore
