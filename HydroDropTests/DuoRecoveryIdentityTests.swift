@@ -103,6 +103,31 @@ private final class RecoveryFailingStore: DuoSecretStore, @unchecked Sendable {
     func deleteAll(service: String) throws { try memory.deleteAll(service: service) }
 }
 
+/// The memory store, except that the age answer can be made unreadable, as a locked Keychain does.
+private final class AgeReadSwitchStore: DuoSecretStore, @unchecked Sendable {
+    let memory = DuoMemorySecretStore()
+    var failAgeReads = false
+    func read(service: String, account: String) throws -> Data? {
+        if service == DuoSecrets.ageService && failAgeReads { throw CocoaError(.fileReadNoPermission) }
+        return try memory.read(service: service, account: account)
+    }
+    func write(_ data: Data, service: String, account: String, accessibility: DuoSecretAccessibility) throws {
+        try memory.write(data, service: service, account: account, accessibility: accessibility)
+    }
+    func delete(service: String, account: String) throws { try memory.delete(service: service, account: account) }
+    func deleteAll(service: String) throws { try memory.deleteAll(service: service) }
+}
+
+/// Apple answers, but the age check refuses Duo while it is being asked.
+private struct RefusingWhileAskedDeviceCheck: DuoDeviceCheckProviding {
+    let refuse: @MainActor @Sendable () -> Void
+    var isSupported: Bool { true }
+    func token() async -> String? {
+        await refuse()
+        return "late"
+    }
+}
+
 /// Apple taking longer than any delete should wait, and, like `DCDevice.generateToken`, not
 /// stopping when its task is cancelled: the delete must not wait for it.
 private struct SlowDeviceCheck: DuoDeviceCheckProviding {
@@ -207,14 +232,69 @@ private struct SlowDeviceCheck: DuoDeviceCheckProviding {
         XCTAssertLessThan(Date().timeIntervalSince(started), 2, "the wait is the deadline, not Apple's")
     }
 
-    /// No token while the age gate holds the network, as on the old delete path: a refused person's
-    /// delete asks Apple nothing.
+    /// A refused person's delete asks Apple nothing, even through the gate's DeviceCheck wrapper
+    /// the app builds.
     func testARefusedPersonsDeleteSendsNoToken() async throws {
         let kit = DuoTestKit(); let server = RecoveryServer()
         let sut = identity(kit, server: server)
         _ = await sut.mint(role: .create, replacing: nil)
+        kit.dependencies.deviceCheck = DuoAgeGatedDeviceCheck(base: FakeDuoDeviceCheck(), gate: kit.dependencies.ageNetworkGate)
         kit.dependencies.cache.ageStatus = .refused
         let deleted = await sut.deleteIdentity()
+        XCTAssertEqual(deleted, .deleted)
+        XCTAssertEqual(server.deleteTokens, [nil])
+    }
+
+    /// A reinstall puts a returning identity into a recheck, and Delete works before it is
+    /// answered. The token still goes, past the gate's wrapper, so a barred person can't reinstall,
+    /// delete and start again on the same iPhone.
+    func testADeleteDuringAnAgeRecheckStillCarriesAToken() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer()
+        let sut = identity(kit, server: server)
+        _ = await sut.mint(role: .create, replacing: nil)
+        kit.dependencies.deviceCheck = DuoAgeGatedDeviceCheck(base: FakeDuoDeviceCheck(), gate: kit.dependencies.ageNetworkGate)
+        kit.dependencies.cache.requireAgeRecheck()
+        XCTAssertFalse(kit.dependencies.ageNetworkAllowed, "a recheck holds the network")
+        let deleted = await sut.deleteIdentity()
+        XCTAssertEqual(deleted, .deleted)
+        XCTAssertEqual(server.deleteTokens, [FakeDuoDeviceCheck().value])
+    }
+
+    /// A reinstall that kept the refusal only in the Keychain is a refusal, not a recheck.
+    func testARefusalKeptOnlyInTheKeychainSendsNoTokenDuringARecheck() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer()
+        let sut = identity(kit, server: server)
+        _ = await sut.mint(role: .create, replacing: nil)
+        kit.dependencies.deviceCheck = DuoAgeGatedDeviceCheck(base: FakeDuoDeviceCheck(), gate: kit.dependencies.ageNetworkGate)
+        try kit.dependencies.secrets.markAgeRefused()
+        kit.dependencies.cache.requireAgeRecheck()
+        let deleted = await sut.deleteIdentity()
+        XCTAssertEqual(deleted, .deleted)
+        XCTAssertEqual(server.deleteTokens, [nil])
+    }
+
+    /// A refusal that lands while Apple is being asked keeps the token back, as the gate's wrapper
+    /// did before Apple was asked past it.
+    func testARefusalWhileAppleIsAskedKeepsTheTokenBack() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer()
+        let sut = identity(kit, server: server)
+        _ = await sut.mint(role: .create, replacing: nil)
+        let cache = kit.dependencies.cache
+        kit.dependencies.deviceCheck = RefusingWhileAskedDeviceCheck { cache.ageStatus = .refused }
+        let deleted = await sut.deleteIdentity()
+        XCTAssertEqual(deleted, .deleted)
+        XCTAssertEqual(server.deleteTokens, [nil])
+    }
+
+    /// An age answer that can't be read might be a refusal, so the delete goes without a token.
+    func testADeleteWhileTheAgeAnswerIsUnreadableSendsNoToken() async throws {
+        let kit = DuoTestKit(); let server = RecoveryServer(); let store = AgeReadSwitchStore()
+        let sut = identity(kit, server: server, store: store)
+        _ = await sut.mint(role: .create, replacing: nil)
+        kit.dependencies.cache.requireAgeRecheck()
+        store.failAgeReads = true
+        let deleted = await sut.deleteIdentity()
+        XCTAssertTrue(kit.dependencies.cache.ageCheckUnavailable)
         XCTAssertEqual(deleted, .deleted)
         XCTAssertEqual(server.deleteTokens, [nil])
     }
